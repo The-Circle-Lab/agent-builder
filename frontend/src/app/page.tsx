@@ -1,149 +1,100 @@
 "use client";
 
-import React, { useEffect } from "react";
-import { ReactFlow, Edge, Background, Node } from "@xyflow/react";
-import { useFlowState } from "./hooks/useFlowState";
-import {
-  createAllNodeTypes,
-  NodeData,
-  useNodeOperations,
-} from "./components/nodes";
-import { SideMenu, useSideMenu } from "./components/sideMenu";
-import {
-  SettingsMenu,
-  useSettingsMenu,
-} from "./components/nodes/components/settingsMenu";
-import {
-  checkWorkflowValidity,
-  createWorkflowJSON,
-} from "./scripts/exportWorkflow";
+import React, { useState, useEffect } from "react";
+import { AuthAPI } from "./components/agentBuilder/scripts/authAPI";
+import LoginPage from "./components/LoginPage";
+import WorkflowsPage from "./components/WorkflowsPage";
+import WorkflowEditorPage from "./components/WorkflowEditorPage";
+import DeploymentsPage from "./components/DeploymentsPage";
 
-import "@xyflow/react/dist/style.css";
-
-const initialNodes = [
-  { id: "1", position: { x: -15, y: -15 }, data: { label: "2" }, type: "chat" },
-];
-const initialEdges: Edge[] = [];
+type AppState = "loading" | "login" | "workflows" | "editor" | "deployments";
 
 export default function App() {
-  // Custom hooks for state management
-  const {
-    nodes,
-    edges,
-    setNodes,
-    setEdges,
-    onNodesChange,
-    onEdgesChange,
-    handleDeleteNode,
-    onConnect,
-  } = useFlowState(initialNodes, initialEdges);
+  const [appState, setAppState] = useState<AppState>("loading");
+  const [currentWorkflowId, setCurrentWorkflowId] = useState<number | null>(null);
 
-  const {
-    isSideMenuOpen,
-    sideMenuObjectType,
-    sourceNodeId,
-    handleOpenSideMenu,
-    handleCloseSideMenu,
-  } = useSideMenu();
+  useEffect(() => {
+    checkAuthStatus();
+  }, []);
 
-  const { handleAddNode } = useNodeOperations(
-    setNodes,
-    setEdges,
-    sourceNodeId,
-    sideMenuObjectType,
-    nodes
-  );
-
-  const {
-    isSettingsOpen,
-    settingsData,
-    handleOpenSettings,
-    handleCloseSettings,
-    handleSaveSettings,
-  } = useSettingsMenu();
-
-  // Handle node data updates
-  const handleNodeDataUpdate = (nodeId: string, updatedData: NodeData) => {
-    setNodes((nds: Node[]) =>
-      nds.map((node: Node) =>
-        node.id === nodeId
-          ? { ...node, data: { ...node.data, ...updatedData } }
-          : node
-      )
-    );
+  const checkAuthStatus = async () => {
+    try {
+      const isAuthenticated = await AuthAPI.checkAuth();
+      if (isAuthenticated) {
+        setAppState("workflows");
+      } else {
+        setAppState("login");
+      }
+    } catch {
+      setAppState("login");
+    }
   };
 
-  // Dynamic node types - automatically discovers all available node types
-  const nodeTypes = createAllNodeTypes({
-    onAddNodeClick: handleOpenSideMenu,
-    edges,
-    onDelete: handleDeleteNode,
-    onSettings: (nodeId, nodeType, data) =>
-      handleOpenSettings(nodeId, nodeType, data, (updatedData) =>
-        handleNodeDataUpdate(nodeId, updatedData)
-      ),
-  });
+  const handleLogin = () => {
+    setAppState("workflows");
+  };
 
-  // Handle Ctrl+D keyboard shortcut for workflow validation test
-  // Handle Ctrl+E keyboard shortcut for workflow export test
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.key === "d") {
-        event.preventDefault();
-        const isValid = checkWorkflowValidity(nodes, edges);
-        alert(`Workflow is ${isValid ? "valid" : "invalid"}`);
-      }
-      if (event.ctrlKey && event.key === "e") {
-        event.preventDefault();
-        try {
-        const workflowJSON = createWorkflowJSON(nodes, edges);
-          console.log(workflowJSON);
-          alert("JSON logged to console");
-        } catch (error) {
-          alert(`Failed to create workflow JSON\n${error}`);
-        }
-      }
-    };
+  const handleLogout = () => {
+    setAppState("login");
+  };
 
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [nodes, edges]);
+  const handleEditWorkflow = (workflowId: number | null) => {
+    setCurrentWorkflowId(workflowId);
+    setAppState("editor");
+  };
 
-  return (
-    <div style={{ width: "100vw", height: "100vh" }}>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        nodeTypes={nodeTypes}
-        defaultEdgeOptions={{
-          style: { strokeWidth: 3, stroke: "orange" },
-        }}
-        proOptions={{ hideAttribution: true }}
-        snapToGrid={true}
-        snapGrid={[15, 15]}
-      >
-        <Background variant="dots" gap={12} size={1} />
-      </ReactFlow>
+    const handleBackToWorkflows = () => {
+    setCurrentWorkflowId(null);  
+    setAppState("workflows");
+  };
 
-      <SideMenu
-        isOpen={isSideMenuOpen}
-        onClose={handleCloseSideMenu}
-        onAddNode={handleAddNode}
-        objectType={sideMenuObjectType}
+  const handleViewDeployments = () => {
+    setAppState("deployments");
+  };
+
+  // Loading state
+  if (appState === "loading") {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="flex items-center space-x-2">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+          <span className="text-gray-600">Loading...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // Login page
+  if (appState === "login") {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
+  // Workflow editor page
+  if (appState === "editor") {
+    return (
+      <WorkflowEditorPage 
+        workflowId={currentWorkflowId} 
+        onBack={handleBackToWorkflows} 
       />
+    );
+  }
 
-      {settingsData && (
-        <SettingsMenu
-          isOpen={isSettingsOpen}
-          nodeType={settingsData.nodeType}
-          data={settingsData.data}
-          onClose={handleCloseSettings}
-          onSave={handleSaveSettings}
-        />
-      )}
-    </div>
+  // Deployments page
+  if (appState === "deployments") {
+    return (
+      <DeploymentsPage 
+        onLogout={handleLogout} 
+        onBack={handleBackToWorkflows} 
+      />
+    );
+  }
+
+  // Workflows list page (default)
+  return (
+    <WorkflowsPage 
+      onLogout={handleLogout} 
+      onEditWorkflow={handleEditWorkflow}
+      onViewDeployments={handleViewDeployments}
+    />
   );
 }
