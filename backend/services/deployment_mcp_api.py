@@ -472,7 +472,6 @@ async def chat_with_deployment(
         )
         
     except Exception as e:
-        # Log the full error for debugging
         import traceback
         error_traceback = traceback.format_exc()
         print(f"❌ Full chat error traceback for deployment {deployment_id}:\n{error_traceback}")
