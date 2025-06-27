@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, s
 from fastapi.responses import JSONResponse
 from sqlmodel import Session as DBSession, select
 from services.auth import get_current_user
-from database.db_models import User, Document
+from database.db_models import User, Document, Workflow
 from database.database import get_session
 from dotenv import load_dotenv
 
@@ -65,7 +65,7 @@ def load_document(file_path: Path) -> List:
 @router.post("/upload")
 async def upload_documents(
     files: List[UploadFile] = File(...),
-    collection_name: str = Form("default"),
+    workflow_id: int = Form(...),
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session)
 ):  
@@ -79,6 +79,20 @@ async def upload_documents(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Maximum 10 files allowed per upload"
+        )
+    
+    # Verify workflow exists and user has access
+    workflow = db.get(Workflow, workflow_id)
+    if not workflow:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Workflow not found"
+        )
+    
+    if workflow.created_by_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied to this workflow"
         )
     
     processed_files = []
@@ -158,8 +172,8 @@ async def upload_documents(
         # Create embeddings and store in Qdrant
         embeddings = FastEmbedEmbeddings()
         
-        # Use user-specific collection name
-        user_collection = f"{collection_name}_{current_user.id}"
+        # Use workflow-specific collection name
+        user_collection = f"{workflow.workflow_collection_id}_{current_user.id}"
         
         vector_store = Qdrant.from_documents(
             documents=all_chunks,
@@ -178,11 +192,12 @@ async def upload_documents(
                 original_filename=file_info['filename'],
                 file_size=file_info['size'],
                 file_type=file_info['file_type'],
-                collection_name=collection_name,
+                collection_name=workflow.workflow_collection_id,
                 user_collection_name=user_collection,
                 upload_id=file_info['upload_id'],
                 chunk_count=file_info['chunks'],
-                uploaded_by_id=current_user.id
+                uploaded_by_id=current_user.id,
+                workflow_id=workflow.id
             )
             db.add(document)
             saved_documents.append(document)
@@ -193,6 +208,8 @@ async def upload_documents(
             status_code=status.HTTP_201_CREATED,
             content={
                 "message": "Documents uploaded and ingested successfully",
+                "workflow_id": workflow.id,
+                "workflow_name": workflow.name,
                 "collection_name": user_collection,
                 "total_chunks": len(all_chunks),
                 "files_processed": processed_files
@@ -214,18 +231,30 @@ async def upload_documents(
             except OSError:
                 pass  # File already deleted or doesn't exist
 
-@router.get("/collections/{collection_name}/documents")
-async def list_documents_in_collection(
-    collection_name: str,
+@router.get("/workflows/{workflow_id}/documents")
+async def list_workflow_documents(
+    workflow_id: int,
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session)
 ):
     try:
-        user_collection = f"{collection_name}_{current_user.id}"
+        # Verify workflow exists and user has access
+        workflow = db.get(Workflow, workflow_id)
+        if not workflow:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workflow not found"
+            )
+        
+        if workflow.created_by_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this workflow"
+            )
         
         documents = db.exec(
             select(Document).where(
-                Document.user_collection_name == user_collection,
+                Document.workflow_id == workflow_id,
                 Document.uploaded_by_id == current_user.id,
                 Document.is_active == True
             ).order_by(Document.uploaded_at.desc())
@@ -245,8 +274,9 @@ async def list_documents_in_collection(
             })
         
         return {
-            "collection_name": collection_name,
-            "user_collection_name": user_collection,
+            "workflow_id": workflow_id,
+            "workflow_name": workflow.name,
+            "workflow_collection_id": workflow.workflow_collection_id,
             "document_count": len(document_list),
             "documents": document_list
         }

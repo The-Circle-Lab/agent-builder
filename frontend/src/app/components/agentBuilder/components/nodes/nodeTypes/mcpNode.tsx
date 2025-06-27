@@ -73,19 +73,20 @@ export const createMcpNodeType = (
   BaseNode.createNodeType(McpNode, {
     onDelete: onDelete ? async (nodeId: string) => {
       try {
-        // Clear the workflow's document collection
+                // Clear the workflow's document collection
         if (workflowId) {
-          const collectionName = `workflow_${workflowId}`;
+          const numericWorkflowId = typeof workflowId === 'number' ? workflowId : parseInt(workflowId.toString(), 10);
           try {
-            const response = await DocumentAPI.getDocumentsInCollection(collectionName);
+            const response = await DocumentAPI.getWorkflowDocuments(numericWorkflowId);
             if (response.documents && response.documents.length > 0) {
-              await DocumentAPI.deleteCollection(collectionName);
-              console.log(`Cleared document collection for workflow ${workflowId}: ${collectionName}`);
+              // Note: We don't have a workflow-specific delete collection endpoint yet
+              // For now, individual documents can be deleted through the UI
+              console.log(`Found ${response.documents.length} documents in workflow ${workflowId}`);
             }
-                     } catch {
-             // Collection might not exist, which is fine
-             console.log(`No collection to clear for workflow ${workflowId}`);
-           }
+          } catch {
+            // Workflow might not exist or have documents, which is fine
+            console.log(`No documents found for workflow ${workflowId}`);
+          }
         }
         
         // Call the original delete handler

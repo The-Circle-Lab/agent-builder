@@ -126,7 +126,7 @@ export default function WorkflowEditor({
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
     };
-  }, []);
+  }, [nodes, edges]);
 
   // Auto-save functionality
   useEffect(() => {
@@ -145,6 +145,16 @@ export default function WorkflowEditor({
     setDeployError("");
 
     try {
+      // Check if workflow has been saved
+      if (!workflowId || typeof workflowId === 'string' && workflowId === 'new') {
+        throw new Error("Please save the workflow before deploying. Only saved workflows can be deployed.");
+      }
+
+      const numericWorkflowId = typeof workflowId === 'string' ? parseInt(workflowId, 10) : workflowId;
+      if (isNaN(numericWorkflowId)) {
+        throw new Error("Invalid workflow ID. Please save the workflow first.");
+      }
+
       // First test authentication
       console.log("🔍 Testing authentication before deployment...");
       try {
@@ -163,7 +173,7 @@ export default function WorkflowEditor({
 
       // Deploy workflow
       console.log("🚀 Deploying workflow...");
-      const response = await DeploymentAPI.deployWorkflow(workflowName, workflowData);
+      const response = await DeploymentAPI.deployWorkflow(workflowName, numericWorkflowId, workflowData);
       console.log("✅ Deployment successful:", response);
       
       if (onDeploySuccess) {
@@ -175,7 +185,7 @@ export default function WorkflowEditor({
     } finally {
       setIsDeploying(false);
     }
-  }, [nodes, edges, workflowName, onDeploySuccess]);
+  }, [nodes, edges, workflowName, workflowId, onDeploySuccess]);
 
   return (
     <div style={{ width: "100%", height: "100%", backgroundColor: "#374151" }}>
@@ -207,9 +217,9 @@ export default function WorkflowEditor({
           )}
           <button
             onClick={handleDeploy}
-            disabled={isDeploying}
-            className="bg-green-600 hover:bg-green-700 disabled:bg-green-400 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-2"
-            title="Deploy workflow"
+            disabled={isDeploying || !workflowId || (typeof workflowId === 'string' && workflowId === 'new')}
+            className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-2"
+            title={(!workflowId || (typeof workflowId === 'string' && workflowId === 'new')) ? "Save workflow before deploying" : "Deploy workflow"}
           >
             {isDeploying ? (
               <>

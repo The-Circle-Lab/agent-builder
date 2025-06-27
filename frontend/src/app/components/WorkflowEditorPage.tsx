@@ -240,7 +240,7 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
           initialNodes={currentNodes}
           initialEdges={currentEdges}
           onWorkflowChange={handleWorkflowChange}
-          workflowId={currentWorkflowId || "new"}
+          workflowId={currentWorkflowId || undefined}
           workflowName={workflowName}
           onDeploySuccess={handleDeploymentSuccess}
         />

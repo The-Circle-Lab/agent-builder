@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session as DBSession, select
-from database.db_models import User, Document
+from database.db_models import User, Document, Workflow
 from database.database import get_session
 from services.auth import get_current_user
 from pydantic import BaseModel
@@ -38,6 +38,7 @@ async def debug_auth(current_user: User = Depends(get_current_user)):
 
 class DeploymentRequest(BaseModel):
     workflow_name: str
+    workflow_id: int
     workflow_data: Dict[str, Any]
 
 class DeploymentResponse(BaseModel):
@@ -116,15 +117,53 @@ class MCPChatDeployment:
     # Format search results into context for LLM
     def format_context(self, search_results: List[Dict[str, Any]]) -> str:
         if not search_results:
+            print(f"[{self.deployment_id}] No search results to format")
             return "No relevant documents found."
         
-        context_parts = []
-        for i, doc in enumerate(search_results, 1):
+        # Deduplicate results based on source and page combination
+        seen_sources = set()
+        unique_results = []
+        
+        for doc in search_results:
             source = doc.get("source", "Unknown source")
             page = doc.get("page", "Unknown page")
             text = doc.get("text", "")
             
-            context_parts.append(f"Document {i} (Source: {source}, Page: {page}):\n{text}")
+            # Create a unique key based on source and page
+            unique_key = f"{source}||{page}"
+            
+            if unique_key not in seen_sources and text.strip():
+                seen_sources.add(unique_key)
+                unique_results.append(doc)
+        
+        # Log all unique sources being formatted
+        sources = [doc.get("source", "Unknown source") for doc in unique_results]
+        print(f"[{self.deployment_id}] Formatting context from {len(unique_results)} unique documents (deduplicated from {len(search_results)}):")
+        for i, source in enumerate(sources, 1):
+            filename = source.split('/')[-1] if '/' in source and source != "Unknown source" else source
+            page = unique_results[i-1].get("page", "Unknown page")
+            page_info = f" (Page {page})" if page != "Unknown page" else ""
+            print(f"[{self.deployment_id}]   {i}. {filename}{page_info}")
+        
+        context_parts = []
+        for i, doc in enumerate(unique_results, 1):
+            source = doc.get("source", "Unknown source")
+            page = doc.get("page", "Unknown page")
+            text = doc.get("text", "")
+            
+            # Extract filename from source path for better readability
+            if source and source != "Unknown source":
+                filename = source.split('/')[-1] if '/' in source else source
+                # Remove file extension for cleaner display
+                filename_without_ext = filename.rsplit('.', 1)[0] if '.' in filename else filename
+                doc_label = filename_without_ext
+            else:
+                doc_label = f"Document {i}"
+            
+            if page and page != "Unknown page":
+                context_parts.append(f"{doc_label} (Page {page}):\n{text}")
+            else:
+                context_parts.append(f"{doc_label}:\n{text}")
         
         return "\n\n".join(context_parts)
     
@@ -144,7 +183,8 @@ class MCPChatDeployment:
             
             if self.config["has_mcp"] and self.collection_name:
                 # Use MCP client as a proper async context manager
-                search_results = await self._search_with_mcp(message)
+                # Let the search find as many relevant results as needed, with a reasonable upper limit
+                search_results = await self._search_with_mcp(message, k=15)
                 context = self.format_context(search_results)
             
             # Create the chain
@@ -163,6 +203,17 @@ class MCPChatDeployment:
             if context:
                 chain_input["context"] = context
             
+            # Log LLM call details
+            llm_config = self.config["llm_config"]
+            print(f"[{self.deployment_id}] CHAT REQUEST - LLM Call:")
+            print(f"[{self.deployment_id}]   User Message: '{message[:100]}{'...' if len(message) > 100 else ''}'")
+            print(f"[{self.deployment_id}]   Model: {llm_config['model']}")
+            print(f"[{self.deployment_id}]   Temperature: {llm_config['temperature']}")
+            print(f"[{self.deployment_id}]   Max Tokens: {llm_config['max_tokens']}")
+            print(f"[{self.deployment_id}]   Top P: {llm_config['top_p']}")
+            print(f"[{self.deployment_id}]   Context Length: {len(context)} chars" if context else f"[{self.deployment_id}]   Context: None (no RAG)")
+            print(f"[{self.deployment_id}]   History Length: {len(history)} exchanges")
+            
             # Get response from LLM
             response = await chain.ainvoke(chain_input)
             
@@ -170,8 +221,17 @@ class MCPChatDeployment:
             self.memory.chat_memory.add_user_message(message)
             self.memory.chat_memory.add_ai_message(response)
             
-            # Extract sources
-            sources = [doc.get("source", "Unknown") for doc in search_results if doc.get("source")]
+            # Extract unique sources (deduplicate and remove empty ones)
+            sources = set()
+            
+            for doc in search_results:
+                source = doc.get("source")
+                if source and source != "Unknown" and source not in sources:
+                    sources.add(source)
+
+            sources = sorted(list(sources))
+            
+            print(f"[{self.deployment_id}] Final unique sources returned: {sources}")
             
             return {
                 "response": response,
@@ -187,10 +247,13 @@ class MCPChatDeployment:
                 "sources": []
             }
     
-    async def _search_with_mcp(self, query: str, k: int = 5) -> List[Dict[str, Any]]:
+    async def _search_with_mcp(self, query: str, k: int = 10) -> List[Dict[str, Any]]:
         """Search documents using MCP client as proper async context manager"""
         if not self.config["has_mcp"] or not self.collection_name:
+            print(f"[{self.deployment_id}] MCP search skipped - MCP disabled or no collection")
             return []
+        
+        print(f"[{self.deployment_id}] Starting MCP search for query: '{query}' (k={k})")
         
         try:
             # Use extended MCP server with multiple tools
@@ -215,14 +278,24 @@ class MCPChatDeployment:
                     tool_name = "search_documents" if self.config.get("use_extended_tools", True) else "search_course"
                     collection_param = "collection_id" if tool_name == "search_documents" else "course_id"
                     
-                    result = await session.call_tool(
-                        tool_name,
-                        arguments={
-                            collection_param: self.collection_name,
-                            "query": query,
-                            "k": k
-                        }
-                    )
+                    print(f"[{self.deployment_id}] Calling MCP tool '{tool_name}' with collection '{self.collection_name}'")
+                    
+                    # Add timeout to prevent hanging
+                    try:
+                        result = await asyncio.wait_for(
+                            session.call_tool(
+                                tool_name,
+                                arguments={
+                                    collection_param: self.collection_name,
+                                    "query": query,
+                                    "k": k
+                                }
+                            ),
+                            timeout=30.0  # 30 second timeout
+                        )
+                    except asyncio.TimeoutError:
+                        print(f"[{self.deployment_id}] MCP search timed out after 30 seconds")
+                        return []
                     
                     # Parse the result
                     if result.content and len(result.content) > 0:
@@ -234,31 +307,50 @@ class MCPChatDeployment:
                                     parsed_result = json.loads(content.text)
                                     # Check if it's an error response
                                     if isinstance(parsed_result, dict) and "error" in parsed_result:
-                                        print(f"MCP server error: {parsed_result['error']}")
+                                        error_msg = parsed_result['error']
+                                        print(f"[{self.deployment_id}] MCP server error: {error_msg}")
+                                        # Check if it's a missing collection error
+                                        if "not found" in error_msg.lower() or "unavailable" in error_msg.lower():
+                                            print(f"[{self.deployment_id}] Collection '{self.collection_name}' appears to be missing from Qdrant")
                                         return []
-                                    return parsed_result if isinstance(parsed_result, list) else [parsed_result]
+                                    
+                                    results = parsed_result if isinstance(parsed_result, list) else [parsed_result]
+                                    # Log all sources found
+                                    sources = [doc.get("source", "Unknown") for doc in results if isinstance(doc, dict)]
+                                    print(f"[{self.deployment_id}] MCP search found {len(results)} results from sources: {sources}")
+                                    return results
                                 except json.JSONDecodeError:
                                     # If not JSON, treat as plain text result
+                                    print(f"[{self.deployment_id}] MCP search returned non-JSON text result")
                                     return [{"text": content.text, "source": "Unknown"}]
                             elif isinstance(content.text, list):
+                                sources = [doc.get("source", "Unknown") for doc in content.text if isinstance(doc, dict)]
+                                print(f"[{self.deployment_id}] MCP search found {len(content.text)} results from sources: {sources}")
                                 return content.text
                             else:
+                                print(f"[{self.deployment_id}] MCP search returned single result")
                                 return [content.text] if content.text else []
                         else:
                             # Content is the data directly
                             if isinstance(content, list):
+                                sources = [doc.get("source", "Unknown") for doc in content if isinstance(doc, dict)]
+                                print(f"[{self.deployment_id}] MCP search found {len(content)} results from sources: {sources}")
                                 return content
                             elif isinstance(content, dict):
+                                source = content.get("source", "Unknown")
+                                print(f"[{self.deployment_id}] MCP search found 1 result from source: {source}")
                                 return [content]
                             else:
+                                print(f"[{self.deployment_id}] MCP search returned unknown content type")
                                 return [{"text": str(content), "source": "Unknown"}]
                     
+                    print(f"[{self.deployment_id}] MCP search returned no results")
                     return []
                     
         except Exception as e:
-            print(f"Error searching documents: {e}")
+            print(f"[{self.deployment_id}] Error searching documents: {e}")
             import traceback
-            print(f"Search error traceback:\n{traceback.format_exc()}")
+            print(f"[{self.deployment_id}] Search error traceback:\n{traceback.format_exc()}")
             return []
     
     async def close(self):
@@ -368,31 +460,57 @@ async def deploy_workflow(
         # Parse workflow configuration
         config = parse_workflow_config(request.workflow_data)
         
+        # Get workflow and its documents
+        workflow = db.get(Workflow, request.workflow_id)
+        if not workflow:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Workflow not found"
+            )
+        
+        if workflow.created_by_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied to this workflow"
+            )
+        
         # Check for document collection if MCP is enabled and has documents
         collection_name = None
         if config["has_mcp"] and config.get("mcp_has_documents", True):
-            # Check if we have documents for this user
+            # Check if we have documents for this specific workflow
             try:
-                stmt = select(Document).where(Document.uploaded_by_id == current_user.id)
+                stmt = select(Document).where(
+                    Document.workflow_id == workflow.id,
+                    Document.uploaded_by_id == current_user.id,
+                    Document.is_active == True
+                )
                 documents = db.exec(stmt).all()
             except Exception as doc_error:
                 print(f"Error querying documents: {doc_error}")
                 documents = []
             
             if documents:
-                # Use the first available collection 
-                user_collections = list(set(doc.user_collection_name for doc in documents if doc.user_collection_name))
-                if user_collections:
-                    collection_name = user_collections[0]  # Use first available collection
-                    print(f"Using existing collection: {collection_name}")
-                    print(f"Available collections: {user_collections}")
-                else:
-                    print(f"No user collections found in documents")
+                # Use the workflow-specific collection
+                collection_name = f"{workflow.workflow_collection_id}_{current_user.id}"
+                print(f"Using workflow collection: {collection_name}")
+                print(f"Documents in workflow: {len(documents)}")
+            else:
+                print(f"No documents found for workflow {workflow.id}")
             
             config["collection_name"] = collection_name
         
         # Create MCP chat deployment
         mcp_deployment = MCPChatDeployment(deployment_id, config, collection_name)
+        
+        # Log LLM configuration for deployment
+        llm_config = config["llm_config"]
+        print(f"[{deployment_id}] DEPLOYMENT CREATED - LLM Configuration:")
+        print(f"[{deployment_id}]   Model: {llm_config['model']}")
+        print(f"[{deployment_id}]   Temperature: {llm_config['temperature']}")
+        print(f"[{deployment_id}]   Max Tokens: {llm_config['max_tokens']}")
+        print(f"[{deployment_id}]   Top P: {llm_config['top_p']}")
+        print(f"[{deployment_id}]   Has MCP/RAG: {config['has_mcp']}")
+        print(f"[{deployment_id}]   Collection: {collection_name}")
         
         # Store deployment configuration
         try:
@@ -416,6 +534,8 @@ async def deploy_workflow(
             chat_url=chat_url,
             message=f"Successfully deployed {request.workflow_name} with MCP server",
             configuration={
+                "workflow_id": workflow.id,
+                "workflow_collection_id": workflow.workflow_collection_id,
                 "model": config["llm_config"]["model"],
                 "has_rag": config["has_mcp"],
                 "collection": collection_name,

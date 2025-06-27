@@ -1,5 +1,6 @@
 export interface DeploymentRequest {
   workflow_name: string;
+  workflow_id: number;
   workflow_data: Record<string, unknown>;
 }
 
@@ -40,6 +41,7 @@ export class DeploymentAPI {
 
   static async deployWorkflow(
     workflowName: string,
+    workflowId: number,
     workflowData: Record<string, unknown>
   ): Promise<DeploymentResponse> {
     const response = await fetch(`${this.BASE_URL}/api/deploy/`, {
@@ -50,6 +52,7 @@ export class DeploymentAPI {
       credentials: 'include',
       body: JSON.stringify({
         workflow_name: workflowName,
+        workflow_id: workflowId,
         workflow_data: workflowData
       })
     });

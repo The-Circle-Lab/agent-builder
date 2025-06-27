@@ -23,7 +23,7 @@ export class GoogleCloudNodeConfig extends BaseNodeConfig {
       key: "maximumOutputTokens",
       label: "Maximum Output Tokens",
       type: "number",
-      defaultValue: 200,
+      defaultValue: 1200,
       min: 1,
       max: 2000,
     },

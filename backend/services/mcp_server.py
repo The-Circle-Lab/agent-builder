@@ -25,12 +25,29 @@ def get_retriever(course_id: str) -> Qdrant:
         # Create Qdrant client first
         qdrant_client = QdrantClient(url=QDRANT_URL)
         
+        # Check if collection exists
+        try:
+            collections = qdrant_client.get_collections()
+            collection_names = [col.name for col in collections.collections]
+            
+            if course_id not in collection_names:
+                print(f"Collection '{course_id}' does not exist in Qdrant")
+                return None
+        except Exception as e:
+            print(f"Error checking collections in Qdrant: {e}")
+            return None
+        
         # Create Qdrant vector store using client
-        retriever_cache[course_id] = Qdrant(
-            client=qdrant_client,
-            collection_name=course_id,
-            embeddings=EMBED,
-        )
+        try:
+            retriever_cache[course_id] = Qdrant(
+                client=qdrant_client,
+                collection_name=course_id,
+                embeddings=EMBED,
+            )
+        except Exception as e:
+            print(f"Error creating Qdrant retriever for collection '{course_id}': {e}")
+            return None
+            
     return retriever_cache[course_id]
 
 # document retriever
@@ -41,9 +58,16 @@ async def search_documents(
     k:             Annotated[int, "Number of passages to return"] = 4,
 ) -> List[dict]:
     try:
-        docs = get_retriever(collection_id).similarity_search(query, k=k)
+        print(f"Searching collection '{collection_id}' for query: '{query}'")
+        
+        retriever = get_retriever(collection_id)
+        if retriever is None:
+            print(f"No retriever available for collection '{collection_id}'")
+            return [{"error": f"Collection '{collection_id}' not found or unavailable"}]
+        
+        docs = retriever.similarity_search(query, k=k)
         # format what the LLM needs (text + citation data)
-        return [
+        res = [
             {
                 "text": d.page_content,
                 "source": d.metadata.get("source"),
@@ -51,8 +75,12 @@ async def search_documents(
             }
             for d in docs
         ]
+        print(f"Document search results for '{collection_id}': {len(res)} documents found")
+        return res
     except Exception as e:
-        return [{"error": f"Failed to search documents: {str(e)}"}]
+        error_msg = f"Failed to search documents in collection '{collection_id}': {str(e)}"
+        print(error_msg)
+        return [{"error": error_msg}]
 
 if __name__ == "__main__":
     mcp.run(transport="stdio") 

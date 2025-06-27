@@ -26,6 +26,7 @@ class WorkflowResponse(BaseModel):
     name: str
     description: Optional[str]
     workflow_data: Dict[str, Any]
+    workflow_collection_id: str
     created_at: datetime
     updated_at: datetime
 
@@ -129,14 +130,13 @@ def delete_workflow(
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
     
     # Delete associated document collection
-    collection_name = f"workflow_{workflow_id}"
-    user_collection_name = f"{collection_name}_{current_user.id}"
+    user_collection_name = f"{workflow.workflow_collection_id}_{current_user.id}"
     
     try:
         # Find all documents in this workflow's collection
         documents = db.exec(
             select(Document).where(
-                Document.collection_name == collection_name,
+                Document.workflow_id == workflow_id,
                 Document.uploaded_by_id == current_user.id,
                 Document.is_active == True
             )

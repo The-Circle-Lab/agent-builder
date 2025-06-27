@@ -75,6 +75,9 @@ class Workflow(SQLModel, table=True):
     class_id: int | None = Field(default=None, foreign_key="class.id")
     created_by_id: int = Field(foreign_key="user.id")
     
+    # Unique collection ID for document isolation
+    workflow_collection_id: str = Field(index=True, unique=True, default_factory=lambda: f"wf_{uuid.uuid4().hex[:12]}")
+    
     # Store the workflow JSON data from frontend
     workflow_data: Dict[str, Any] = Field(sa_column=Column(JSON))
     
@@ -87,6 +90,7 @@ class Workflow(SQLModel, table=True):
     # Relationships
     class_: Optional["Class"] = Relationship(back_populates="workflows")
     created_by: Optional[User] = Relationship(back_populates="created_workflows")
+    documents: List["Document"] = Relationship(back_populates="workflow")
 
 
 class Document(SQLModel, table=True):
@@ -99,6 +103,10 @@ class Document(SQLModel, table=True):
     user_collection_name: str = Field(index=True)  # Full collection name with user ID
     upload_id: str = Field(index=True, unique=True)  # UUID for this upload
     chunk_count: int  # Number of chunks created from this document
+    
+    # Workflow association
+    workflow_id: int | None = Field(default=None, foreign_key="workflow.id")
+    workflow: Optional["Workflow"] = Relationship(back_populates="documents")
     
     # User relationship
     uploaded_by_id: int = Field(foreign_key="user.id")

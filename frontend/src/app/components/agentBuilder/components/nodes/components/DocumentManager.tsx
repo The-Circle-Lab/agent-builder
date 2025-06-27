@@ -19,7 +19,9 @@ export default function DocumentManager({
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const collectionName = `workflow_${workflowId}`;
+  // Convert workflowId to number, skip if it's "default" or invalid
+  const numericWorkflowId = typeof workflowId === 'number' ? workflowId : 
+    (typeof workflowId === 'string' && workflowId !== "default" ? parseInt(workflowId, 10) : null);
 
   useEffect(() => {
     loadDocuments();
@@ -32,14 +34,19 @@ export default function DocumentManager({
   }, [documents.length, onDocumentsChange]);
 
   const loadDocuments = async () => {
+    if (!numericWorkflowId) {
+      setDocuments([]);
+      return;
+    }
+
     try {
       setLoading(true);
       setError("");
-      const response = await DocumentAPI.getDocumentsInCollection(collectionName);
+      const response = await DocumentAPI.getWorkflowDocuments(numericWorkflowId);
       setDocuments(response.documents);
     } catch (error) {
       if (error instanceof Error && error.message.includes('404')) {
-        // Collection doesn't exist yet, which is fine
+        // Workflow doesn't exist yet, which is fine
         setDocuments([]);
       } else {
         setError(error instanceof Error ? error.message : "Failed to load documents");
@@ -51,6 +58,11 @@ export default function DocumentManager({
 
   const handleFileUpload = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;
+    
+    if (!numericWorkflowId) {
+      setError("Invalid workflow ID. Cannot upload documents.");
+      return;
+    }
 
     try {
       setUploading(true);
@@ -78,7 +90,7 @@ export default function DocumentManager({
         return;
       }
 
-      const response = await DocumentAPI.uploadDocuments(validFiles, collectionName);
+      const response = await DocumentAPI.uploadDocuments(validFiles, numericWorkflowId);
       await loadDocuments(); // Refresh the list
       
       // Clear file input
@@ -249,10 +261,10 @@ export default function DocumentManager({
         )}
       </div>
 
-      {/* Collection Info */}
-      {documents.length > 0 && (
+      {/* Workflow Info */}
+      {documents.length > 0 && numericWorkflowId && (
         <div className="text-xs text-gray-400 pt-2 border-t border-gray-700">
-          Collection: {collectionName} • Total chunks: {documents.reduce((sum, doc) => sum + doc.chunk_count, 0)}
+          Workflow ID: {numericWorkflowId} • Total chunks: {documents.reduce((sum, doc) => sum + doc.chunk_count, 0)}
         </div>
       )}
     </div>

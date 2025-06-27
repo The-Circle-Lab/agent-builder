@@ -19,6 +19,8 @@ export interface CollectionInfo {
 
 export interface UploadResponse {
   message: string;
+  workflow_id: number;
+  workflow_name: string;
   collection_name: string;
   total_chunks: number;
   files_processed: Array<{
@@ -35,7 +37,7 @@ export class DocumentAPI {
 
   static async uploadDocuments(
     files: FileList | File[], 
-    collectionName: string
+    workflowId: number
   ): Promise<UploadResponse> {
     const formData = new FormData();
     
@@ -44,8 +46,8 @@ export class DocumentAPI {
       formData.append('files', file);
     });
     
-    // Add collection name
-    formData.append('collection_name', collectionName);
+    // Add workflow ID
+    formData.append('workflow_id', workflowId.toString());
 
     const response = await fetch(`${this.BASE_URL}/api/documents/upload`, {
       method: 'POST',
@@ -61,14 +63,15 @@ export class DocumentAPI {
     return await response.json();
   }
 
-  static async getDocumentsInCollection(collectionName: string): Promise<{
-    collection_name: string;
-    user_collection_name: string;
+  static async getWorkflowDocuments(workflowId: number): Promise<{
+    workflow_id: number;
+    workflow_name: string;
+    workflow_collection_id: string;
     document_count: number;
     documents: DocumentInfo[];
   }> {
     const response = await fetch(
-      `${this.BASE_URL}/api/documents/collections/${encodeURIComponent(collectionName)}/documents`,
+      `${this.BASE_URL}/api/documents/workflows/${workflowId}/documents`,
       {
         credentials: 'include'
       }

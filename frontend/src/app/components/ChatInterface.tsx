@@ -2,6 +2,7 @@
 
 import React, { useState, useRef, useEffect } from "react";
 import { DeploymentAPI, ChatResponse } from "./agentBuilder/scripts/deploymentAPI";
+import ReactMarkdown from "react-markdown";
 
 interface ChatInterfaceProps {
   deploymentId: string;
@@ -17,6 +18,11 @@ interface Message {
   timestamp: Date;
 }
 
+interface ParsedTextPart {
+  type: 'text' | 'citation';
+  content: string | string[];
+}
+
 export default function ChatInterface({ deploymentId, workflowName, onBack }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputMessage, setInputMessage] = useState("");
@@ -24,9 +30,215 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
   const [error, setError] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Function to parse and replace source citations with buttons
+  const parseSourceCitations = (text: string, messageSources: string[] = []): ParsedTextPart[] => {
+    // Create a set of source filenames for quick lookup
+    const sourceFilenames = new Set(
+      messageSources.map(source => {
+        // Extract filename from full path and remove extension
+        const filename = source.split('/').pop() || source;
+        return filename.replace(/\.(pdf|txt|doc|docx)$/i, '');
+      })
+    );
+
+    // Regex to match citations like:
+    // (filename) or (filename, Page X) or (file1, Page X; file2; file3, Page Y)
+    const citationRegex = /\(([^)]+(?:;\s*[^)]+)*)\)/g;
+    
+    const parts: ParsedTextPart[] = [];
+    let lastIndex = 0;
+    let match;
+
+    while ((match = citationRegex.exec(text)) !== null) {
+      // Parse the citation content to check if it matches actual sources
+      const citationContent = match[1];
+      const citedSources = citationContent.split(';').map(source => {
+        const trimmed = source.trim();
+        // Extract filename (everything before the first comma or the whole string)
+        const filename = trimmed.split(',')[0].trim();
+        return filename;
+      });
+
+      // Check if any of the cited sources match actual message sources
+      const validSources = citedSources.filter(source => sourceFilenames.has(source));
+      
+      // Only format as citation if we have valid sources
+      if (validSources.length > 0) {
+        // Add text before the citation
+        if (match.index > lastIndex) {
+          parts.push({
+            type: 'text',
+            content: text.slice(lastIndex, match.index)
+          });
+        }
+
+        // Add the citation as a special element (only valid sources)
+        parts.push({
+          type: 'citation',
+          content: validSources
+        });
+
+        lastIndex = match.index + match[0].length;
+      }
+      // If no valid sources, the citation stays as regular text and we don't advance lastIndex
+    }
+
+    // Add remaining text
+    if (lastIndex < text.length) {
+      parts.push({
+        type: 'text',
+        content: text.slice(lastIndex)
+      });
+    }
+
+    return parts;
+  };
+
+  // Component for rendering source citation buttons
+  const SourceCitationButton = ({ filename }: { filename: string }) => (
+    <button
+      className="inline-flex items-center px-2 py-0.5 mx-0.5 my-0.5 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded text-xs font-normal text-gray-700 transition-colors duration-150 whitespace-nowrap"
+      onClick={() => {
+        // You can add click handler here if needed (e.g., to highlight the source)
+        console.log('Clicked source:', filename);
+      }}
+      title={`Source: ${filename}`}
+    >
+      <svg className="w-3 h-3 mr-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+      </svg>
+      <span className="truncate max-w-32">{filename}</span>
+    </button>
+  );
+
+  // Component for rendering text with source citations
+  const TextWithCitations = ({ text, sources }: { text: string; sources?: string[] }) => {
+    const parts = parseSourceCitations(text, sources);
+    
+    return (
+      <span>
+        {parts.map((part, index) => {
+          if (part.type === 'text') {
+            return <span key={index}>{part.content}</span>;
+          } else if (part.type === 'citation') {
+            return (
+              <span key={index} className="inline-flex flex-wrap items-center">
+                {(part.content as string[]).map((filename, fileIndex) => (
+                  <SourceCitationButton key={fileIndex} filename={filename} />
+                ))}
+              </span>
+            );
+          }
+          return null;
+        })}
+      </span>
+    );
+  };
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+
+  // Function to create ReactMarkdown components with access to message sources
+  const createMarkdownComponents = (sources?: string[], isUserMessage: boolean = false) => ({
+    // Custom styling for markdown elements
+    p: ({ children, ...props }: React.ComponentProps<'p'>) => (
+      <p className="mb-2 last:mb-0" {...props}>
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations text={child} sources={sources} />;
+          }
+          return child;
+        })}
+      </p>
+    ),
+    h1: ({ children, ...props }: React.ComponentProps<'h1'>) => (
+      <h1 className="text-lg font-bold mb-2" {...props}>
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations text={child} sources={sources} />;
+          }
+          return child;
+        })}
+      </h1>
+    ),
+    h2: ({ children, ...props }: React.ComponentProps<'h2'>) => (
+      <h2 className="text-base font-semibold mb-2" {...props}>
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations text={child} sources={sources} />;
+          }
+          return child;
+        })}
+      </h2>
+    ),
+    h3: ({ children, ...props }: React.ComponentProps<'h3'>) => (
+      <h3 className="text-sm font-medium mb-1" {...props}>
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations text={child} sources={sources} />;
+          }
+          return child;
+        })}
+      </h3>
+    ),
+    ul: ({ children, ...props }: React.ComponentProps<'ul'>) => (
+      <ul className="list-disc list-outside mb-2 space-y-1 pl-5" {...props}>
+        {children}
+      </ul>
+    ),
+    ol: ({ children, ...props }: React.ComponentProps<'ol'>) => (
+      <ol className="list-decimal list-outside mb-2 space-y-1 pl-5" {...props}>
+        {children}
+      </ol>
+    ),
+    li: ({ children, ...props }: React.ComponentProps<'li'>) => (
+      <li className="mb-1" {...props}>
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations text={child} sources={sources} />;
+          }
+          return child;
+        })}
+      </li>
+    ),
+    code: ({ children, className, ...props }: React.ComponentProps<'code'>) => {
+      const isInline = !className;
+      return isInline ? (
+        <code className={`px-1 py-0.5 rounded text-xs font-mono ${
+          isUserMessage 
+            ? "bg-blue-500 text-blue-100" 
+            : "bg-gray-100 text-gray-800"
+        }`} {...props}>
+          {children}
+        </code>
+      ) : (
+        <pre className={`p-2 rounded text-xs font-mono overflow-x-auto ${
+          isUserMessage 
+            ? "bg-blue-500 text-blue-100" 
+            : "bg-gray-100 text-gray-800"
+        }`}>
+          <code>{children}</code>
+        </pre>
+      );
+    },
+    blockquote: ({ children, ...props }: React.ComponentProps<'blockquote'>) => (
+      <blockquote className={`border-l-2 pl-2 my-2 ${
+        isUserMessage 
+          ? "border-blue-300 text-blue-100" 
+          : "border-gray-300 text-gray-600"
+      }`} {...props}>
+        {React.Children.map(children, (child) => {
+          if (typeof child === 'string') {
+            return <TextWithCitations text={child} sources={sources} />;
+          }
+          return child;
+        })}
+      </blockquote>
+    ),
+    strong: ({ children, ...props }: React.ComponentProps<'strong'>) => <strong className="font-semibold" {...props}>{children}</strong>,
+    em: ({ children, ...props }: React.ComponentProps<'em'>) => <em className="italic" {...props}>{children}</em>,
+  });
 
   useEffect(() => {
     scrollToBottom();
@@ -139,7 +351,13 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
                   : "bg-white text-gray-900 shadow-sm border"
               }`}
             >
-              <p className="text-sm whitespace-pre-wrap">{message.text}</p>
+              <div className="text-sm prose prose-sm max-w-none">
+                <ReactMarkdown
+                  components={createMarkdownComponents(message.sources, message.isUser)}
+                >
+                  {message.text}
+                </ReactMarkdown>
+              </div>
               
               {/* Sources for assistant messages */}
               {!message.isUser && message.sources && message.sources.length > 0 && (
