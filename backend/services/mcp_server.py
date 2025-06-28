@@ -15,7 +15,15 @@ from fastmcp import FastMCP
 mcp = FastMCP("agent-server")          # Extended server with multiple tools
 
 EMBED = FastEmbedEmbeddings()
-QDRANT_URL = os.getenv("QDRANT_URL", "http://localhost:6333")
+from pathlib import Path
+import sys
+
+# Add parent directory to path to import from config
+sys.path.append(str(Path(__file__).parent.parent))
+from scripts.config import load_config
+
+# Load config
+config = load_config()
 
 # cached retriever for course
 retriever_cache: dict[str, Qdrant] = {}
@@ -23,7 +31,7 @@ retriever_cache: dict[str, Qdrant] = {}
 def get_retriever(course_id: str) -> Qdrant:
     if course_id not in retriever_cache:
         # Create Qdrant client first
-        qdrant_client = QdrantClient(url=QDRANT_URL)
+        qdrant_client = QdrantClient(url=config.get("qdrant", {}).get("url", "http://localhost:6333"))
         
         # Check if collection exists
         try:

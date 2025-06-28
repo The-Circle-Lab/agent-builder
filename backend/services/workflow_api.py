@@ -1,3 +1,4 @@
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select, Session as DBSession
 from database.db_models import User, Workflow, Class, Document
@@ -6,8 +7,15 @@ from services.auth import get_current_user
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
-import os
-from qdrant_client import QdrantClient
+from scripts.utils import create_qdrant_client
+import sys
+
+# Add parent directory to path to import from config
+sys.path.append(str(Path(__file__).parent.parent))
+from scripts.config import load_config
+
+# Load config
+config = load_config()
 
 router = APIRouter(prefix="/api/workflows", tags=["workflows"])
 
@@ -148,7 +156,7 @@ def delete_workflow(
         # Delete from Qdrant if documents exist
         if documents:
             try:
-                qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL"))
+                qdrant_client = create_qdrant_client()
                 qdrant_client.delete_collection(collection_name=user_collection_name)
                 print(f"Deleted Qdrant collection: {user_collection_name}")
             except Exception as qdrant_error:

@@ -1,0 +1,76 @@
+# Application Configuration
+app:
+  name: "Agent Builder Backend"
+  debug: false
+  log_level: "INFO"
+  log_file_pattern: "api_%Y%m%d.log"
+
+# Server Configuration  
+server:
+  host: "0.0.0.0"
+  port: 8000
+  cors:
+    origins: 
+      - "http://localhost:3000"
+    allow_credentials: true
+    allow_methods: ["*"]
+    allow_headers: ["*"]
+
+# Database Configuration
+database:
+  url: "sqlite:///./database/app.db"
+  connect_args:
+    check_same_thread: false
+
+# Authentication Configuration
+auth:
+  secret_key: "${AUTH_SECRET_KEY}"
+  session_lifetime_hours: 24
+  cookie_settings:
+    httponly: true
+    secure: false
+    samesite: "lax"
+
+# Vector Store Configuration (Qdrant)
+qdrant:
+  url: "${QDRANT_URL:http://localhost:6333}"
+  prefer_grpc: false
+
+# Google Cloud Configuration
+google_cloud:
+  project: "${GOOGLE_CLOUD_PROJECT}"
+  location: "${GOOGLE_CLOUD_LOCATION:us-central1}"
+
+# Document Processing Configuration
+document_processing:
+  max_file_size_mb: 10
+  max_files_per_upload: 10
+  allowed_extensions: [".pdf", ".docx", ".doc"]
+  allowed_mime_types:
+    - "application/pdf"
+    - "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    - "application/msword"
+  chunk_settings:
+    chunk_size: 800
+    chunk_overlap: 100
+    add_start_index: true
+
+# MCP (Model Context Protocol) Configuration
+mcp:
+  search_timeout_seconds: 30
+  default_search_k: 15
+  max_retries: 3
+  retry_delay_seconds: 0.5
+
+# Default LLM Configuration
+llm:
+  default:
+    model: "gemini-2.5-flash"
+    temperature: 0.7
+    max_tokens: 1000
+    top_p: 0.9
+
+# File paths
+paths:
+  logs_dir: "./logs"
+  uploads_temp_dir: "./temp" 

@@ -3,11 +3,12 @@ fastmcp==2.9.2
 langchain==0.3.26
 langchain_community==0.3.26
 langchain_google_vertexai==2.0.26
-langchain_qdrant==0.2.0
-mcp==1.10.0
+mcp==1.10.1
 passlib==1.7.4
 pydantic==2.11.7
 python-dotenv==1.1.1
+PyYAML==6.0.2
+PyYAML==6.0.2
 qdrant_client==1.14.3
 SQLAlchemy==2.0.41
 sqlmodel==0.0.24

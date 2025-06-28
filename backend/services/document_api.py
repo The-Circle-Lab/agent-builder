@@ -1,7 +1,6 @@
 import os
 import uuid
 import tempfile
-import shutil
 from pathlib import Path
 from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
@@ -10,36 +9,34 @@ from sqlmodel import Session as DBSession, select
 from services.auth import get_current_user
 from database.db_models import User, Document, Workflow
 from database.database import get_session
-from dotenv import load_dotenv
+from scripts.utils import create_qdrant_client, get_user_collection_name
+import sys
 
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import FastEmbedEmbeddings
 from langchain_community.vectorstores import Qdrant
-from qdrant_client import QdrantClient
 
-load_dotenv()
+# Add parent directory to path to import from config
+sys.path.append(str(Path(__file__).parent.parent))
+from scripts.config import load_config
+
+# Load config
+config = load_config()
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
-# Security settings
-MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-ALLOWED_EXTENSIONS = {'.pdf', '.docx', '.doc'}
-ALLOWED_MIME_TYPES = {
-    'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/msword'
-}
-
-# Security Check
+# File validation
 def validate_file(file: UploadFile) -> bool:
     # Check file extension
     file_ext = Path(file.filename or '').suffix.lower()
-    if file_ext not in ALLOWED_EXTENSIONS:
+    allowed_extensions = set(config.get("document_processing", {}).get("allowed_extensions", []))
+    if file_ext not in allowed_extensions:
         return False
     
     # Check MIME type
-    if file.content_type not in ALLOWED_MIME_TYPES:
+    allowed_mime_types = set(config.get("document_processing", {}).get("allowed_mime_types", []))
+    if file.content_type not in allowed_mime_types:
         return False
     
     return True
@@ -75,10 +72,11 @@ async def upload_documents(
             detail="No files provided"
         )
     
-    if len(files) > 10:  # Limit number of files
+    max_files = config.get("document_processing", {}).get("max_files_per_upload", 10)
+    if len(files) > max_files:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Maximum 10 files allowed per upload"
+            detail=f"Maximum {max_files} files allowed per upload"
         )
     
     # Verify workflow exists and user has access
@@ -111,10 +109,12 @@ async def upload_documents(
             
             # Check file size
             file_content = await file.read()
-            if len(file_content) > MAX_FILE_SIZE:
+            max_file_size_mb = config.get("document_processing", {}).get("max_file_size_mb", 10)
+            max_file_size = max_file_size_mb * 1024 * 1024
+            if len(file_content) > max_file_size:
                 raise HTTPException(
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"File {file.filename} exceeds 10MB limit"
+                    detail=f"File {file.filename} exceeds {max_file_size_mb}MB limit"
                 )
             
             # Create temporary file with secure name
@@ -135,10 +135,11 @@ async def upload_documents(
                 continue
                 
             # Split into chunks
+            chunk_settings = config.get("document_processing", {}).get("chunk_settings", {})
             splitter = RecursiveCharacterTextSplitter(
-                chunk_size=800,
-                chunk_overlap=100,
-                add_start_index=True
+                chunk_size=chunk_settings.get("chunk_size", 800),
+                chunk_overlap=chunk_settings.get("chunk_overlap", 100),
+                add_start_index=chunk_settings.get("add_start_index", True)
             )
             chunks = splitter.split_documents(docs)
             
@@ -173,13 +174,13 @@ async def upload_documents(
         embeddings = FastEmbedEmbeddings()
         
         # Use workflow-specific collection name
-        user_collection = f"{workflow.workflow_collection_id}_{current_user.id}"
+        user_collection = get_user_collection_name(workflow.workflow_collection_id, current_user.id)
         
         vector_store = Qdrant.from_documents(
             documents=all_chunks,
             embedding=embeddings,
-            url=os.getenv("QDRANT_URL"),
-            prefer_grpc=False,
+            url=config.get("qdrant", {}).get("url", "http://localhost:6333"),
+            prefer_grpc=config.get("qdrant", {}).get("prefer_grpc", False),
             collection_name=user_collection,
             ids=[str(uuid.uuid4()) for _ in all_chunks],
         )
@@ -355,7 +356,7 @@ async def remove_document(
             )
         
         # Initialize Qdrant client
-        qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL"))
+        qdrant_client = create_qdrant_client()
         
         # Remove document chunks from Qdrant using upload_id filter
         try:
@@ -403,7 +404,7 @@ async def delete_collection(
     db: DBSession = Depends(get_session)
 ):
     try:
-        user_collection = f"{collection_name}_{current_user.id}"
+        user_collection = get_user_collection_name(collection_name, current_user.id)
         
         # Find all documents in the collection
         documents = db.exec(
@@ -421,7 +422,7 @@ async def delete_collection(
             )
         
         # Initialize Qdrant client
-        qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL"))
+        qdrant_client = create_qdrant_client()
         
         # Delete the entire collection from Qdrant
         try:

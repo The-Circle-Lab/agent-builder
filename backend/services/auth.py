@@ -5,10 +5,19 @@ from pydantic import BaseModel
 from sqlmodel import select, Session as DBSession
 from database.db_models import User, AuthSession
 from database.database import get_session
+import sys
+from pathlib import Path
+
+# Add parent directory to path to import from config
+sys.path.append(str(Path(__file__).parent.parent))
+from scripts.config import load_config
+
+# Load config
+config = load_config()
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 pwd_ctx = CryptContext(schemes=["bcrypt"], deprecated="auto")
-SESSION_LIFETIME = timedelta(hours=24)
+SESSION_LIFETIME = timedelta(hours=config.get("auth", {}).get("session_lifetime_hours", 24))
 
 def verify_pw(raw, hashed): return pwd_ctx.verify(raw, hashed)
 def hash_pw(raw): return pwd_ctx.hash(raw)
@@ -52,8 +61,15 @@ def login(request: LoginRequest, db: DBSession = Depends(get_session)):
                       expires_at=dt.now(timezone.utc) + SESSION_LIFETIME)
     db.add(session); db.commit()
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
-    response.set_cookie("sid", session.id, max_age=int(SESSION_LIFETIME.total_seconds()),
-                        httponly=True, secure=False, samesite="lax")
+    cookie_settings = config.get("auth", {}).get("cookie_settings", {})
+    response.set_cookie(
+        "sid", 
+        session.id, 
+        max_age=int(SESSION_LIFETIME.total_seconds()),
+        httponly=cookie_settings.get("httponly", True),
+        secure=cookie_settings.get("secure", False),
+        samesite=cookie_settings.get("samesite", "lax")
+    )
     return response
 
 
@@ -87,6 +103,13 @@ def register(request: RegisterRequest, db: DBSession = Depends(get_session)):
     db.commit()
     
     response = Response(status_code=status.HTTP_201_CREATED)
-    response.set_cookie("sid", session.id, max_age=int(SESSION_LIFETIME.total_seconds()),
-                        httponly=True, secure=False, samesite="lax")
+    cookie_settings = config.get("auth", {}).get("cookie_settings", {})
+    response.set_cookie(
+        "sid", 
+        session.id, 
+        max_age=int(SESSION_LIFETIME.total_seconds()),
+        httponly=cookie_settings.get("httponly", True),
+        secure=cookie_settings.get("secure", False),
+        samesite=cookie_settings.get("samesite", "lax")
+    )
     return response

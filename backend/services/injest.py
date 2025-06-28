@@ -1,12 +1,19 @@
-import os, pathlib, uuid
-from dotenv import load_dotenv
+import pathlib
+import uuid
+from pathlib import Path
+import sys
 
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import FastEmbedEmbeddings  # local model
 from langchain_community.vectorstores import Qdrant
 
-load_dotenv()
+# Add parent directory to path to import from config
+sys.path.append(str(Path(__file__).parent.parent))
+from scripts.config import load_config
+
+# Load config
+config = load_config()
 
 # 1. Load one or many course files
 def load_docs(files):
@@ -50,7 +57,7 @@ embeddings = FastEmbedEmbeddings()   # ~BAAI/bge-small-en-v1.5 under the hood
 vector_store = Qdrant.from_documents(
     documents=chunks,
     embedding=embeddings,
-    url=os.getenv("QDRANT_URL"),
+    url=config.get("qdrant", {}).get("url", "http://localhost:6333"),
     prefer_grpc=False,              # HTTP is fine for local dev
     collection_name="data_structures",  # change per course
     ids=[str(uuid.uuid4()) for _ in chunks],

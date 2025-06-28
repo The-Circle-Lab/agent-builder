@@ -1,28 +1,30 @@
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
-from services.chat_api import ChatRequest, chat, get_store, LLM, EMBED
 from database.database import init_db, shutdown_db
 from services.auth import router as auth_router, get_current_user
 from services.workflow_api import router as workflow_router
 from services.document_api import router as document_router
 from services.deployment_mcp_api import router as deployment_router, cleanup_all_deployments
-from database.db_models import User, Workflow, Document, AuthSession, Class, ClassMembership
+from database.db_models import User
 from contextlib import asynccontextmanager
 import logging
 from datetime import datetime
 from pathlib import Path
-import os
+from scripts.config import load_config
 
+# Load config
+config = load_config()
 
-logs_dir = Path(__file__).parent / 'logs'
+# Setup logging
+logs_dir = Path(__file__).parent / config.get("paths", {}).get("logs_dir", "logs")
 logs_dir.mkdir(exist_ok=True)
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, config.get("app", {}).get("log_level", "INFO")),
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler(logs_dir / f'api_{datetime.now().strftime("%Y%m%d")}.log'),
+        logging.FileHandler(logs_dir / datetime.now().strftime(config.get("app", {}).get("log_file_pattern", "api_%Y%m%d.log"))),
         logging.StreamHandler()
     ]
 )
@@ -42,14 +44,25 @@ async def lifespan(app: FastAPI):
     shutdown_db()
     logger.info("Database connections closed")
 
-app = FastAPI(lifespan=lifespan)
-app.add_middleware(SessionMiddleware, secret_key=os.getenv("AUTH_SECRET_KEY")) 
+app = FastAPI(
+    title=config.get("app", {}).get("name", "Agent Builder Backend"),
+    lifespan=lifespan
+)
+
+# Add session middleware
+app.add_middleware(
+    SessionMiddleware, 
+    secret_key=config.get("auth", {}).get("secret_key")
+)
+
+# Add CORS middleware
+cors_config = config.get("server", {}).get("cors", {})
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=cors_config.get("origins", ["http://localhost:3000"]),
+    allow_credentials=cors_config.get("allow_credentials", True),
+    allow_methods=cors_config.get("allow_methods", ["*"]),
+    allow_headers=cors_config.get("allow_headers", ["*"]),
 )
 app.include_router(auth_router)
 app.include_router(workflow_router)
@@ -59,10 +72,6 @@ app.include_router(deployment_router)
 @app.get("/")
 def read_root():
     return {"Hello": "World"}
-
-@app.post("/chat")
-async def chat_endpoint(req: ChatRequest):
-    return await chat(req)
 
 @app.get("/me")
 def me(user = Depends(get_current_user)):
