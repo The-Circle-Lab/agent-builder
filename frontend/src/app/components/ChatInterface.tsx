@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { DeploymentAPI, ChatResponse } from "./agentBuilder/scripts/deploymentAPI";
+import { DeploymentAPI, ChatResponse, ConversationResponse, MessageResponse } from "./agentBuilder/scripts/deploymentAPI";
 import ReactMarkdown from "react-markdown";
 
 interface ChatInterfaceProps {
@@ -28,6 +28,10 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
   const [inputMessage, setInputMessage] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
+  const [conversations, setConversations] = useState<ConversationResponse[]>([]);
+  const [currentConversationId, setCurrentConversationId] = useState<number | null>(null);
+  const [showSidebar, setShowSidebar] = useState(false);
+  const [isLoadingConversations, setIsLoadingConversations] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Function to parse and replace source citations with buttons
@@ -244,6 +248,77 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
     scrollToBottom();
   }, [messages]);
 
+  // Load conversations on component mount
+  useEffect(() => {
+    loadConversations();
+  }, [deploymentId]);
+
+  const loadConversations = async () => {
+    try {
+      console.log('Loading conversations for deployment:', deploymentId);
+      setIsLoadingConversations(true);
+      const fetchedConversations = await DeploymentAPI.getConversations(deploymentId);
+      console.log('Fetched conversations:', fetchedConversations);
+      setConversations(fetchedConversations);
+    } catch (err) {
+      console.error('Failed to load conversations:', err);
+      setError(`Failed to load conversations: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsLoadingConversations(false);
+    }
+  };
+
+  const createNewConversation = async (title?: string) => {
+    try {
+      const newConversation = await DeploymentAPI.createConversation(deploymentId, title);
+      setConversations(prev => [newConversation, ...prev]);
+      setCurrentConversationId(newConversation.id);
+      setMessages([]); // Clear current messages
+      setShowSidebar(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to create conversation");
+    }
+  };
+
+  const loadConversation = async (conversationId: number) => {
+    try {
+      setIsLoading(true);
+      const messages: MessageResponse[] = await DeploymentAPI.getConversationMessages(deploymentId, conversationId);
+      
+      // Convert MessageResponse to Message format
+      const convertedMessages: Message[] = messages.map(msg => ({
+        id: msg.id.toString(),
+        text: msg.message_text,
+        isUser: msg.is_user_message,
+        sources: msg.sources || undefined,
+        timestamp: new Date(msg.created_at)
+      }));
+      
+      setMessages(convertedMessages);
+      setCurrentConversationId(conversationId);
+      setShowSidebar(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to load conversation");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const deleteConversation = async (conversationId: number) => {
+    try {
+      await DeploymentAPI.deleteConversation(deploymentId, conversationId);
+      setConversations(prev => prev.filter(conv => conv.id !== conversationId));
+      
+      // If deleting current conversation, clear messages
+      if (currentConversationId === conversationId) {
+        setCurrentConversationId(null);
+        setMessages([]);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to delete conversation");
+    }
+  };
+
   const formatChatHistory = (messages: Message[]) => {
     return messages
       .filter(msg => !msg.isUser || messages.indexOf(msg) < messages.length - 1)
@@ -262,16 +337,37 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
     };
 
     setMessages(prev => [...prev, userMessage]);
+    const messageText = inputMessage;
     setInputMessage("");
     setIsLoading(true);
     setError("");
 
     try {
+      // Auto-create conversation if none exists and this is the first message
+      let conversationId = currentConversationId;
+      if (!conversationId && messages.length === 0) {
+        console.log('Auto-creating conversation for first message');
+        try {
+          const newConversation = await DeploymentAPI.createConversation(
+            deploymentId, 
+            `Chat ${new Date().toLocaleDateString()}`
+          );
+          conversationId = newConversation.id;
+          setCurrentConversationId(conversationId);
+          setConversations(prev => [newConversation, ...prev]);
+          console.log('Auto-created conversation:', newConversation);
+        } catch (convErr) {
+          console.error('Failed to auto-create conversation:', convErr);
+          // Continue without saving to database
+        }
+      }
+
       const history = formatChatHistory(messages);
       const response: ChatResponse = await DeploymentAPI.chatWithDeployment(
         deploymentId,
-        inputMessage,
-        history
+        messageText,
+        history,
+        conversationId || undefined
       );
 
       const assistantMessage: Message = {
@@ -283,6 +379,11 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
       };
 
       setMessages(prev => [...prev, assistantMessage]);
+
+      // Update conversation ID if it was returned from the chat
+      if (response.conversation_id && !currentConversationId) {
+        setCurrentConversationId(response.conversation_id);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send message");
     } finally {
@@ -298,36 +399,124 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
   };
 
   return (
-    <div className="h-screen flex flex-col bg-gray-50">
-      {/* Header */}
-      <div className="bg-white shadow-sm border-b px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            {onBack && (
+    <div className="h-screen flex bg-gray-50">
+      {/* Sidebar */}
+      {showSidebar && (
+        <div className="w-80 bg-white border-r shadow-sm flex flex-col">
+          <div className="p-4 border-b">
+            <div className="flex items-center justify-between">
+              <h2 className="text-lg font-semibold text-gray-900">Conversations</h2>
               <button
-                onClick={onBack}
+                onClick={() => setShowSidebar(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <button
+              onClick={() => createNewConversation()}
+              className="mt-3 w-full bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition duration-200"
+            >
+              New Conversation
+            </button>
+          </div>
+          
+          <div className="flex-1 overflow-y-auto">
+            {isLoadingConversations ? (
+              <div className="p-4 text-center">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="text-sm text-gray-500 mt-2">Loading conversations...</p>
+              </div>
+            ) : conversations.length === 0 ? (
+              <div className="p-4 text-center">
+                <p className="text-sm text-gray-500">No conversations yet</p>
+              </div>
+            ) : (
+              <div className="p-2">
+                {conversations.map((conversation) => (
+                  <div
+                    key={conversation.id}
+                    className={`p-3 mb-2 rounded-lg cursor-pointer transition-colors ${
+                      currentConversationId === conversation.id
+                        ? 'bg-blue-50 border border-blue-200'
+                        : 'hover:bg-gray-50'
+                    }`}
+                  >
+                    <div 
+                      onClick={() => loadConversation(conversation.id)}
+                      className="flex-1"
+                    >
+                      <h3 className="font-medium text-gray-900 text-sm truncate">
+                        {conversation.title}
+                      </h3>
+                      <p className="text-xs text-gray-500 mt-1">
+                        {conversation.message_count} messages • {new Date(conversation.updated_at).toLocaleDateString()}
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm('Delete this conversation?')) {
+                          deleteConversation(conversation.id);
+                        }
+                      }}
+                      className="mt-2 text-red-500 hover:text-red-700 text-xs"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Main chat area */}
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <div className="bg-white shadow-sm border-b px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              {onBack && (
+                <button
+                  onClick={onBack}
+                  className="text-gray-600 hover:text-gray-900 flex items-center space-x-2"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  </svg>
+                  <span>Back</span>
+                </button>
+              )}
+
+              <button
+                onClick={() => setShowSidebar(!showSidebar)}
                 className="text-gray-600 hover:text-gray-900 flex items-center space-x-2"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
-                <span>Back</span>
+                <span>Conversations</span>
               </button>
-            )}
-            
-            <div>
-              <h1 className="text-xl font-semibold text-gray-900">{workflowName}</h1>
-              <p className="text-sm text-gray-500">Chat Interface</p>
+              
+              <div>
+                <h1 className="text-xl font-semibold text-gray-900">{workflowName}</h1>
+                <p className="text-sm text-gray-500">
+                  {currentConversationId ? `Conversation ${currentConversationId}` : 'Chat Interface'}
+                </p>
+              </div>
             </div>
-          </div>
 
-          <div className="flex items-center space-x-2">
-            <div className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-              Active
+            <div className="flex items-center space-x-2">
+              <div className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
+                Active
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4">
@@ -340,17 +529,17 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
         )}
 
         {messages.map((message) => (
-          <div
-            key={message.id}
-            className={`flex ${message.isUser ? "justify-end" : "justify-start"}`}
-          >
-            <div
-              className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg ${
-                message.isUser
-                  ? "bg-blue-600 text-white"
-                  : "bg-white text-gray-900 shadow-sm border"
-              }`}
-            >
+          <div key={message.id} className={`chat ${message.isUser ? "chat-end" : "chat-start"}`}>
+            <div className="chat-header text-header">
+              {message.isUser ? "You" : "Assistant"}
+              <time className="text-xs text-header ml-1">
+                {message.timestamp.toLocaleTimeString()}
+              </time>
+            </div>
+            
+            <div className={`chat-bubble max-w-xs lg:max-w-md ${
+              message.isUser ? "chat-bubble-primary" : "bg-gray-100 text-gray-700"
+            }`}>
               <div className="text-sm prose prose-sm max-w-none">
                 <ReactMarkdown
                   components={createMarkdownComponents(message.sources, message.isUser)}
@@ -358,10 +547,12 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
                   {message.text}
                 </ReactMarkdown>
               </div>
-              
-              {/* Sources for assistant messages */}
-              {!message.isUser && message.sources && message.sources.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-gray-200">
+            </div>
+
+            {/* Sources for assistant messages */}
+            {!message.isUser && message.sources && message.sources.length > 0 && (
+              <div className="chat-footer">
+                <div className="mt-1">
                   <p className="text-xs text-gray-500 mb-1">Sources:</p>
                   <div className="space-y-1">
                     {message.sources.map((source, index) => {
@@ -378,18 +569,17 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
                     })}
                   </div>
                 </div>
-              )}
-              
-              <p className="text-xs mt-1 opacity-70">
-                {message.timestamp.toLocaleTimeString()}
-              </p>
-            </div>
+              </div>
+            )}
           </div>
         ))}
 
-        {isLoading && (
-          <div className="flex justify-start">
-            <div className="bg-white text-gray-900 shadow-sm border max-w-xs lg:max-w-md px-4 py-2 rounded-lg">
+                  {isLoading && (
+            <div className="chat chat-start">
+              <div className="chat-header text-header">
+                Assistant
+              </div>
+            <div className="chat-bubble bg-gray-100 text-gray-700 max-w-xs lg:max-w-md">
               <div className="flex items-center space-x-2">
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
                 <span className="text-sm">Thinking...</span>
@@ -440,6 +630,7 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
             )}
           </button>
         </div>
+      </div>
       </div>
     </div>
   );

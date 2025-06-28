@@ -6,11 +6,10 @@ import LoginPage from "./components/LoginPage";
 import WorkflowsPage from "./components/WorkflowsPage";
 import WorkflowEditorPage from "./components/WorkflowEditorPage";
 import DeploymentsPage from "./components/DeploymentsPage";
-
-type AppState = "loading" | "login" | "workflows" | "editor" | "deployments";
+import { APP_STATES, type AppState } from "@/lib/constants";
 
 export default function App() {
-  const [appState, setAppState] = useState<AppState>("loading");
+  const [appState, setAppState] = useState<AppState>(APP_STATES.LOADING);
   const [currentWorkflowId, setCurrentWorkflowId] = useState<number | null>(null);
 
   useEffect(() => {
@@ -21,39 +20,39 @@ export default function App() {
     try {
       const isAuthenticated = await AuthAPI.checkAuth();
       if (isAuthenticated) {
-        setAppState("workflows");
+        setAppState(APP_STATES.WORKFLOWS);
       } else {
-        setAppState("login");
+        setAppState(APP_STATES.LOGIN);
       }
     } catch {
-      setAppState("login");
+      setAppState(APP_STATES.LOGIN);
     }
   };
 
   const handleLogin = () => {
-    setAppState("workflows");
+    setAppState(APP_STATES.WORKFLOWS);
   };
 
   const handleLogout = () => {
-    setAppState("login");
+    setAppState(APP_STATES.LOGIN);
   };
 
   const handleEditWorkflow = (workflowId: number | null) => {
     setCurrentWorkflowId(workflowId);
-    setAppState("editor");
+    setAppState(APP_STATES.EDITOR);
   };
 
-    const handleBackToWorkflows = () => {
+  const handleBackToWorkflows = () => {
     setCurrentWorkflowId(null);  
-    setAppState("workflows");
+    setAppState(APP_STATES.WORKFLOWS);
   };
 
   const handleViewDeployments = () => {
-    setAppState("deployments");
+    setAppState(APP_STATES.DEPLOYMENTS);
   };
 
   // Loading state
-  if (appState === "loading") {
+  if (appState === APP_STATES.LOADING) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="flex items-center space-x-2">
@@ -65,12 +64,12 @@ export default function App() {
   }
 
   // Login page
-  if (appState === "login") {
+  if (appState === APP_STATES.LOGIN) {
     return <LoginPage onLogin={handleLogin} />;
   }
 
   // Workflow editor page
-  if (appState === "editor") {
+  if (appState === APP_STATES.EDITOR) {
     return (
       <WorkflowEditorPage 
         workflowId={currentWorkflowId} 
@@ -80,7 +79,7 @@ export default function App() {
   }
 
   // Deployments page
-  if (appState === "deployments") {
+  if (appState === APP_STATES.DEPLOYMENTS) {
     return (
       <DeploymentsPage 
         onLogout={handleLogout} 

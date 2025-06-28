@@ -2,20 +2,47 @@
 
 import React, { useState } from "react";
 import { AuthAPI, LoginRequest, RegisterRequest } from "./agentBuilder/scripts/authAPI";
+import { validateEmail, validatePassword, validatePasswordMatch } from "@/lib/utils";
 
 interface LoginPageProps {
   onLogin: () => void;
 }
 
+interface FormData {
+  email: string;
+  password: string;
+  confirmPassword: string;
+}
+
 export default function LoginPage({ onLogin }: LoginPageProps) {
   const [isLogin, setIsLogin] = useState(true);
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormData>({
     email: "",
     password: "",
     confirmPassword: "",
   });
-  const [error, setError] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<Partial<FormData>>({});
+
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+
+  const handleAuth = async (isLogin: boolean, credentials: LoginRequest | RegisterRequest) => {
+    setAuthLoading(true);
+    setAuthError(null);
+    
+    try {
+      if (isLogin) {
+        await AuthAPI.login(credentials as LoginRequest);
+      } else {
+        await AuthAPI.register(credentials as RegisterRequest);
+      }
+      onLogin();
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'An unexpected error occurred');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
@@ -23,54 +50,68 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       ...prev,
       [name]: value
     }));
-    // Clear error when user starts typing
-    if (error) setError("");
+    
+    // Clear field error when user starts typing
+    if (fieldErrors[name as keyof FormData]) {
+      setFieldErrors(prev => ({
+        ...prev,
+        [name]: undefined
+      }));
+    }
+  };
+
+  const validateForm = (): boolean => {
+    const errors: Partial<FormData> = {};
+
+    // Email validation
+    const emailValidation = validateEmail(formData.email);
+    if (!emailValidation.isValid) {
+      errors.email = emailValidation.error;
+    }
+
+    // Password validation
+    const passwordValidation = validatePassword(formData.password);
+    if (!passwordValidation.isValid) {
+      errors.password = passwordValidation.error;
+    }
+
+    // Confirm password validation (only for registration)
+    if (!isLogin) {
+      const passwordMatchValidation = validatePasswordMatch(formData.password, formData.confirmPassword);
+      if (!passwordMatchValidation.isValid) {
+        errors.confirmPassword = passwordMatchValidation.error;
+      }
+    }
+
+    setFieldErrors(errors);
+    return Object.keys(errors).length === 0;
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
-    setError("");
+    
+    if (!validateForm()) {
+      return;
+    }
 
-    try {
-      if (isLogin) {
-        const loginData: LoginRequest = {
-          email: formData.email,
-          password: formData.password
-        };
-        await AuthAPI.login(loginData);
-      } else {
-        // Registration validation
-        if (formData.password !== formData.confirmPassword) {
-          setError("Passwords don't match");
-          setLoading(false);
-          return;
-        }
-        if (formData.password.length < 6) {
-          setError("Password must be at least 6 characters");
-          setLoading(false);
-          return;
-        }
-
-        const registerData: RegisterRequest = {
-          email: formData.email,
-          password: formData.password,
-          student: true
-        };
-        await AuthAPI.register(registerData);
-      }
-      
-      onLogin(); // Notify parent component of successful login
-    } catch (error) {
-      setError(error instanceof Error ? error.message : "An error occurred");
-    } finally {
-      setLoading(false);
+    if (isLogin) {
+      await handleAuth(true, {
+        email: formData.email,
+        password: formData.password
+      });
+    } else {
+      await handleAuth(false, {
+        email: formData.email,
+        password: formData.password,
+        student: true
+      });
     }
   };
 
   const toggleMode = () => {
     setIsLogin(!isLogin);
-    setError("");
+    setFieldErrors({});
+    setAuthError(null);
     setFormData({
       email: "",
       password: "",
@@ -102,9 +143,18 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               value={formData.email}
               onChange={handleInputChange}
               required
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
+              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 ${
+                fieldErrors.email ? 'border-red-300' : 'border-gray-300'
+              }`}
               placeholder="Enter your email"
+              aria-invalid={!!fieldErrors.email}
+              aria-describedby={fieldErrors.email ? "email-error" : undefined}
             />
+            {fieldErrors.email && (
+              <p id="email-error" className="mt-1 text-sm text-red-600">
+                {fieldErrors.email}
+              </p>
+            )}
           </div>
 
           <div>
@@ -118,9 +168,18 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               value={formData.password}
               onChange={handleInputChange}
               required
-              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
+              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 ${
+                fieldErrors.password ? 'border-red-300' : 'border-gray-300'
+              }`}
               placeholder="Enter your password"
+              aria-invalid={!!fieldErrors.password}
+              aria-describedby={fieldErrors.password ? "password-error" : undefined}
             />
+            {fieldErrors.password && (
+              <p id="password-error" className="mt-1 text-sm text-red-600">
+                {fieldErrors.password}
+              </p>
+            )}
           </div>
 
           {!isLogin && (
@@ -135,27 +194,37 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 value={formData.confirmPassword}
                 onChange={handleInputChange}
                 required
-                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
+                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 ${
+                  fieldErrors.confirmPassword ? 'border-red-300' : 'border-gray-300'
+                }`}
                 placeholder="Confirm your password"
+                aria-invalid={!!fieldErrors.confirmPassword}
+                aria-describedby={fieldErrors.confirmPassword ? "confirm-password-error" : undefined}
               />
+              {fieldErrors.confirmPassword && (
+                <p id="confirm-password-error" className="mt-1 text-sm text-red-600">
+                  {fieldErrors.confirmPassword}
+                </p>
+              )}
             </div>
           )}
 
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm">
-              {error}
+          {authError && (
+            <div className="bg-red-50 border border-red-200 text-red-600 px-4 py-3 rounded-lg text-sm" role="alert">
+              {authError}
             </div>
           )}
 
           <button
             type="submit"
-            disabled={loading}
-            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-3 px-4 rounded-lg transition duration-200 transform hover:scale-[1.02] active:scale-[0.98]"
+            disabled={authLoading}
+            className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold py-3 px-4 rounded-lg transition duration-200 transform hover:scale-[1.02] active:scale-[0.98] disabled:transform-none"
+            aria-describedby={authError ? "form-error" : undefined}
           >
-            {loading ? (
+            {authLoading ? (
               <div className="flex items-center justify-center">
-                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
-                {isLogin ? "Signing in..." : "Creating account..."}
+                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2" aria-hidden="true"></div>
+                <span>{isLogin ? "Signing in..." : "Creating account..."}</span>
               </div>
             ) : (
               isLogin ? "Sign In" : "Create Account"

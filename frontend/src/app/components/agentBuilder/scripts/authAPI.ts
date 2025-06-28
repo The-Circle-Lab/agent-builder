@@ -1,3 +1,7 @@
+import { apiClient } from '@/lib/api-client';
+import { ROUTES } from '@/lib/constants';
+import { validateEmail, validatePassword } from '@/lib/utils';
+
 export interface LoginRequest {
   email: string;
   password: string;
@@ -15,64 +19,70 @@ export interface User {
 }
 
 export class AuthAPI {
-  private static readonly BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
-
   static async login(credentials: LoginRequest): Promise<void> {
-    const response = await fetch(`${this.BASE_URL}/auth/login`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify(credentials)
-    });
+    // Validate input
+    const emailValidation = validateEmail(credentials.email);
+    if (!emailValidation.isValid) {
+      throw new Error(emailValidation.error);
+    }
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Login failed' }));
-      throw new Error(error.detail || 'Login failed');
+    const passwordValidation = validatePassword(credentials.password);
+    if (!passwordValidation.isValid) {
+      throw new Error(passwordValidation.error);
+    }
+
+    const response = await apiClient.post(ROUTES.AUTH.LOGIN, credentials);
+    
+    if (response.error) {
+      throw new Error(response.error);
     }
   }
 
   static async register(userData: RegisterRequest): Promise<void> {
-    const response = await fetch(`${this.BASE_URL}/auth/register`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-      body: JSON.stringify({ ...userData, student: userData.student ?? true })
-    });
+    // Validate input
+    const emailValidation = validateEmail(userData.email);
+    if (!emailValidation.isValid) {
+      throw new Error(emailValidation.error);
+    }
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ detail: 'Registration failed' }));
-      throw new Error(error.detail || 'Registration failed');
+    const passwordValidation = validatePassword(userData.password);
+    if (!passwordValidation.isValid) {
+      throw new Error(passwordValidation.error);
+    }
+
+    const response = await apiClient.post(ROUTES.AUTH.REGISTER, {
+      ...userData,
+      student: userData.student ?? true
+    });
+    
+    if (response.error) {
+      throw new Error(response.error);
     }
   }
 
   static async logout(): Promise<void> {
-    const response = await fetch(`${this.BASE_URL}/auth/logout`, {
-      method: 'POST',
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
-      throw new Error('Logout failed');
+    const response = await apiClient.post(ROUTES.AUTH.LOGOUT);
+    
+    if (response.error) {
+      throw new Error(response.error);
     }
   }
 
   static async getCurrentUser(): Promise<User> {
-    const response = await fetch(`${this.BASE_URL}/me`, {
-      credentials: 'include'
-    });
-
-    if (!response.ok) {
+    const response = await apiClient.get<User>(ROUTES.AUTH.ME);
+    
+    if (response.error) {
       if (response.status === 401) {
         throw new Error('Not authenticated');
       }
-      throw new Error('Failed to get user info');
+      throw new Error(response.error);
     }
 
-    return await response.json();
+    if (!response.data) {
+      throw new Error('No user data received');
+    }
+
+    return response.data;
   }
 
   static async checkAuth(): Promise<boolean> {

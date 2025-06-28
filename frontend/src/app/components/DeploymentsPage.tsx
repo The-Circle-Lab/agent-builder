@@ -48,15 +48,11 @@ export default function DeploymentsPage({ onLogout, onBack }: DeploymentsPagePro
   };
 
   const handleDeleteDeployment = async (deploymentId: string, workflowName: string) => {
-    if (!confirm(`Are you sure you want to delete deployment "${workflowName}"?`)) {
-      return;
-    }
-
     try {
       await DeploymentAPI.deleteDeployment(deploymentId);
       setDeployments(prev => prev.filter(d => d.deployment_id !== deploymentId));
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to delete deployment");
+      setError(error instanceof Error ? error.message : `Failed to delete deployment ${workflowName}`);
     }
   };
 
