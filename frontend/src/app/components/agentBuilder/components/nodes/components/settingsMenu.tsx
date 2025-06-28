@@ -4,7 +4,7 @@ import { faTimes } from "@fortawesome/free-solid-svg-icons";
 import { NodeData } from "../types";
 import { getNodeConfig } from "../nodeRegistry";
 import { PropertyDefinition } from "../types";
-import DocumentManager from "./DocumentManager";
+import DocumentManager from "./documentManager";
 
 export * from "../../../hooks/useSettingsMenu";
 

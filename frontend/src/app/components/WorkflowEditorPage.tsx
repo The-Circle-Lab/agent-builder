@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Node, Edge } from "@xyflow/react";
-import WorkflowEditor from "./agentBuilder/WorkflowEditor";
+import WorkflowEditor from "./agentBuilder/workflowEditor";
 import { WorkflowAPI, AutoSave } from "./agentBuilder/scripts/workflowSave";
 
 interface WorkflowEditorPageProps {

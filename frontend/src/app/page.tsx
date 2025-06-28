@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import { AuthAPI } from "./components/agentBuilder/scripts/authAPI";
-import LoginPage from "./components/LoginPage";
-import WorkflowsPage from "./components/WorkflowsPage";
-import WorkflowEditorPage from "./components/WorkflowEditorPage";
-import DeploymentsPage from "./components/DeploymentsPage";
+import LoginPage from "./components/loginPage";
+import WorkflowsPage from "./components/workflowsPage";
+import WorkflowEditorPage from "./components/workflowEditorPage";
+import DeploymentsPage from "./components/deploymentsPage";
 import { APP_STATES, type AppState } from "@/lib/constants";
 
 export default function App() {

@@ -1,4 +1,4 @@
-import { apiClient } from '@/lib/api-client';
+import { apiClient } from '@/lib/apiClient';
 import { ROUTES } from '@/lib/constants';
 import { validateEmail, validatePassword } from '@/lib/utils';
 

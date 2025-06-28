@@ -67,7 +67,7 @@ export interface MessageResponse {
   created_at: string;
 }
 
-import { apiClient } from '@/lib/api-client';
+import { apiClient } from '@/lib/apiClient';
 import { ROUTES } from '@/lib/constants';
 import { isDevelopment } from '@/lib/utils';
 
