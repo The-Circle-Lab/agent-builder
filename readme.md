@@ -1,6 +1,3 @@
-# Note
-- The backend is messy, it will be fixed :)
-
 # Agent Builder Prototype
 
 A full-stack application for building and managing AI agent workflows with a React/Next.js frontend and FastAPI backend.
