@@ -1,9 +1,9 @@
 import { BaseNodeConfig } from "../baseNode";
 import { PropertyDefinition } from "../../types";
 
-export class OpenAINodeConfig extends BaseNodeConfig {
-  nodeType = "openAI";
-  displayName = "OpenAI Model";
+export class AnthropicNodeConfig extends BaseNodeConfig {
+  nodeType = "anthropic";
+  displayName = "Anthropic Model";
 
   readonly properties = [
     ...this.createBaseProperties(),
@@ -11,12 +11,12 @@ export class OpenAINodeConfig extends BaseNodeConfig {
       key: "model",
       label: "Model",
       type: "select",
-      defaultValue: "gpt-4o-2024-08-06",
+      defaultValue: "claude-3-5-haiku@20241022",
       options: [
-        "o3-2025-04-16",
-        "gpt-4o-2024-08-06",
-        "o4-mini-2025-04-16",
-        "gpt-4.1-mini-2025-04-14",
+        "claude-3-7-sonnet@20250219",
+        "claude-3-5-haiku@20241022",
+        "claude-sonnet-4@20250514",
+        "claude-opus-4@20250514"
       ],
     },
     {
@@ -49,4 +49,4 @@ export class OpenAINodeConfig extends BaseNodeConfig {
 }
 
 // Export the configuration instance
-export const openAINodeConfig = new OpenAINodeConfig().getConfig();
+export const anthropicNodeConfig = new AnthropicNodeConfig().getConfig();

@@ -3,7 +3,7 @@ from passlib.context import CryptContext
 from datetime import timedelta, datetime as dt, timezone
 from pydantic import BaseModel
 from sqlmodel import select, Session as DBSession
-from database.db_models import User, AuthSession
+from models.db_models import User, AuthSession
 from database.database import get_session
 import sys
 from pathlib import Path

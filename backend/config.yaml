@@ -1,8 +1,8 @@
 # Application Configuration
 app:
   name: "Agent Builder Backend"
-  debug: false
-  log_level: "INFO"
+  debug: true
+  log_level: "DEBUG"
   log_file_pattern: "api_%Y%m%d.log"
 
 # Server Configuration  

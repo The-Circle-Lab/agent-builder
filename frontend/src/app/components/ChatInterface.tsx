@@ -212,17 +212,21 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
         <code className={`px-1 py-0.5 rounded text-xs font-mono ${
           isUserMessage 
             ? "bg-blue-500 text-blue-100" 
-            : "bg-gray-100 text-gray-800"
-        }`} {...props}>
+            : "bg-gray-100 text-gray-500"
+        }`} style={isUserMessage ? undefined : { backgroundColor: '#f3f4f6', color: '#4b5563' }} {...props}>
           {children}
         </code>
       ) : (
         <pre className={`p-2 rounded text-xs font-mono overflow-x-auto ${
           isUserMessage 
             ? "bg-blue-500 text-blue-100" 
-            : "bg-gray-100 text-gray-800"
-        }`}>
-          <code>{children}</code>
+            : "bg-gray-100 text-gray-500"
+        }`} style={isUserMessage ? undefined : { backgroundColor: '#f3f4f6', color: '#4b5563' }}>
+          <code className={`${
+            isUserMessage 
+              ? "text-blue-100" 
+              : "text-gray-500"
+          }`}>{children}</code>
         </pre>
       );
     },

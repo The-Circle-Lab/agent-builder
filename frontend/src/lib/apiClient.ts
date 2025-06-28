@@ -41,7 +41,7 @@ class ApiClient {
       }
 
       if (!response.ok) {
-        const errorData = await this.safeJsonParse(response);
+        const errorData = await this.safeJsonParse<{ detail?: string }>(response);
         const errorMessage = errorData?.detail || getHttpErrorMessage(response.status);
         
         return {
@@ -71,12 +71,12 @@ class ApiClient {
     }
   }
 
-  private async safeJsonParse<T>(response: Response): Promise<T | null> {
+  private async safeJsonParse<T>(response: Response): Promise<T | undefined> {
     try {
       const text = await response.text();
-      return text ? JSON.parse(text) : null;
+      return text ? JSON.parse(text) : undefined;
     } catch {
-      return null;
+      return undefined;
     }
   }
 

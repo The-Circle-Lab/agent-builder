@@ -47,7 +47,7 @@ export function useApi<T = unknown>(
         }
 
         setState(prev => ({ ...prev, loading: false, data: response.data!, error: null }));
-        onSuccess?.(response.data);
+        onSuccess?.(response.data!);
         return response.data!;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred';

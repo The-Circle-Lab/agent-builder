@@ -2,11 +2,12 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from database.database import init_db, shutdown_db
-from services.auth import router as auth_router, get_current_user
-from services.workflow_api import router as workflow_router
-from services.document_api import router as document_router
-from services.deployment_mcp_api import router as deployment_router, cleanup_all_deployments
-from database.db_models import User
+from api.auth import router as auth_router, get_current_user
+from api.workflow_api import router as workflow_router
+from api.document_api import router as document_router
+from api.deployment_routes import router as deployment_router
+from services.deployment_manager import cleanup_all_deployments
+from models.db_models import User
 from contextlib import asynccontextmanager
 import logging
 from datetime import datetime

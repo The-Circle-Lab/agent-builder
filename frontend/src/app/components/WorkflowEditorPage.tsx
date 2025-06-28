@@ -28,13 +28,7 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
   const [currentEdges, setCurrentEdges] = useState<Edge[]>(initialEdges);
   const [deploymentSuccess, setDeploymentSuccess] = useState<string>("");
 
-  useEffect(() => {
-    if (workflowId) {
-      loadWorkflow();
-    }
-  }, [workflowId]);
-
-  const loadWorkflow = async () => {
+  const loadWorkflow = useCallback(async () => {
     if (!workflowId) return;
     
     try {
@@ -53,7 +47,13 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
     } finally {
       setLoading(false);
     }
-  };
+  }, [workflowId]);
+
+  useEffect(() => {
+    if (workflowId) {
+      loadWorkflow();
+    }
+  }, [workflowId, loadWorkflow]);
 
   const handleWorkflowChange = useCallback((nodes: Node[], edges: Edge[]) => {
     setCurrentNodes(nodes);

@@ -1,9 +1,9 @@
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select, Session as DBSession
-from database.db_models import User, Workflow, Class, Document
+from models.db_models import User, Workflow, Class, Document
 from database.database import get_session
-from services.auth import get_current_user
+from api.auth import get_current_user
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone

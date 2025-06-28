@@ -28,6 +28,9 @@ class User(SQLModel, table=True):
     
     # Chat relationships
     chat_conversations: List["ChatConversation"] = Relationship(back_populates="user", sa_relationship_kwargs={"cascade": "all, delete"})
+    
+    # Deployment relationships
+    deployments: List["Deployment"] = Relationship(back_populates="user", sa_relationship_kwargs={"cascade": "all, delete"})
 
 
 class AuthSession(SQLModel, table=True):
@@ -148,5 +151,26 @@ class ChatMessage(SQLModel, table=True):
     
     # Relationships
     conversation: Optional[ChatConversation] = Relationship(back_populates="messages")
+
+
+class Deployment(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    deployment_id: str = Field(index=True, unique=True)  # UUID for the deployment
+    user_id: int = Field(foreign_key="user.id")
+    workflow_id: int = Field(foreign_key="workflow.id")
+    workflow_name: str = Field(index=True)
+    collection_name: str | None = Field(default=None, index=True)  # Collection name for MCP
+    
+    # Store the deployment configuration as JSON
+    config: Dict[str, Any] = Field(sa_column=Column(JSON))
+    
+    # Metadata
+    created_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
+    updated_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
+    is_active: bool = True
+    
+    # Relationships
+    user: Optional[User] = Relationship(back_populates="deployments")
+    workflow: Optional["Workflow"] = Relationship()
 
 

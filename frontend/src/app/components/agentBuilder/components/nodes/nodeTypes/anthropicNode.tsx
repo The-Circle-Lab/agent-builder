@@ -4,40 +4,46 @@ import { Handle, Position } from "@xyflow/react";
 import { NodePropertyConfig, NodeData } from "../types";
 import { BaseNode, BaseNodeProps, NodeDataFromConfig } from "./baseNode";
 import {
-  GoogleCloudNodeConfig,
-  googleCloudNodeConfig,
-} from "./configs/googleCloudNodeConfig";
+  AnthropicNodeConfig,
+  anthropicNodeConfig,
+} from "./configs/anthropicNodeConfig";
 
-export { googleCloudNodeConfig };
+export { anthropicNodeConfig };
 
-export type GoogleCloudNodeData = NodeDataFromConfig<GoogleCloudNodeConfig>;
+export type AnthropicNodeData = NodeDataFromConfig<AnthropicNodeConfig>;
 
-export interface GoogleCloudNodeProps extends BaseNodeProps {
-  data?: GoogleCloudNodeData;
+export interface AnthropicNodeProps extends BaseNodeProps {
+  data?: AnthropicNodeData;
 }
 
-export class GoogleCloudNodeClass extends BaseNode<
-  GoogleCloudNodeProps,
-  GoogleCloudNodeData
+export class AnthropicNodeClass extends BaseNode<
+  AnthropicNodeProps,
+  AnthropicNodeData
 > {
   public getNodeType(): string {
-    return "googleCloud";
+    return "anthropic";
   }
 
   protected getConfig(): NodePropertyConfig {
-    return googleCloudNodeConfig;
+    return anthropicNodeConfig;
   }
 
   protected renderNodeContent(): React.ReactNode {
     return (
       <div>
         {this.renderBaseContainer(
-          <Image src="/google.svg" alt="Google Cloud" width={32} height={32} />
+          <Image
+            src="/anthropic.svg"
+            alt="Anthropic"
+            width={32}
+            height={32}
+            className="filter brightness-0 invert"
+          />
         )}
 
         {/* Title positioned outside the node */}
         <div className="absolute bottom-[-45px] w-30 left-1/2 transform -translate-x-1/2 text-white font-bold text-sm text-center">
-          Google AI Model
+          Anthropic Model
         </div>
 
         {/* Input Handle - Top */}
@@ -53,16 +59,16 @@ export class GoogleCloudNodeClass extends BaseNode<
 }
 
 // Functional component wrapper
-export function GoogleCloudNode(props: GoogleCloudNodeProps) {
-  return <GoogleCloudNodeClass {...props} />;
+export function AnthropicNode(props: AnthropicNodeProps) {
+  return <AnthropicNodeClass {...props} />;
 }
 
 // Node type factory for ReactFlow
-export const createGoogleCloudNodeType = (
+export const createAnthropicNodeType = (
   onDelete?: (nodeId: string) => void,
   onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void
 ) =>
-  BaseNode.createNodeType(GoogleCloudNode, {
+  BaseNode.createNodeType(AnthropicNode, {
     onDelete,
     onSettings,
   });

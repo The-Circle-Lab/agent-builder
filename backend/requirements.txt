@@ -3,6 +3,7 @@ fastmcp==2.9.2
 langchain==0.3.26
 langchain_community==0.3.26
 langchain_google_vertexai==2.0.26
+langchain_openai==0.3.27
 mcp==1.10.1
 passlib==1.7.4
 pydantic==2.11.7

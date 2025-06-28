@@ -156,31 +156,31 @@ export default function WorkflowEditor({
       }
 
       // First test authentication
-      console.log("🔍 Testing authentication before deployment...");
+      console.log("Testing authentication before deployment...");
       try {
         const authResult = await DeploymentAPI.debugAuth();
-        console.log("✅ Authentication successful:", authResult);
+        console.log("Authentication successful:", authResult);
       } catch (authError) {
-        console.error("❌ Authentication failed:", authError);
+        console.error("Authentication failed:", authError);
         throw new Error(`Authentication failed: ${authError instanceof Error ? authError.message : "Unknown auth error"}`);
       }
 
       // Create workflow JSON
-      console.log("📦 Creating workflow JSON...");
+      console.log("Creating workflow JSON...");
       const workflowJSON = createWorkflowJSON(nodes, edges);
       const workflowData = JSON.parse(workflowJSON);
-      console.log("✅ Workflow JSON created:", workflowData);
+      console.log("Workflow JSON created:", workflowData);
 
       // Deploy workflow
-      console.log("🚀 Deploying workflow...");
+      console.log("Deploying workflow...");
       const response = await DeploymentAPI.deployWorkflow(workflowName, numericWorkflowId, workflowData);
-      console.log("✅ Deployment successful:", response);
+      console.log("Deployment successful:", response);
       
       if (onDeploySuccess) {
         onDeploySuccess(response.deployment_id, response.chat_url);
       }
     } catch (error) {
-      console.error("❌ Deployment error:", error);
+      console.error("Deployment error:", error);
       setDeployError(error instanceof Error ? error.message : "Deployment failed");
     } finally {
       setIsDeploying(false);

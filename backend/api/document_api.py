@@ -6,8 +6,8 @@ from typing import List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status
 from fastapi.responses import JSONResponse
 from sqlmodel import Session as DBSession, select
-from services.auth import get_current_user
-from database.db_models import User, Document, Workflow
+from api.auth import get_current_user
+from models.db_models import User, Document, Workflow
 from database.database import get_session
 from scripts.utils import create_qdrant_client, get_user_collection_name
 import sys

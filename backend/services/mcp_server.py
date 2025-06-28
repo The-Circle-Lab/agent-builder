@@ -1,18 +1,14 @@
 from pathlib import Path
 from typing import Annotated, List
-import os, uuid, asyncio, json
-import math
 
 from langchain_community.vectorstores import Qdrant
 from langchain_community.embeddings import FastEmbedEmbeddings
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
 from qdrant_client import QdrantClient
 
 from fastmcp import FastMCP
 
 # server
-mcp = FastMCP("agent-server")          # Extended server with multiple tools
+mcp = FastMCP("agent-server")
 
 EMBED = FastEmbedEmbeddings()
 from pathlib import Path

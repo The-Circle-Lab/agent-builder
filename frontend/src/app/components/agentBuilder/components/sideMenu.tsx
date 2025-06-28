@@ -15,9 +15,9 @@ const nodeOptions = [
   {
     category: "llm",
     type: "googleCloud",
-    name: "Google Cloud Models",
+    name: "Google AI Models",
     icon: "/google.svg",
-    description: "Add Google Cloud AI models",
+    description: "Add Google AI language models",
   },
   {
     category: "llm",
@@ -25,6 +25,13 @@ const nodeOptions = [
     name: "OpenAI Models",
     icon: "/openai.svg",
     description: "Add OpenAI language models",
+  },
+  {
+    category: "llm",
+    type: "anthropic",
+    name: "Anthropic Models",
+    icon: "/anthropic.svg",
+    description: "Add Anthropic language models",
   },
   {
     category: "agent",
