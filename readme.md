@@ -2,6 +2,8 @@
 
 A full-stack application for building and managing AI agent workflows with a React/Next.js frontend and FastAPI backend.
 
+https://github.com/user-attachments/assets/aa8c3936-c0e6-4cfa-98ec-b1e342844af7
+
 ## Prerequisites
 
 - **Python 3.8+** (for backend)
