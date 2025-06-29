@@ -32,15 +32,11 @@ export const useWebSocket = ({
   const reconnectAttemptsRef = useRef<number>(0);
 
   const handleWebSocketMessage = useCallback((data: WebSocketMessage) => {
-    console.log('WebSocket message received:', data.type, data);
-    
     switch (data.type) {
       case 'auth_success':
-        console.log('WebSocket authentication successful');
         break;
         
       case 'typing':
-        console.log('Assistant is typing...');
         onTyping();
         // Clear any previous streaming state for new response
         currentStreamingMessageRef.current = "";
@@ -49,7 +45,6 @@ export const useWebSocket = ({
         
       case 'stream':
         if (data.chunk) {
-          console.log(`Received streaming chunk (${data.chunk.length} chars):`, data.chunk);
           currentStreamingMessageRef.current += data.chunk;
           
           // Use sources from early message or chunk data
@@ -63,7 +58,6 @@ export const useWebSocket = ({
         break;
         
       case 'response':
-        console.log('Received final response:', data.response, 'Sources:', data.sources);
         currentStreamingMessageRef.current = "";
         currentStreamingSourcesRef.current = [];
         
@@ -75,21 +69,18 @@ export const useWebSocket = ({
         break;
         
       case 'error':
-        console.error('WebSocket error:', data.message);
         onError(data.message || "Chat error occurred");
         break;
         
       case 'pong':
-        console.log('Received pong');
         break;
         
       case 'sources':
-        console.log('Received sources:', data.sources);
         currentStreamingSourcesRef.current = data.sources || [];
         break;
         
       default:
-        console.log('Unknown WebSocket message type:', data.type);
+        break;
     }
   }, [onTyping, onStreamStart, onStreamChunk, onResponse, onError]);
 
@@ -97,7 +88,6 @@ export const useWebSocket = ({
     try {
       // Check if WebSocket is available
       if (typeof WebSocket === 'undefined') {
-        console.error('[WebSocket] WebSocket API not available in this browser');
         onError("WebSocket not supported");
         return;
       }
@@ -124,17 +114,11 @@ export const useWebSocket = ({
         wsUrl += `?sid=${sessionId}`;
       }
       
-      console.log(`[WebSocket] Connecting to: ${wsUrl}`);
-      console.log(`[WebSocket] Base URL: ${baseUrl}`);
-      console.log(`[WebSocket] Deployment ID: ${deploymentId}`);
-      console.log(`[WebSocket] Session ID available: ${!!sessionId}`);
-      
       // WebSocket will automatically include cookies with the connection
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       
       ws.onopen = () => {
-        console.log('[WebSocket] Connection opened successfully');
         setConnected(true);
         reconnectAttemptsRef.current = 0;
         
@@ -153,8 +137,8 @@ export const useWebSocket = ({
         try {
           const data = JSON.parse(event.data);
           handleWebSocketMessage(data);
-        } catch (err) {
-          console.error('Failed to parse WebSocket message:', err);
+        } catch {
+          // Silently ignore parsing errors
         }
       };
       
@@ -163,7 +147,6 @@ export const useWebSocket = ({
       };
       
       ws.onclose = (event) => {
-        console.log(`[WebSocket] Connection closed. Code: ${event.code}, Reason: ${event.reason}, Clean: ${event.wasClean}`);
         setConnected(false);
         
         // Clear ping interval
@@ -172,22 +155,8 @@ export const useWebSocket = ({
           pingIntervalRef.current = null;
         }
         
-        // Log close codes for debugging
-        const closeCodeMessages: Record<number, string> = {
-          1000: 'Normal closure',
-          1001: 'Going away',
-          1002: 'Protocol error',
-          1003: 'Unsupported data',
-          1006: 'Abnormal closure',
-          1011: 'Server error',
-          1015: 'TLS handshake failure'
-        };
-        
-        console.log(`[WebSocket] Close reason: ${closeCodeMessages[event.code] || 'Unknown'}`);
-        
         // If connection closed immediately with specific codes, it's likely auth failure
         if (event.code === 1002 || event.code === 1003 || (event.code === 1000 && reconnectAttemptsRef.current === 0)) {
-          console.log('[WebSocket] Connection closed due to authentication or protocol error');
           onError("Authentication failed. Please refresh the page and try again.");
           return;
         }
@@ -195,20 +164,17 @@ export const useWebSocket = ({
         // Attempt reconnection
         if (reconnectAttemptsRef.current < 5 && enabled) {
           const timeout = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
-          console.log(`[WebSocket] Attempting reconnection ${reconnectAttemptsRef.current + 1}/5 in ${timeout}ms`);
           
           reconnectTimeoutRef.current = setTimeout(() => {
             reconnectAttemptsRef.current = reconnectAttemptsRef.current + 1;
             connectWebSocket();
           }, timeout);
         } else {
-          console.log('[WebSocket] Max reconnection attempts reached or connection disabled');
           onError("Failed to connect to chat service. Please refresh the page.");
         }
       };
       
-    } catch (err) {
-      console.error('Failed to create WebSocket:', err);
+    } catch {
       onError("Failed to establish WebSocket connection");
     }
   }, [deploymentId, handleWebSocketMessage, onError, enabled]);

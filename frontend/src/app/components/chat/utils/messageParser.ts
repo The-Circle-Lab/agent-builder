@@ -35,6 +35,31 @@ export const processThinkTags = (text: string, isStreaming: boolean = false): st
 };
 
 /**
+ * Helper function to parse citation content and extract source filenames
+ */
+const parseCitationContent = (citationContent: string): string[] => {
+  // Check if citation starts with a prefix (case insensitive)
+  const prefixRegex = /^(sources?|references?):\s*/i;
+  const match = citationContent.match(prefixRegex);
+  
+  let contentToParse = citationContent;
+  if (match) {
+    // Remove the prefix
+    contentToParse = citationContent.substring(match[0].length);
+  }
+  
+  // Split by semicolons to get individual citations
+  const citedSources = contentToParse.split(';').map(source => {
+    const trimmed = source.trim();
+    // Extract filename (everything before the first comma or the whole string)
+    const filename = trimmed.split(',')[0].trim();
+    return filename;
+  });
+  
+  return citedSources;
+};
+
+/**
  * Parse text and extract source citations and thinking content
  */
 export const parseSourceCitations = (text: string, messageSources: string[] = []): ParsedTextPart[] => {
@@ -49,8 +74,8 @@ export const parseSourceCitations = (text: string, messageSources: string[] = []
 
   // First handle thinking content markers
   const thinkingRegex = /__THINK_START__([\s\S]*?)__THINK_END__/g;
-  // Then handle citations
-  const citationRegex = /\(([^)]+(?:;\s*[^)]+)*)\)/g;
+  // Then handle citations - supports both (Citation) and *(Citation)* formats
+  const citationRegex = /\*?\(([^)]+(?:;\s*[^)]+)*)\)\*?/g;
   
   const parts: ParsedTextPart[] = [];
   let lastIndex = 0;
@@ -68,12 +93,7 @@ export const parseSourceCitations = (text: string, messageSources: string[] = []
   while ((match = citationRegex.exec(text)) !== null) {
     // Parse the citation content to check if it matches actual sources
     const citationContent = match[1];
-    const citedSources = citationContent.split(';').map(source => {
-      const trimmed = source.trim();
-      // Extract filename (everything before the first comma or the whole string)
-      const filename = trimmed.split(',')[0].trim();
-      return filename;
-    });
+    const citedSources = parseCitationContent(citationContent);
 
     // Check if any of the cited sources match actual message sources
     const validSources = citedSources.filter(source => sourceFilenames.has(source));
@@ -106,11 +126,7 @@ export const parseSourceCitations = (text: string, messageSources: string[] = []
     } else if (type === 'citation') {
       // Add citation
       const citationContent = match[1];
-      const citedSources = citationContent.split(';').map(source => {
-        const trimmed = source.trim();
-        const filename = trimmed.split(',')[0].trim();
-        return filename;
-      });
+      const citedSources = parseCitationContent(citationContent);
       const validSources = citedSources.filter(source => sourceFilenames.has(source));
       
       parts.push({
@@ -141,4 +157,4 @@ export const formatChatHistory = (messages: Array<{text: string; isUser: boolean
     .filter(msg => !msg.isUser || messages.indexOf(msg) < messages.length - 1)
     .map(msg => [msg.text, ""]) // Format for API
     .slice(-10); // Keep last 10 exchanges
-}; 
+};

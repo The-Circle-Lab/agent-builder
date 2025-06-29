@@ -15,7 +15,7 @@ export const SourceCitationButton = ({ filename }: { filename: string }) => (
   <button
     className="inline-flex items-center px-2 py-0.5 mx-0.5 my-0.5 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded text-xs font-normal text-gray-700 transition-colors duration-150 whitespace-nowrap"
     onClick={() => {
-      console.log('Clicked source:', filename);
+      // Handle source citation click
     }}
     title={`Source: ${filename}`}
   >
@@ -164,7 +164,16 @@ const createMarkdownComponents = (
     </blockquote>
   ),
   strong: ({ children, ...props }: React.ComponentProps<'strong'>) => <strong className="font-semibold" {...props}>{children}</strong>,
-  em: ({ children, ...props }: React.ComponentProps<'em'>) => <em className="italic" {...props}>{children}</em>,
+  em: ({ children, ...props }: React.ComponentProps<'em'>) => (
+    <em className="italic" {...props}>
+      {React.Children.map(children, (child) => {
+        if (typeof child === 'string') {
+          return <TextWithCitations text={child} sources={sources} />;
+        }
+        return child;
+      })}
+    </em>
+  ),
 });
 
 // Streaming-optimized message renderer (refactored)

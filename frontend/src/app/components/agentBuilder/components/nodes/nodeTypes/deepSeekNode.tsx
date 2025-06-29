@@ -42,7 +42,7 @@ export class DeepSeekNodeClass extends BaseNode<
         )}
 
         {/* Title positioned outside the node */}
-        <div className="absolute bottom-[-45px] w-30 left-1/2 transform -translate-x-1/2 text-white font-bold text-sm text-center">
+        <div className="absolute bottom-[-25px] w-30 left-1/2 transform -translate-x-1/2 text-white font-bold text-sm text-center">
           DeepSeek Model
         </div>
 

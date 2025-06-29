@@ -15,7 +15,6 @@ export const useConversations = (deploymentId: string) => {
       const fetchedConversations = await DeploymentAPI.getConversations(deploymentId);
       setConversations(fetchedConversations);
     } catch (err) {
-      console.error('Failed to load conversations:', err);
       setConversationsError(`Failed to load conversations: ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       setIsLoadingConversations(false);
@@ -78,8 +77,7 @@ export const useConversations = (deploymentId: string) => {
       try {
         const newConversation = await createNewConversation(`Chat ${new Date().toLocaleDateString()}`);
         return newConversation.id;
-      } catch (err) {
-        console.error('Failed to auto-create conversation:', err);
+      } catch {
         return null;
       }
     }
