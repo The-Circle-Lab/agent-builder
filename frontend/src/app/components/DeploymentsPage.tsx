@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from "react";
 import { DeploymentAPI, ActiveDeployment } from "./agentBuilder/scripts/deploymentAPI";
 import { AuthAPI, User } from "./agentBuilder/scripts/authAPI";
-import ChatInterface from "./chatInterface";
+import ChatInterface from "./ChatInterface";
 
 interface DeploymentsPageProps {
   onLogout: () => void;

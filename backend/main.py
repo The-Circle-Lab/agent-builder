@@ -76,6 +76,10 @@ app.include_router(deployment_router)
 def read_root():
     return {"Hello": "World"}
 
+@app.get("/me")
+def me(user = Depends(get_current_user)):
+    return {"id": user.id, "email": user.email}
+
 # Test WebSocket endpoint
 @app.websocket("/ws/test")
 async def websocket_test(websocket: WebSocket):

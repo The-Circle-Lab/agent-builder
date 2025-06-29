@@ -5,6 +5,8 @@ import * as anthropicNode from "./anthropicNode";
 import * as chatNode from "./chatNode";
 import * as outputNode from "./outputNode";
 import * as mcpNode from "./mcpNode";
+import * as deepSeekNode from "./deepSeekNode";
+import * as metaNode from "./metaNode";
 import { BaseNode, BaseNodeProps, BaseNodeData } from "./baseNode";
 
 // Base classes and interfaces
@@ -21,6 +23,8 @@ export const NodeTypes = {
   googleCloud: googleCloudNode.GoogleCloudNode,
   openAI: openAINode.OpenAINode,
   anthropic: anthropicNode.AnthropicNode,
+  deepseek: deepSeekNode.DeepSeekNode,
+  meta: metaNode.MetaNode,
   chat: chatNode.ChatNode,
   result: outputNode.OutputNode,
   mcp: mcpNode.McpNode,
@@ -34,6 +38,8 @@ export const NodeClasses = {
   chat: chatNode.ChatNodeClass,
   result: outputNode.OutputNodeClass,
   mcp: mcpNode.McpNodeClass,
+  deepSeek: deepSeekNode.DeepSeekNodeClass,
+  meta: metaNode.MetaNodeClass,
 };
 
 export const NodeConfigs = {
@@ -44,6 +50,8 @@ export const NodeConfigs = {
   chat: chatNode.chatNodeConfig,
   result: outputNode.outputNodeConfig,
   mcp: mcpNode.mcpNodeConfig,
+  deepSeek: deepSeekNode.deepSeekNodeConfig,
+  meta: metaNode.metaNodeConfig,
 };
 
 export const NodeCreators = {
@@ -54,6 +62,8 @@ export const NodeCreators = {
   chat: chatNode.createChatNodeType,
   result: outputNode.createOutputNodeType,
   mcp: mcpNode.createMcpNodeType,
+  deepSeek: deepSeekNode.createDeepSeekNodeType,
+  meta: metaNode.createMetaNodeType,
 };
 
 // Registry of available node types (dynamically generated from NodeClasses)

@@ -21,12 +21,12 @@ interface Message {
 }
 
 interface ParsedTextPart {
-  type: 'text' | 'citation';
+  type: 'text' | 'citation' | 'thinking';
   content: string | string[];
 }
 
 interface WebSocketMessage {
-  type: 'auth_success' | 'typing' | 'stream' | 'response' | 'error' | 'pong';
+  type: 'auth_success' | 'typing' | 'stream' | 'response' | 'error' | 'pong' | 'sources';
   message?: string;
   chunk?: string;
   response?: string;
@@ -51,6 +51,7 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const currentStreamingMessageRef = useRef<string>("");
+  const currentStreamingSourcesRef = useRef<string[]>([]);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -169,6 +170,9 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
       case 'typing':
         console.log('Assistant is typing...');
         setIsLoading(true);
+        // Clear any previous streaming state for new response
+        currentStreamingMessageRef.current = "";
+        currentStreamingSourcesRef.current = [];
         break;
         
       case 'stream':
@@ -176,28 +180,40 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
           console.log(`Received streaming chunk (${data.chunk.length} chars):`, data.chunk);
           currentStreamingMessageRef.current += data.chunk;
           
+          // Use sources from early message or chunk data
+          const availableSources = currentStreamingSourcesRef.current.length > 0 
+            ? currentStreamingSourcesRef.current 
+            : (data.sources || []);
+          
           setMessages(prev => {
             // Check if there's already a streaming message
             const hasStreamingMessage = prev.some(msg => !msg.isUser && msg.isStreaming);
             
             if (hasStreamingMessage) {
               // Update existing streaming message
-              console.log('Updating existing streaming message');
+              console.log('Updating existing streaming message with real-time citations');
               return prev.map(msg => {
                 if (!msg.isUser && msg.isStreaming) {
-                  return { ...msg, text: currentStreamingMessageRef.current };
+                  return { 
+                    ...msg, 
+                    text: currentStreamingMessageRef.current,
+                    sources: availableSources,
+                    // Update timestamp to force re-render
+                    timestamp: new Date()
+                  };
                 }
                 return msg;
               });
             } else {
               // Create new streaming message
-              console.log('Creating new streaming message');
+              console.log('Creating new streaming message with real-time citations');
               const streamingMessage: Message = {
                 id: (Date.now() + 1).toString(),
                 text: currentStreamingMessageRef.current,
                 isUser: false,
                 timestamp: new Date(),
                 isStreaming: true,
+                sources: availableSources
               };
               setIsLoading(false); // Hide loading indicator now that streaming started
               return [...prev, streamingMessage];
@@ -208,24 +224,25 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
         }
         break;
         
-      case 'response':
+              case 'response':
         console.log('Received final response:', data.response, 'Sources:', data.sources);
         setIsLoading(false);
         currentStreamingMessageRef.current = "";
+        currentStreamingSourcesRef.current = []; // Clear streaming sources
         
         setMessages(prev => {
           // Check if there's a streaming message to update
           const hasStreamingMessage = prev.some(msg => !msg.isUser && msg.isStreaming);
           
           if (hasStreamingMessage) {
-            // Update existing streaming message
+            // Update existing streaming message with final content (remove think tags)
             console.log('Finalizing streaming message');
             return prev.map(msg => {
               if (!msg.isUser && msg.isStreaming) {
                 return { 
                   ...msg, 
-                  text: data.response || "", 
-                  sources: data.sources,
+                  text: processThinkTags(data.response || "", false), // Remove think tags from final response
+                  sources: data.sources, // Use final sources from response
                   isStreaming: false 
                 };
               }
@@ -236,7 +253,7 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
             console.log('Creating new response message (no streaming chunks received)');
             const responseMessage: Message = {
               id: (Date.now() + 1).toString(),
-              text: data.response || "",
+              text: processThinkTags(data.response || "", false), // Remove think tags from final response
               isUser: false,
               timestamp: new Date(),
               sources: data.sources,
@@ -264,12 +281,54 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
         console.log('Received pong');
         break;
         
+      case 'sources':
+        console.log('Received sources:', data.sources);
+        currentStreamingSourcesRef.current = data.sources || [];
+        break;
+        
       default:
         console.log('Unknown WebSocket message type:', data.type);
     }
   };
 
-  // Function to parse and replace source citations with buttons
+  // Function to process think tags and extract thinking content
+  const processThinkTags = (text: string, isStreaming: boolean = false) => {
+    const thinkRegex = /<think>([\s\S]*?)<\/think>/g;
+    
+    if (isStreaming) {
+      // Check if message starts with <think> but has no closing tag
+      if (text.startsWith('<think>') && !text.includes('</think>')) {
+        // Treat everything after <think> as thinking content
+        const thinkContent = text.substring(7); // Remove '<think>' (7 characters)
+        return `__THINK_START__${thinkContent}__THINK_END__`;
+      }
+      
+      // During streaming, keep think tags but mark them for special rendering
+      return text.replace(thinkRegex, (match, thinkContent) => {
+        return `__THINK_START__${thinkContent.trim()}__THINK_END__`;
+      });
+    } else {
+      // When streaming is done, remove think tags completely
+      // Also handle unclosed think tags at the start
+      if (text.startsWith('<think>')) {
+        const closingIndex = text.indexOf('</think>');
+        if (closingIndex === -1) {
+          // No closing tag, remove the entire message since it's all thinking
+          return '';
+        }
+      }
+      return text.replace(thinkRegex, '');
+    }
+  };
+
+  // Component for rendering thinking text
+  const ThinkingText = ({ children }: { children: React.ReactNode }) => (
+    <span className="inline-block text-xs text-gray-400 italic opacity-70 bg-gray-50 px-1 py-0.5 rounded">
+      {children}
+    </span>
+  );
+
+  // Function to parse and replace source citations with buttons and handle thinking content
   const parseSourceCitations = (text: string, messageSources: string[] = []): ParsedTextPart[] => {
     // Create a set of source filenames for quick lookup
     const sourceFilenames = new Set(
@@ -280,14 +339,24 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
       })
     );
 
-    // Regex to match citations like:
-    // (filename) or (filename, Page X) or (file1, Page X; file2; file3, Page Y)
+    // First handle thinking content markers
+    const thinkingRegex = /__THINK_START__([\s\S]*?)__THINK_END__/g;
+    // Then handle citations
     const citationRegex = /\(([^)]+(?:;\s*[^)]+)*)\)/g;
     
     const parts: ParsedTextPart[] = [];
     let lastIndex = 0;
     let match;
 
+    // Process both thinking content and citations
+    const allMatches: Array<{match: RegExpExecArray, type: 'thinking' | 'citation'}> = [];
+    
+    // Find all thinking matches
+    while ((match = thinkingRegex.exec(text)) !== null) {
+      allMatches.push({match, type: 'thinking'});
+    }
+    
+    // Find all citation matches
     while ((match = citationRegex.exec(text)) !== null) {
       // Parse the citation content to check if it matches actual sources
       const citationContent = match[1];
@@ -301,25 +370,48 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
       // Check if any of the cited sources match actual message sources
       const validSources = citedSources.filter(source => sourceFilenames.has(source));
       
-      // Only format as citation if we have valid sources
+      // Only add citation if we have valid sources
       if (validSources.length > 0) {
-        // Add text before the citation
-        if (match.index > lastIndex) {
-          parts.push({
-            type: 'text',
-            content: text.slice(lastIndex, match.index)
-          });
-        }
+        allMatches.push({match, type: 'citation'});
+      }
+    }
 
-        // Add the citation as a special element (only valid sources)
+    // Sort matches by index
+    allMatches.sort((a, b) => a.match.index - b.match.index);
+
+    // Process matches in order
+    for (const {match, type} of allMatches) {
+      // Add text before this match
+      if (match.index > lastIndex) {
+        parts.push({
+          type: 'text',
+          content: text.slice(lastIndex, match.index)
+        });
+      }
+
+      if (type === 'thinking') {
+        // Add thinking content
+        parts.push({
+          type: 'thinking',
+          content: match[1].trim()
+        });
+      } else if (type === 'citation') {
+        // Add citation
+        const citationContent = match[1];
+        const citedSources = citationContent.split(';').map(source => {
+          const trimmed = source.trim();
+          const filename = trimmed.split(',')[0].trim();
+          return filename;
+        });
+        const validSources = citedSources.filter(source => sourceFilenames.has(source));
+        
         parts.push({
           type: 'citation',
           content: validSources
         });
-
-        lastIndex = match.index + match[0].length;
       }
-      // If no valid sources, the citation stays as regular text and we don't advance lastIndex
+
+      lastIndex = match.index + match[0].length;
     }
 
     // Add remaining text
@@ -363,9 +455,13 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
             return (
               <span key={index} className="inline-flex flex-wrap items-center">
                 {(part.content as string[]).map((filename, fileIndex) => (
-                  <SourceCitationButton key={fileIndex} filename={filename} />
+                  <SourceCitationButton key={`${index}-${fileIndex}`} filename={filename} />
                 ))}
               </span>
+            );
+          } else if (part.type === 'thinking') {
+            return (
+              <ThinkingText key={index}>{part.content as string}</ThinkingText>
             );
           }
           return null;
@@ -378,19 +474,31 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  // Function to create ReactMarkdown components with access to message sources
-  const createMarkdownComponents = (sources?: string[], isUserMessage: boolean = false) => ({
+  // The `inline` flag is used when we render a small fragment of text that should stay on the
+  // same line as other inline-level elements (e.g. the source citation button). In that case we
+  // swap the default block `<p>` wrapper for an inline `<span>` wrapper; for normal, full
+  // markdown blocks we keep the regular `<p>` element.
+  const createMarkdownComponents = (
+    sources?: string[],
+    isUserMessage: boolean = false,
+    inline: boolean = false,
+  ) => ({
     // Custom styling for markdown elements
-    p: ({ children, ...props }: React.ComponentProps<'p'>) => (
-      <p className="mb-2 last:mb-0" {...props}>
-        {React.Children.map(children, (child) => {
-          if (typeof child === 'string') {
-            return <TextWithCitations text={child} sources={sources} />;
-          }
-          return child;
-        })}
-      </p>
-    ),
+    p: ({ children, ...props }: React.ComponentProps<'p'>) => {
+      const Wrapper: React.ElementType = inline ? 'span' : 'p';
+      const wrapperProps = inline ? props : { ...props, className: "mb-2 last:mb-0" };
+
+      return (
+        <Wrapper {...wrapperProps}>
+          {React.Children.map(children, (child) => {
+            if (typeof child === 'string') {
+              return <TextWithCitations text={child} sources={sources} />;
+            }
+            return child;
+          })}
+        </Wrapper>
+      );
+    },
     h1: ({ children, ...props }: React.ComponentProps<'h1'>) => (
       <h1 className="text-lg font-bold mb-2" {...props}>
         {React.Children.map(children, (child) => {
@@ -601,20 +709,20 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
       currentStreamingMessageRef.current = "";
       setIsLoading(true); // Show loading indicator until first chunk arrives
 
-      try {
-        // Auto-create conversation if none exists and this is the first message
-        let conversationId = currentConversationId;
-        if (!conversationId && messages.length === 0) {
-          try {
-            const newConversation = await DeploymentAPI.createConversation(
-              deploymentId, 
-              `Chat ${new Date().toLocaleDateString()}`
-            );
-            conversationId = newConversation.id;
-            setCurrentConversationId(conversationId);
-            setConversations(prev => [newConversation, ...prev]);
-          } catch (convErr) {
-            console.error('Failed to auto-create conversation:', convErr);
+    try {
+      // Auto-create conversation if none exists and this is the first message
+      let conversationId = currentConversationId;
+      if (!conversationId && messages.length === 0) {
+        try {
+          const newConversation = await DeploymentAPI.createConversation(
+            deploymentId, 
+            `Chat ${new Date().toLocaleDateString()}`
+          );
+          conversationId = newConversation.id;
+          setCurrentConversationId(conversationId);
+          setConversations(prev => [newConversation, ...prev]);
+        } catch (convErr) {
+          console.error('Failed to auto-create conversation:', convErr);
           }
         }
 
@@ -650,35 +758,35 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
             setConversations(prev => [newConversation, ...prev]);
           } catch (convErr) {
             console.error('Failed to auto-create conversation:', convErr);
-          }
         }
+      }
 
-        const history = formatChatHistory(messages);
+      const history = formatChatHistory(messages);
         const response = await DeploymentAPI.chatWithDeployment(
-          deploymentId,
-          messageText,
-          history,
-          conversationId || undefined
-        );
+        deploymentId,
+        messageText,
+        history,
+        conversationId || undefined
+      );
 
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          text: response.response,
-          isUser: false,
-          sources: response.sources,
-          timestamp: new Date(),
-        };
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        text: response.response,
+        isUser: false,
+        sources: response.sources,
+        timestamp: new Date(),
+      };
 
-        setMessages(prev => [...prev, assistantMessage]);
+      setMessages(prev => [...prev, assistantMessage]);
 
-        // Update conversation ID if it was returned from the chat
-        if (response.conversation_id && !currentConversationId) {
-          setCurrentConversationId(response.conversation_id);
-        }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Failed to send message");
-      } finally {
-        setIsLoading(false);
+      // Update conversation ID if it was returned from the chat
+      if (response.conversation_id && !currentConversationId) {
+        setCurrentConversationId(response.conversation_id);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to send message");
+    } finally {
+      setIsLoading(false);
       }
     }
   };
@@ -688,6 +796,23 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
       e.preventDefault();
       handleSendMessage();
     }
+  };
+
+  // Streaming-optimized message renderer that processes citations before markdown
+  const StreamingMessageRenderer = ({ message }: { message: Message }) => {
+    // Process think tags first (show during streaming, remove when done)
+    const processedText = processThinkTags(message.text, message.isStreaming);
+    
+    return (
+      <div className="text-sm prose prose-sm max-w-none">
+        <ReactMarkdown
+          key={message.isStreaming ? `streaming-${message.text.length}` : `final-${message.id}`}
+          components={createMarkdownComponents(message.sources, message.isUser)}
+        >
+          {processedText}
+        </ReactMarkdown>
+      </div>
+    );
   };
 
   return (
@@ -839,13 +964,7 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
             <div className={`chat-bubble max-w-xs lg:max-w-md ${
               message.isUser ? "chat-bubble-primary" : "bg-gray-100 text-gray-700"
             }`}>
-              <div className="text-sm prose prose-sm max-w-none">
-                <ReactMarkdown
-                  components={createMarkdownComponents(message.sources, message.isUser)}
-                >
-                  {message.text}
-                </ReactMarkdown>
-              </div>
+              <StreamingMessageRenderer message={message} />
             </div>
 
             {/* Sources for assistant messages */}
@@ -933,4 +1052,4 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
       </div>
     </div>
   );
-}
+} 

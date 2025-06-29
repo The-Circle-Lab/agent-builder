@@ -382,12 +382,25 @@ async def websocket_chat(
                         "message": "Assistant is typing..."
                     })
                     
+                    # Pre-search for context to get sources early for real-time citation processing
+                    search_results, context = await mcp_deployment._prepare_context(message)
+                    sources = mcp_deployment._extract_unique_sources(search_results)
+                    
+                    # Send sources information early for real-time citation processing
+                    if sources:
+                        await websocket.send_json({
+                            "type": "sources",
+                            "sources": sources
+                        })
+                        print(f"WebSocket: Sent sources ({len(sources)} sources) for real-time citation processing")
+                    
                     # Create a proper async callback for streaming
                     async def stream_callback(chunk):
                         try:
                             await websocket.send_json({
                                 "type": "stream",
-                                "chunk": chunk
+                                "chunk": chunk,
+                                "sources": sources  # Include sources for real-time citation processing
                             })
                             print(f"WebSocket: Sent streaming chunk ({len(chunk)} chars)")
                         except Exception as e:

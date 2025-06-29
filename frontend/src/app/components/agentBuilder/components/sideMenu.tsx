@@ -34,6 +34,20 @@ const nodeOptions = [
     description: "Add Anthropic language models",
   },
   {
+    category: "llm",
+    type: "deepSeek",
+    name: "DeepSeek Models",
+    icon: "/deepseek.svg",
+    description: "Add DeepSeek language models",
+  },
+  {
+    category: "llm",
+    type: "meta",
+    name: "Meta Models",
+    icon: "/meta.svg",
+    description: "Add Meta language models",
+  },
+  {
     category: "agent",
     type: "agent",
     name: "AI Agent",

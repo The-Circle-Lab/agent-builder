@@ -3,6 +3,7 @@ import asyncio
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 import os
+import subprocess
 
 from langchain_google_vertexai import VertexAI
 from langchain_openai import ChatOpenAI
@@ -38,6 +39,12 @@ class MCPChatDeployment:
             
             # Check provider type
             provider = config["llm_config"].get("provider", "vertexai")
+            model = config["llm_config"].get("model", "unknown")
+            
+            print(f"DEBUG: Starting LLM initialization for deployment {deployment_id}")
+            print(f"DEBUG: Provider from config: '{provider}'")
+            print(f"DEBUG: Model from config: '{model}'")
+            print(f"DEBUG: Full LLM config: {config['llm_config']}")
             
             if provider == "openai":
                 # Initialize OpenAI
@@ -53,6 +60,60 @@ class MCPChatDeployment:
                     api_key=openai_api_key
                 )
                 print(f"OpenAI LLM initialized for deployment {deployment_id} with model {config['llm_config']['model']}")
+            elif provider == "deepseek" or provider == "meta":
+                # Initialize DeepSeek via Google Cloud Vertex AI MaaS
+                print(f"DEBUG: Initializing Google Cloud Vertex AI MaaS provider for deployment {deployment_id}")
+                
+                project = app_config.get("google_cloud", {}).get("project")
+                location = app_config.get("google_cloud", {}).get("location", "us-east5")
+                
+                if not project:
+                    raise Exception("Google Cloud project not configured. Please set GOOGLE_CLOUD_PROJECT environment variable.")
+                
+                print(f"DEBUG: Using Google Cloud project: {project}, location: {location}")
+                
+                # Get Google Cloud access token
+                def get_access_token():
+                    try:
+                        result = subprocess.run(
+                            ["gcloud", "auth", "print-access-token"],
+                            capture_output=True,
+                            text=True,
+                            check=True
+                        )
+                        token = result.stdout.strip()
+                        print(f"DEBUG: Successfully obtained access token (length: {len(token)})")
+                        return token
+                    except subprocess.CalledProcessError as e:
+                        error_msg = f"Failed to get Google Cloud access token. Make sure you're authenticated with 'gcloud auth login': {e}"
+                        if e.stderr:
+                            error_msg += f". Error output: {e.stderr}"
+                        raise Exception(error_msg)
+                
+                access_token = get_access_token()
+                
+                # DeepSeek models use OpenAI-compatible API format via Google Cloud
+                base_url = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/endpoints/openapi"
+                
+                print(f"DEBUG: Google Cloud Vertex AI MaaS base URL: {base_url}")
+                print(f"DEBUG: Google Cloud Vertex AI MaaS model: {config['llm_config']['model']}")
+                
+                # Store token refresh function for later use
+                self._get_access_token = get_access_token
+                
+                self.llm = ChatOpenAI(
+                    model=config["llm_config"]["model"],
+                    temperature=config["llm_config"]["temperature"],
+                    max_tokens=config["llm_config"]["max_tokens"],
+                    top_p=config["llm_config"]["top_p"],
+                    api_key=access_token,  # Use Google Cloud access token
+                    base_url=base_url,     # Use Google Cloud Vertex AI endpoint
+                    default_headers={
+                        "Authorization": f"Bearer {access_token}"
+                    }
+                )
+                print(f"Google Cloud Vertex AI MaaS LLM initialized for deployment {deployment_id} with model {config['llm_config']['model']} via Google Cloud MaaS")
+                print(f"Google Cloud Vertex AI MaaS endpoint: {base_url}")
             else: # As of right now, anthropic works through google cloud only
                 # Initialize VertexAI (default)
                 self.llm = VertexAI(
@@ -85,6 +146,25 @@ class MCPChatDeployment:
         
         # No persistent MCP session - create per request
     
+    # Refresh the Google Cloud access token for DeepSeek and Meta if needed
+    def _refresh_google_cloud_maas_token(self):
+        provider = self.config["llm_config"].get("provider")
+        if hasattr(self, '_get_access_token') and provider in ["deepseek", "meta"]:
+            try:
+                new_token = self._get_access_token()
+                
+                # Update the LLM client with new token
+                self.llm.api_key = new_token
+                if hasattr(self.llm, 'default_headers'):
+                    self.llm.default_headers["Authorization"] = f"Bearer {new_token}"
+                
+                print(f"[{self.deployment_id}] DEBUG: Refreshed {provider} access token")
+                return True
+            except Exception as e:
+                print(f"[{self.deployment_id}] ERROR: Failed to refresh {provider} token: {e}")
+                return False
+        return False
+
     def _get_user_prompt_template(self) -> str:
         base_template = self.config["agent_config"]["prompt"]
         
@@ -286,7 +366,21 @@ class MCPChatDeployment:
                             await asyncio.sleep(0.5)
                             
                 except Exception as llm_error:
+                    error_str = str(llm_error).lower()
                     print(f"[{self.deployment_id}] LLM error on attempt {attempt + 1}: {llm_error}")
+                    
+                    # Check if this is an authentication error that might be resolved by token refresh
+                    provider = self.config["llm_config"].get("provider")
+                    if (provider in ["deepseek", "meta"] and 
+                        ("invalid" in error_str or "unauthorized" in error_str or "authentication" in error_str or "token" in error_str)):
+                        
+                        print(f"[{self.deployment_id}] Detected potential auth error for {provider}, attempting token refresh")
+                        if self._refresh_google_cloud_maas_token():
+                            print(f"[{self.deployment_id}] Token refreshed successfully, will retry")
+                            continue  # Retry the request with fresh token
+                        else:
+                            print(f"[{self.deployment_id}] Token refresh failed")
+                    
                     if attempt == max_retries:
                         response = self.FALLBACK_EXCEPTION_RESPONSE
                         break
@@ -342,32 +436,61 @@ class MCPChatDeployment:
             # Stream response
             response_chunks = []
             
-            # Use streaming if supported
-            if hasattr(self.llm, 'astream'):
-                async for chunk in self.llm.astream(messages):
-                    if hasattr(chunk, 'content'):
-                        chunk_text = chunk.content
+            max_retries = 3
+            for attempt in range(max_retries + 1):
+                try:
+                    # Use streaming if supported
+                    if hasattr(self.llm, 'astream'):
+                        async for chunk in self.llm.astream(messages):
+                            if hasattr(chunk, 'content'):
+                                chunk_text = chunk.content
+                            else:
+                                chunk_text = str(chunk)
+                            
+                            response_chunks.append(chunk_text)
+                            
+                            # Call stream callback if provided
+                            if stream_callback:
+                                await stream_callback(chunk_text)
                     else:
-                        chunk_text = str(chunk)
+                        # Fallback to non-streaming for models that don't support it
+                        response = await self.llm.ainvoke(messages)
+                        if hasattr(response, 'content'):
+                            full_response = response.content
+                        else:
+                            full_response = str(response)
+                        
+                        response_chunks = [full_response]
+                        
+                        # Simulate streaming by sending the full response
+                        if stream_callback:
+                            await stream_callback(full_response)
                     
-                    response_chunks.append(chunk_text)
+                    # If we got here, the streaming worked
+                    break
                     
-                    # Call stream callback if provided
-                    if stream_callback:
-                        await stream_callback(chunk_text)
-            else:
-                # Fallback to non-streaming for models that don't support it
-                response = await self.llm.ainvoke(messages)
-                if hasattr(response, 'content'):
-                    full_response = response.content
-                else:
-                    full_response = str(response)
-                
-                response_chunks = [full_response]
-                
-                # Simulate streaming by sending the full response
-                if stream_callback:
-                    await stream_callback(full_response)
+                except Exception as stream_error:
+                    error_str = str(stream_error).lower()
+                    print(f"[{self.deployment_id}] Streaming error on attempt {attempt + 1}: {stream_error}")
+                    
+                    # Check if this is an authentication error that might be resolved by token refresh
+                    provider = self.config["llm_config"].get("provider")
+                    if (provider in ["deepseek", "meta"] and 
+                        ("invalid" in error_str or "unauthorized" in error_str or "authentication" in error_str or "token" in error_str)):
+                        
+                        print(f"[{self.deployment_id}] Detected potential auth error for {provider} streaming, attempting token refresh")
+                        if self._refresh_google_cloud_maas_token():
+                            print(f"[{self.deployment_id}] Token refreshed successfully, will retry streaming")
+                            continue  # Retry the request with fresh token
+                        else:
+                            print(f"[{self.deployment_id}] Token refresh failed")
+                    
+                    if attempt == max_retries:
+                        # On final failure, set fallback response
+                        response_chunks = [self.FALLBACK_EXCEPTION_RESPONSE]
+                        break
+                    else:
+                        await asyncio.sleep(0.5)
             
             # Combine all chunks
             full_response = ''.join(response_chunks)

@@ -34,6 +34,7 @@ def parse_workflow_config(workflow_data: Dict[str, Any]) -> Dict[str, Any]:
             llm_models = attachments.get("llmModel", [])
             if llm_models:
                 llm_model = llm_models[0]  # Take first LLM
+                
                 if llm_model.get("type") == "openAI":
                     llm_config = llm_model.get("config", {})
                     config["llm_config"].update({
@@ -42,6 +43,24 @@ def parse_workflow_config(workflow_data: Dict[str, Any]) -> Dict[str, Any]:
                         "max_tokens": llm_config.get("maximumOutputTokens", 200),
                         "top_p": llm_config.get("topP", 0.5),
                         "provider": "openai"
+                    })
+                elif llm_model.get("type") == "deepSeek":
+                    llm_config = llm_model.get("config", {})
+                    config["llm_config"].update({
+                        "model": llm_config.get("model", "deepseek-ai/deepseek-r1-0528-maas"),
+                        "temperature": llm_config.get("temperature", 0.6),
+                        "max_tokens": llm_config.get("maximumOutputTokens", 1200),
+                        "top_p": llm_config.get("topP", 0.5),
+                        "provider": "deepseek"
+                    })
+                elif llm_model.get("type") == "meta":
+                    llm_config = llm_model.get("config", {})
+                    config["llm_config"].update({
+                        "model": llm_config.get("model", "meta/llama-4-scout-17b-16e-instruct-maas"),
+                        "temperature": llm_config.get("temperature", 0.6),
+                        "max_tokens": llm_config.get("maximumOutputTokens", 1200),
+                        "top_p": llm_config.get("topP", 0.5),
+                        "provider": "meta"
                     })
                 else:
                     llm_config = llm_model.get("config", {})
