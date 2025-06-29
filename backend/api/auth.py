@@ -113,3 +113,12 @@ def register(request: RegisterRequest, db: DBSession = Depends(get_session)):
         samesite=cookie_settings.get("samesite", "lax")
     )
     return response
+
+
+@router.get("/me")
+def get_me(current_user: User = Depends(get_current_user)):
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "student": current_user.student
+    }

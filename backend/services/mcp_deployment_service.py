@@ -1,7 +1,7 @@
 import json
 import asyncio
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import os
 
 from langchain_google_vertexai import VertexAI
@@ -15,6 +15,11 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 class MCPChatDeployment:
+    # Fallback response messages
+    FALLBACK_ERROR_RESPONSE = "I apologize, but I'm having trouble generating a response right now. Could you please try rephrasing your question or ask something else?"
+    FALLBACK_EXCEPTION_RESPONSE = "I'm sorry, but I encountered an error while generating a response. Please try again."
+    FALLBACK_GENERIC_ERROR = "I'm sorry, I encountered an error while processing your question."
+    
     def __init__(self, deployment_id: str, config: Dict[str, Any], collection_name: Optional[str] = None):
         self.deployment_id = deployment_id
         self.config = config
@@ -152,25 +157,89 @@ class MCPChatDeployment:
         
         return "\n\n".join(context_parts)
     
+    # Helper method to restore conversation history
+    async def _restore_conversation_history(self, history: List[List[str]]) -> None:
+        self.memory.clear()
+        for h in history:
+            if len(h) >= 2:
+                self.memory.chat_memory.add_user_message(h[0])
+                self.memory.chat_memory.add_ai_message(h[1])
+    
+    # Helper method to search and format context
+    async def _prepare_context(self, message: str, k: int = 15) -> Tuple[List[Dict[str, Any]], str]:
+        search_results = []
+        context = ""
+        
+        if self.config["has_mcp"] and self.collection_name:
+            search_results = await self._search_with_mcp(message, k=k)
+            context = self.format_context(search_results)
+        
+        return search_results, context
+    
+    # Helper method to log LLM call details
+    def _log_llm_call(self, message: str, context: str, history_length: int, is_streaming: bool = False) -> None:
+        llm_config = self.config["llm_config"]
+        provider = llm_config.get("provider", "vertexai")
+        request_type = "STREAMING CHAT REQUEST" if is_streaming else "CHAT REQUEST"
+        
+        print(f"[{self.deployment_id}] {request_type} - LLM Call:")
+        print(f"[{self.deployment_id}]   User Message: '{message[:100]}{'...' if len(message) > 100 else ''}'")
+        print(f"[{self.deployment_id}]   Provider: {provider.upper()}")
+        print(f"[{self.deployment_id}]   Model: {llm_config['model']}")
+        print(f"[{self.deployment_id}]   Temperature: {llm_config['temperature']}")
+        print(f"[{self.deployment_id}]   Max Tokens: {llm_config['max_tokens']}")
+        print(f"[{self.deployment_id}]   Top P: {llm_config['top_p']}")
+        print(f"[{self.deployment_id}]   Context Length: {len(context)} chars" if context else f"[{self.deployment_id}]   Context: None (no RAG)")
+        if not is_streaming:
+            print(f"[{self.deployment_id}]   History Length: {history_length} exchanges")
+    
+    # Helper method to extract unique sources
+    def _extract_unique_sources(self, search_results: List[Dict[str, Any]]) -> List[str]:
+        sources = set()
+        
+        for doc in search_results:
+            source = doc.get("source")
+            if source and source != "Unknown" and source not in sources:
+                sources.add(source)
+        
+        sources_list = sorted(list(sources))
+        print(f"[{self.deployment_id}] Final unique sources returned: {sources_list}")
+        return sources_list
+    
+    # Helper method to update conversation memory
+    def _update_memory(self, user_message: str, ai_response: str) -> None:
+        self.memory.chat_memory.add_user_message(user_message)
+        self.memory.chat_memory.add_ai_message(ai_response)
+    
+    # Helper method to build prompt messages for streaming
+    def _build_prompt_messages(self, message: str, context: str) -> List[Any]:
+        messages = []
+        
+        # Add system message
+        system_prompt = self.config["agent_config"]["system_prompt"] or ""
+        if system_prompt:
+            messages.append(SystemMessage(content=system_prompt))
+        
+        # Add chat history
+        messages.extend(self.memory.chat_memory.messages)
+        
+        # Add current message with context
+        if context:
+            user_prompt = self._get_user_prompt_template().format(context=context, input=message)
+        else:
+            user_prompt = self._get_user_prompt_template().format(input=message)
+        messages.append(HumanMessage(content=user_prompt))
+        
+        return messages
+    
     # Process chat messages
     async def chat(self, message: str, history: List[List[str]] = []) -> Dict[str, Any]:
         try:
             # Restore conversation history
-            self.memory.clear()
-            for h in history:
-                if len(h) >= 2:
-                    self.memory.chat_memory.add_user_message(h[0])
-                    self.memory.chat_memory.add_ai_message(h[1])
+            await self._restore_conversation_history(history)
             
             # Search for relevant documents if MCP is enabled
-            search_results = []
-            context = ""
-            
-            if self.config["has_mcp"] and self.collection_name:
-                # Use MCP client as a proper async context manager
-                # Let the search find as many relevant results as needed, with a reasonable upper limit
-                search_results = await self._search_with_mcp(message, k=15)
-                context = self.format_context(search_results)
+            search_results, context = await self._prepare_context(message)
             
             # Create the chain
             chain = (
@@ -189,17 +258,7 @@ class MCPChatDeployment:
                 chain_input["context"] = context
             
             # Log LLM call details
-            llm_config = self.config["llm_config"]
-            provider = llm_config.get("provider", "vertexai")
-            print(f"[{self.deployment_id}] CHAT REQUEST - LLM Call:")
-            print(f"[{self.deployment_id}]   User Message: '{message[:100]}{'...' if len(message) > 100 else ''}'")
-            print(f"[{self.deployment_id}]   Provider: {provider.upper()}")
-            print(f"[{self.deployment_id}]   Model: {llm_config['model']}")
-            print(f"[{self.deployment_id}]   Temperature: {llm_config['temperature']}")
-            print(f"[{self.deployment_id}]   Max Tokens: {llm_config['max_tokens']}")
-            print(f"[{self.deployment_id}]   Top P: {llm_config['top_p']}")
-            print(f"[{self.deployment_id}]   Context Length: {len(context)} chars" if context else f"[{self.deployment_id}]   Context: None (no RAG)")
-            print(f"[{self.deployment_id}]   History Length: {len(history)} exchanges")
+            self._log_llm_call(message, context, len(history))
             
             # Get response from LLM with retry logic for empty responses
             response = None
@@ -221,7 +280,7 @@ class MCPChatDeployment:
                         print(f"[{self.deployment_id}] LLM returned empty response on attempt {attempt + 1}")
                         if attempt == max_retries:
                             print(f"[{self.deployment_id}] All {max_retries + 1} attempts failed, using fallback response")
-                            response = "I apologize, but I'm having trouble generating a response right now. Could you please try rephrasing your question or ask something else?"
+                            response = self.FALLBACK_ERROR_RESPONSE
                         else:
                             # Brief delay before retry
                             await asyncio.sleep(0.5)
@@ -229,7 +288,7 @@ class MCPChatDeployment:
                 except Exception as llm_error:
                     print(f"[{self.deployment_id}] LLM error on attempt {attempt + 1}: {llm_error}")
                     if attempt == max_retries:
-                        response = "I'm sorry, but I encountered an error while generating a response. Please try again."
+                        response = self.FALLBACK_EXCEPTION_RESPONSE
                         break
                     else:
                         await asyncio.sleep(0.5)
@@ -241,20 +300,10 @@ class MCPChatDeployment:
                 print(f"[{self.deployment_id}] LLM Response FINAL: Used fallback response")
             
             # Update memory
-            self.memory.chat_memory.add_user_message(message)
-            self.memory.chat_memory.add_ai_message(response)
+            self._update_memory(message, response)
             
             # Extract unique sources (deduplicate and remove empty ones)
-            sources = set()
-            
-            for doc in search_results:
-                source = doc.get("source")
-                if source and source != "Unknown" and source not in sources:
-                    sources.add(source)
-
-            sources = sorted(list(sources))
-            
-            print(f"[{self.deployment_id}] Final unique sources returned: {sources}")
+            sources = self._extract_unique_sources(search_results)
             
             return {
                 "response": response,
@@ -266,7 +315,87 @@ class MCPChatDeployment:
             import traceback
             print(f"Chat error traceback:\n{traceback.format_exc()}")
             return {
-                "response": "I'm sorry, I encountered an error while processing your question.",
+                "response": self.FALLBACK_GENERIC_ERROR,
+                "sources": []
+            }
+    
+    # Process chat messages with streaming support
+    async def chat_streaming(self, message: str, history: List[List[str]] = [], stream_callback=None) -> Dict[str, Any]:
+        try:
+            # Restore conversation history
+            await self._restore_conversation_history(history)
+            
+            # Search for relevant documents if MCP is enabled
+            search_results, context = await self._prepare_context(message)
+            
+            # Prepare input for the chain
+            chain_input = {"input": message}
+            if context:
+                chain_input["context"] = context
+            
+            # Log LLM call details
+            self._log_llm_call(message, context, len(history), is_streaming=True)
+            
+            # Build prompt with history
+            messages = self._build_prompt_messages(message, context)
+            
+            # Stream response
+            response_chunks = []
+            
+            # Use streaming if supported
+            if hasattr(self.llm, 'astream'):
+                async for chunk in self.llm.astream(messages):
+                    if hasattr(chunk, 'content'):
+                        chunk_text = chunk.content
+                    else:
+                        chunk_text = str(chunk)
+                    
+                    response_chunks.append(chunk_text)
+                    
+                    # Call stream callback if provided
+                    if stream_callback:
+                        await stream_callback(chunk_text)
+            else:
+                # Fallback to non-streaming for models that don't support it
+                response = await self.llm.ainvoke(messages)
+                if hasattr(response, 'content'):
+                    full_response = response.content
+                else:
+                    full_response = str(response)
+                
+                response_chunks = [full_response]
+                
+                # Simulate streaming by sending the full response
+                if stream_callback:
+                    await stream_callback(full_response)
+            
+            # Combine all chunks
+            full_response = ''.join(response_chunks)
+            
+            # Handle empty response with retry
+            if not full_response or not full_response.strip():
+                print(f"[{self.deployment_id}] Empty streaming response, using fallback")
+                full_response = self.FALLBACK_ERROR_RESPONSE
+            
+            # Update memory
+            self._update_memory(message, full_response)
+            
+            # Extract unique sources
+            sources = self._extract_unique_sources(search_results)
+            
+            print(f"[{self.deployment_id}] Streaming response complete: {len(full_response)} characters")
+            
+            return {
+                "response": full_response,
+                "sources": sources
+            }
+            
+        except Exception as e:
+            print(f"Error in streaming chat: {e}")
+            import traceback
+            print(f"Streaming chat error traceback:\n{traceback.format_exc()}")
+            return {
+                "response": self.FALLBACK_GENERIC_ERROR,
                 "sources": []
             }
     

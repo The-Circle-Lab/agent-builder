@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { DeploymentAPI, ChatResponse, ConversationResponse, MessageResponse } from "./agentBuilder/scripts/deploymentAPI";
+import { DeploymentAPI, ConversationResponse, MessageResponse } from "./agentBuilder/scripts/deploymentAPI";
 import ReactMarkdown from "react-markdown";
+import { API_CONFIG } from "@/lib/constants";
 
 interface ChatInterfaceProps {
   deploymentId: string;
@@ -16,11 +17,20 @@ interface Message {
   isUser: boolean;
   sources?: string[];
   timestamp: Date;
+  isStreaming?: boolean;
 }
 
 interface ParsedTextPart {
   type: 'text' | 'citation';
   content: string | string[];
+}
+
+interface WebSocketMessage {
+  type: 'auth_success' | 'typing' | 'stream' | 'response' | 'error' | 'pong';
+  message?: string;
+  chunk?: string;
+  response?: string;
+  sources?: string[];
 }
 
 export default function ChatInterface({ deploymentId, workflowName, onBack }: ChatInterfaceProps) {
@@ -32,7 +42,232 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
   const [currentConversationId, setCurrentConversationId] = useState<number | null>(null);
   const [showSidebar, setShowSidebar] = useState(false);
   const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  
+  // WebSocket state
+  const [wsConnected, setWsConnected] = useState(false);
+  const [useWebSocket, setUseWebSocket] = useState(true); // Toggle for WebSocket vs REST
+  const [reconnectAttempts, setReconnectAttempts] = useState(0);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const currentStreamingMessageRef = useRef<string>("");
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // WebSocket connection functions
+  const connectWebSocket = () => {
+    try {
+      // Check if WebSocket is available
+      if (typeof WebSocket === 'undefined') {
+        console.error('[WebSocket] WebSocket API not available in this browser');
+        setError("WebSocket not supported");
+        setUseWebSocket(false);
+        return;
+      }
+      
+      // Convert HTTP base URL to WebSocket URL
+      const baseUrl = API_CONFIG.BASE_URL;
+      const wsProtocol = baseUrl.startsWith('https://') ? 'wss:' : 'ws:';
+      const wsHost = baseUrl.replace(/^https?:\/\//, '');
+      const wsUrl = `${wsProtocol}//${wsHost}/api/deploy/ws/${deploymentId}`;
+      
+      // WebSocket will automatically include cookies with the connection
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      
+      ws.onopen = () => {
+        setWsConnected(true);
+        setReconnectAttempts(0);
+        setError("");
+        
+        // Setup ping interval for connection health
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
+        }
+        pingIntervalRef.current = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 30000);
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          handleWebSocketMessage(data);
+        } catch (err) {
+          console.error('Failed to parse WebSocket message:', err);
+        }
+      };
+      
+      ws.onerror = () => {
+        setError("WebSocket connection error");
+      };
+      
+      ws.onclose = (event) => {
+        setWsConnected(false);
+        
+        // Clear ping interval
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = null;
+        }
+        
+        // If connection closed immediately with specific codes, it's likely auth failure
+        if (event.code === 1002 || event.code === 1003 || (event.code === 1000 && reconnectAttempts === 0)) {
+          setUseWebSocket(false);
+          return;
+        }
+        
+        // Attempt reconnection
+        if (reconnectAttempts < 5) {
+          const timeout = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
+          
+          reconnectTimeoutRef.current = setTimeout(() => {
+            setReconnectAttempts(prev => prev + 1);
+            connectWebSocket();
+          }, timeout);
+        } else {
+          setError("Failed to connect to chat service. Please refresh the page.");
+          setUseWebSocket(false);
+        }
+      };
+      
+    } catch (err) {
+      console.error('Failed to create WebSocket:', err);
+      setError("Failed to establish WebSocket connection");
+    }
+  };
+  
+  const disconnectWebSocket = () => {
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    
+    if (pingIntervalRef.current) {
+      clearInterval(pingIntervalRef.current);
+      pingIntervalRef.current = null;
+    }
+    
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+    
+    setWsConnected(false);
+  };
+  
+  const handleWebSocketMessage = (data: WebSocketMessage) => {
+    console.log('WebSocket message received:', data.type, data);
+    
+    switch (data.type) {
+      case 'auth_success':
+        console.log('WebSocket authentication successful');
+        break;
+        
+      case 'typing':
+        console.log('Assistant is typing...');
+        setIsLoading(true);
+        break;
+        
+      case 'stream':
+        if (data.chunk) {
+          console.log(`Received streaming chunk (${data.chunk.length} chars):`, data.chunk);
+          currentStreamingMessageRef.current += data.chunk;
+          
+          setMessages(prev => {
+            // Check if there's already a streaming message
+            const hasStreamingMessage = prev.some(msg => !msg.isUser && msg.isStreaming);
+            
+            if (hasStreamingMessage) {
+              // Update existing streaming message
+              console.log('Updating existing streaming message');
+              return prev.map(msg => {
+                if (!msg.isUser && msg.isStreaming) {
+                  return { ...msg, text: currentStreamingMessageRef.current };
+                }
+                return msg;
+              });
+            } else {
+              // Create new streaming message
+              console.log('Creating new streaming message');
+              const streamingMessage: Message = {
+                id: (Date.now() + 1).toString(),
+                text: currentStreamingMessageRef.current,
+                isUser: false,
+                timestamp: new Date(),
+                isStreaming: true,
+              };
+              setIsLoading(false); // Hide loading indicator now that streaming started
+              return [...prev, streamingMessage];
+            }
+          });
+        } else {
+          console.log('Received empty streaming chunk');
+        }
+        break;
+        
+      case 'response':
+        console.log('Received final response:', data.response, 'Sources:', data.sources);
+        setIsLoading(false);
+        currentStreamingMessageRef.current = "";
+        
+        setMessages(prev => {
+          // Check if there's a streaming message to update
+          const hasStreamingMessage = prev.some(msg => !msg.isUser && msg.isStreaming);
+          
+          if (hasStreamingMessage) {
+            // Update existing streaming message
+            console.log('Finalizing streaming message');
+            return prev.map(msg => {
+              if (!msg.isUser && msg.isStreaming) {
+                return { 
+                  ...msg, 
+                  text: data.response || "", 
+                  sources: data.sources,
+                  isStreaming: false 
+                };
+              }
+              return msg;
+            });
+          } else {
+            // Create new message if no streaming message exists
+            console.log('Creating new response message (no streaming chunks received)');
+            const responseMessage: Message = {
+              id: (Date.now() + 1).toString(),
+              text: data.response || "",
+              isUser: false,
+              timestamp: new Date(),
+              sources: data.sources,
+              isStreaming: false,
+            };
+            return [...prev, responseMessage];
+          }
+        });
+        break;
+        
+      case 'error':
+        console.error('WebSocket error:', data.message);
+        // If it's an authentication error, fall back to REST API
+        if (data.message && (data.message.includes('session') || data.message.includes('authenticated') || data.message.includes('cookie'))) {
+          console.log('Authentication error detected, falling back to REST API');
+          setUseWebSocket(false);
+          disconnectWebSocket();
+        } else {
+          setError(data.message || "Chat error occurred");
+        }
+        setIsLoading(false);
+        break;
+        
+      case 'pong':
+        console.log('Received pong');
+        break;
+        
+      default:
+        console.log('Unknown WebSocket message type:', data.type);
+    }
+  };
 
   // Function to parse and replace source citations with buttons
   const parseSourceCitations = (text: string, messageSources: string[] = []): ParsedTextPart[] => {
@@ -257,12 +492,26 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
     loadConversations();
   }, [deploymentId]);
 
+  // WebSocket connection management
+  useEffect(() => {
+    if (!useWebSocket) {
+      return;
+    }
+    
+    const timeoutId = setTimeout(() => {
+      connectWebSocket();
+    }, 100);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      disconnectWebSocket();
+    };
+  }, [deploymentId, useWebSocket]);
+
   const loadConversations = async () => {
     try {
-      console.log('Loading conversations for deployment:', deploymentId);
       setIsLoadingConversations(true);
       const fetchedConversations = await DeploymentAPI.getConversations(deploymentId);
-      console.log('Fetched conversations:', fetchedConversations);
       setConversations(fetchedConversations);
     } catch (err) {
       console.error('Failed to load conversations:', err);
@@ -343,55 +592,94 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
     setMessages(prev => [...prev, userMessage]);
     const messageText = inputMessage;
     setInputMessage("");
-    setIsLoading(true);
     setError("");
 
-    try {
-      // Auto-create conversation if none exists and this is the first message
-      let conversationId = currentConversationId;
-      if (!conversationId && messages.length === 0) {
-        console.log('Auto-creating conversation for first message');
-        try {
-          const newConversation = await DeploymentAPI.createConversation(
-            deploymentId, 
-            `Chat ${new Date().toLocaleDateString()}`
-          );
-          conversationId = newConversation.id;
-          setCurrentConversationId(conversationId);
-          setConversations(prev => [newConversation, ...prev]);
-          console.log('Auto-created conversation:', newConversation);
-        } catch (convErr) {
-          console.error('Failed to auto-create conversation:', convErr);
-          // Continue without saving to database
+    // Use WebSocket if connected, otherwise fall back to REST API
+    if (useWebSocket && wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      // WebSocket path
+      // Reset streaming state
+      currentStreamingMessageRef.current = "";
+      setIsLoading(true); // Show loading indicator until first chunk arrives
+
+      try {
+        // Auto-create conversation if none exists and this is the first message
+        let conversationId = currentConversationId;
+        if (!conversationId && messages.length === 0) {
+          try {
+            const newConversation = await DeploymentAPI.createConversation(
+              deploymentId, 
+              `Chat ${new Date().toLocaleDateString()}`
+            );
+            conversationId = newConversation.id;
+            setCurrentConversationId(conversationId);
+            setConversations(prev => [newConversation, ...prev]);
+          } catch (convErr) {
+            console.error('Failed to auto-create conversation:', convErr);
+          }
         }
+
+        const history = formatChatHistory(messages);
+        
+        // Send message via WebSocket
+        wsRef.current.send(JSON.stringify({
+          type: 'chat',
+          message: messageText,
+          history: history,
+          conversation_id: conversationId || undefined
+        }));
+
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to send message");
+        setIsLoading(false);
       }
+    } else {
+      // REST API fallback path
+      setIsLoading(true);
+      
+      try {
+        // Auto-create conversation if none exists and this is the first message
+        let conversationId = currentConversationId;
+        if (!conversationId && messages.length === 0) {
+          try {
+            const newConversation = await DeploymentAPI.createConversation(
+              deploymentId, 
+              `Chat ${new Date().toLocaleDateString()}`
+            );
+            conversationId = newConversation.id;
+            setCurrentConversationId(conversationId);
+            setConversations(prev => [newConversation, ...prev]);
+          } catch (convErr) {
+            console.error('Failed to auto-create conversation:', convErr);
+          }
+        }
 
-      const history = formatChatHistory(messages);
-      const response: ChatResponse = await DeploymentAPI.chatWithDeployment(
-        deploymentId,
-        messageText,
-        history,
-        conversationId || undefined
-      );
+        const history = formatChatHistory(messages);
+        const response = await DeploymentAPI.chatWithDeployment(
+          deploymentId,
+          messageText,
+          history,
+          conversationId || undefined
+        );
 
-      const assistantMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        text: response.response,
-        isUser: false,
-        sources: response.sources,
-        timestamp: new Date(),
-      };
+        const assistantMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          text: response.response,
+          isUser: false,
+          sources: response.sources,
+          timestamp: new Date(),
+        };
 
-      setMessages(prev => [...prev, assistantMessage]);
+        setMessages(prev => [...prev, assistantMessage]);
 
-      // Update conversation ID if it was returned from the chat
-      if (response.conversation_id && !currentConversationId) {
-        setCurrentConversationId(response.conversation_id);
+        // Update conversation ID if it was returned from the chat
+        if (response.conversation_id && !currentConversationId) {
+          setCurrentConversationId(response.conversation_id);
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to send message");
+      } finally {
+        setIsLoading(false);
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send message");
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -515,8 +803,15 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
             </div>
 
             <div className="flex items-center space-x-2">
-              <div className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-xs font-medium">
-                Active
+                            <div className={`px-3 py-1 rounded-full text-xs font-medium flex items-center space-x-1 ${
+                wsConnected 
+                  ? "bg-green-100 text-green-800" 
+                  : "bg-gray-100 text-gray-600"
+              }`}>
+                <div className={`w-2 h-2 rounded-full ${
+                  wsConnected ? "bg-green-500" : "bg-gray-400"
+                }`}></div>
+                <span>{wsConnected ? "Live" : "Chat"}</span>
               </div>
             </div>
           </div>
@@ -578,7 +873,7 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
           </div>
         ))}
 
-                  {isLoading && (
+                  {isLoading && !messages.some(msg => msg.isStreaming) && (
             <div className="chat chat-start">
               <div className="chat-header text-header">
                 Assistant
@@ -638,4 +933,4 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
       </div>
     </div>
   );
-} 
+}

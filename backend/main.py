@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from database.database import init_db, shutdown_db
@@ -13,6 +13,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 from scripts.config import load_config
+import os
 
 # Load config
 config = load_config()
@@ -64,6 +65,7 @@ app.add_middleware(
     allow_credentials=cors_config.get("allow_credentials", True),
     allow_methods=cors_config.get("allow_methods", ["*"]),
     allow_headers=cors_config.get("allow_headers", ["*"]),
+    expose_headers=["*"],  # Add this for WebSocket
 )
 app.include_router(auth_router)
 app.include_router(workflow_router)
@@ -74,6 +76,35 @@ app.include_router(deployment_router)
 def read_root():
     return {"Hello": "World"}
 
-@app.get("/me")
-def me(user = Depends(get_current_user)):
-    return {"id": user.id, "email": user.email}
+# Test WebSocket endpoint
+@app.websocket("/ws/test")
+async def websocket_test(websocket: WebSocket):
+    await websocket.accept()
+    await websocket.send_text("Test WebSocket connection successful!")
+    await websocket.close()
+
+if __name__ == "__main__":
+    import uvicorn
+    import sys
+    
+    # Check if running with uvicorn command (don't start server in that case)
+    if "uvicorn" not in sys.modules:
+        # Load configuration for server settings
+        config = load_config()
+        
+        # Get server settings
+        host = config.get("server", {}).get("host", "0.0.0.0")
+        port = config.get("server", {}).get("port", 8000)
+        reload = os.getenv("ENV", "development") == "development"
+        
+        # Run the server with WebSocket support
+        uvicorn.run(
+            "main:app",
+            host=host,
+            port=port,
+            reload=reload,
+            ws_ping_interval=30,  # WebSocket ping interval
+            ws_ping_timeout=10,   # WebSocket ping timeout
+            access_log=True,
+            log_level="info"
+        )
