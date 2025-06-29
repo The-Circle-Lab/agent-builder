@@ -65,7 +65,9 @@ class MCPChatDeployment:
                 print(f"DEBUG: Initializing Google Cloud Vertex AI MaaS provider for deployment {deployment_id}")
                 
                 project = app_config.get("google_cloud", {}).get("project")
-                location = app_config.get("google_cloud", {}).get("location", "us-east5")
+                # DeepSeek and Meta models are currently served only from us-central1
+                location_cfg = app_config.get("google_cloud", {}).get("location", "us-east5")
+                location = "us-central1" if location_cfg != "us-central1" else location_cfg
                 
                 if not project:
                     raise Exception("Google Cloud project not configured. Please set GOOGLE_CLOUD_PROJECT environment variable.")
@@ -153,10 +155,31 @@ class MCPChatDeployment:
             try:
                 new_token = self._get_access_token()
                 
-                # Update the LLM client with new token
-                self.llm.api_key = new_token
-                if hasattr(self.llm, 'default_headers'):
-                    self.llm.default_headers["Authorization"] = f"Bearer {new_token}"
+                # Recreate the LLM client with new token
+                # ChatOpenAI doesn't allow updating api_key after initialization
+                from pathlib import Path
+                import sys
+                sys.path.append(str(Path(__file__).parent.parent))
+                from scripts.config import load_config
+                
+                app_config = load_config()
+                location_cfg = app_config.get("google_cloud", {}).get("location", "us-east5")
+                location = "us-central1" if location_cfg != "us-central1" else location_cfg
+                project = app_config.get("google_cloud", {}).get("project")
+                
+                base_url = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/endpoints/openapi"
+                
+                self.llm = ChatOpenAI(
+                    model=self.config["llm_config"]["model"],
+                    temperature=self.config["llm_config"]["temperature"],
+                    max_tokens=self.config["llm_config"]["max_tokens"],
+                    top_p=self.config["llm_config"]["top_p"],
+                    api_key=new_token,
+                    base_url=base_url,
+                    default_headers={
+                        "Authorization": f"Bearer {new_token}"
+                    }
+                )
                 
                 print(f"[{self.deployment_id}] DEBUG: Refreshed {provider} access token")
                 return True
@@ -242,8 +265,17 @@ class MCPChatDeployment:
         self.memory.clear()
         for h in history:
             if len(h) >= 2:
-                self.memory.chat_memory.add_user_message(h[0])
-                self.memory.chat_memory.add_ai_message(h[1])
+                # Only add messages if they have non-empty content
+                # This prevents 400 errors from empty assistant messages
+                user_msg = h[0].strip()
+                ai_msg = h[1].strip()
+                
+                if user_msg and ai_msg:
+                    self.memory.chat_memory.add_user_message(h[0])
+                    self.memory.chat_memory.add_ai_message(h[1])
+                elif user_msg and not ai_msg:
+                    # Skip this exchange if assistant message is empty
+                    print(f"[{self.deployment_id}] Skipping history entry with empty assistant response")
     
     # Helper method to search and format context
     async def _prepare_context(self, message: str, k: int = 15) -> Tuple[List[Dict[str, Any]], str]:
