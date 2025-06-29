@@ -1,6 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { API_CONFIG } from '@/lib/constants';
-import { WebSocketMessage, Message } from '../types/chat';
+import { WebSocketMessage } from '../types/chat';
 import { processThinkTags } from '../utils/messageParser';
 
 interface UseWebSocketProps {
@@ -23,13 +23,13 @@ export const useWebSocket = ({
   onError
 }: UseWebSocketProps) => {
   const [connected, setConnected] = useState(false);
-  const [reconnectAttempts, setReconnectAttempts] = useState(0);
   
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const currentStreamingMessageRef = useRef<string>("");
   const currentStreamingSourcesRef = useRef<string[]>([]);
+  const reconnectAttemptsRef = useRef<number>(0);
 
   const handleWebSocketMessage = useCallback((data: WebSocketMessage) => {
     console.log('WebSocket message received:', data.type, data);
@@ -102,19 +102,41 @@ export const useWebSocket = ({
         return;
       }
       
+      // Reset reconnect attempts when starting a fresh connection
+      if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
+        reconnectAttemptsRef.current = 0;
+      }
+      
+      // Try to get session ID from cookie for fallback
+      const sessionId = document.cookie
+        .split('; ')
+        .find(row => row.startsWith('sid='))
+        ?.split('=')[1];
+      
       // Convert HTTP base URL to WebSocket URL
       const baseUrl = API_CONFIG.BASE_URL;
       const wsProtocol = baseUrl.startsWith('https://') ? 'wss:' : 'ws:';
       const wsHost = baseUrl.replace(/^https?:\/\//, '');
-      const wsUrl = `${wsProtocol}//${wsHost}/api/deploy/ws/${deploymentId}`;
+      let wsUrl = `${wsProtocol}//${wsHost}/api/deploy/ws/${deploymentId}`;
+      
+      // Add session ID as query parameter if available (fallback for cookie issues)
+      if (sessionId) {
+        wsUrl += `?sid=${sessionId}`;
+      }
+      
+      console.log(`[WebSocket] Connecting to: ${wsUrl}`);
+      console.log(`[WebSocket] Base URL: ${baseUrl}`);
+      console.log(`[WebSocket] Deployment ID: ${deploymentId}`);
+      console.log(`[WebSocket] Session ID available: ${!!sessionId}`);
       
       // WebSocket will automatically include cookies with the connection
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
       
       ws.onopen = () => {
+        console.log('[WebSocket] Connection opened successfully');
         setConnected(true);
-        setReconnectAttempts(0);
+        reconnectAttemptsRef.current = 0;
         
         // Setup ping interval for connection health
         if (pingIntervalRef.current) {
@@ -141,6 +163,7 @@ export const useWebSocket = ({
       };
       
       ws.onclose = (event) => {
+        console.log(`[WebSocket] Connection closed. Code: ${event.code}, Reason: ${event.reason}, Clean: ${event.wasClean}`);
         setConnected(false);
         
         // Clear ping interval
@@ -149,20 +172,37 @@ export const useWebSocket = ({
           pingIntervalRef.current = null;
         }
         
+        // Log close codes for debugging
+        const closeCodeMessages: Record<number, string> = {
+          1000: 'Normal closure',
+          1001: 'Going away',
+          1002: 'Protocol error',
+          1003: 'Unsupported data',
+          1006: 'Abnormal closure',
+          1011: 'Server error',
+          1015: 'TLS handshake failure'
+        };
+        
+        console.log(`[WebSocket] Close reason: ${closeCodeMessages[event.code] || 'Unknown'}`);
+        
         // If connection closed immediately with specific codes, it's likely auth failure
-        if (event.code === 1002 || event.code === 1003 || (event.code === 1000 && reconnectAttempts === 0)) {
+        if (event.code === 1002 || event.code === 1003 || (event.code === 1000 && reconnectAttemptsRef.current === 0)) {
+          console.log('[WebSocket] Connection closed due to authentication or protocol error');
+          onError("Authentication failed. Please refresh the page and try again.");
           return;
         }
         
         // Attempt reconnection
-        if (reconnectAttempts < 5) {
-          const timeout = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
+        if (reconnectAttemptsRef.current < 5 && enabled) {
+          const timeout = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 10000);
+          console.log(`[WebSocket] Attempting reconnection ${reconnectAttemptsRef.current + 1}/5 in ${timeout}ms`);
           
           reconnectTimeoutRef.current = setTimeout(() => {
-            setReconnectAttempts(prev => prev + 1);
+            reconnectAttemptsRef.current = reconnectAttemptsRef.current + 1;
             connectWebSocket();
           }, timeout);
         } else {
+          console.log('[WebSocket] Max reconnection attempts reached or connection disabled');
           onError("Failed to connect to chat service. Please refresh the page.");
         }
       };
@@ -171,7 +211,7 @@ export const useWebSocket = ({
       console.error('Failed to create WebSocket:', err);
       onError("Failed to establish WebSocket connection");
     }
-  }, [deploymentId, reconnectAttempts, handleWebSocketMessage, onError]);
+  }, [deploymentId, handleWebSocketMessage, onError, enabled]);
 
   const disconnectWebSocket = useCallback(() => {
     if (reconnectTimeoutRef.current) {
@@ -215,15 +255,24 @@ export const useWebSocket = ({
       return;
     }
     
-    const timeoutId = setTimeout(() => {
-      connectWebSocket();
-    }, 100);
-    
+    // Only connect if not already connected
+    if (!wsRef.current || wsRef.current.readyState === WebSocket.CLOSED) {
+      const timeoutId = setTimeout(() => {
+        connectWebSocket();
+      }, 100);
+      
+      return () => {
+        clearTimeout(timeoutId);
+      };
+    }
+  }, [enabled]); // Only depend on enabled, not the callbacks
+
+  // Cleanup on unmount
+  useEffect(() => {
     return () => {
-      clearTimeout(timeoutId);
       disconnectWebSocket();
     };
-  }, [enabled, connectWebSocket, disconnectWebSocket]);
+  }, []);
 
   return {
     connected,

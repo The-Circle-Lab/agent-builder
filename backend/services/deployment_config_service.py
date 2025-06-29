@@ -47,7 +47,7 @@ def parse_workflow_config(workflow_data: Dict[str, Any]) -> Dict[str, Any]:
                 elif llm_model.get("type") == "deepSeek":
                     llm_config = llm_model.get("config", {})
                     config["llm_config"].update({
-                        "model": llm_config.get("model", "deepseek-ai/deepseek-r1-0528-maas"),
+                        "model": llm_config.get("model", "deepseek-chat"),
                         "temperature": llm_config.get("temperature", 0.6),
                         "max_tokens": llm_config.get("maximumOutputTokens", 1200),
                         "top_p": llm_config.get("topP", 0.5),

@@ -60,7 +60,7 @@ class MCPChatDeployment:
                     api_key=openai_api_key
                 )
                 print(f"OpenAI LLM initialized for deployment {deployment_id} with model {config['llm_config']['model']}")
-            elif provider == "deepseek" or provider == "meta":
+            elif provider == "meta":
                 # Initialize DeepSeek via Google Cloud Vertex AI MaaS
                 print(f"DEBUG: Initializing Google Cloud Vertex AI MaaS provider for deployment {deployment_id}")
                 
@@ -116,6 +116,22 @@ class MCPChatDeployment:
                 )
                 print(f"Google Cloud Vertex AI MaaS LLM initialized for deployment {deployment_id} with model {config['llm_config']['model']} via Google Cloud MaaS")
                 print(f"Google Cloud Vertex AI MaaS endpoint: {base_url}")
+            elif provider == "deepseek":
+                # Initialize DeepSeek API
+                deepseek_api_key = os.getenv("DEEPSEEK_API_KEY")
+                if not deepseek_api_key:
+                    raise Exception("DEEPSEEK_API_KEY environment variable is not set")
+                
+                # DeepSeek uses OpenAI-compatible API
+                self.llm = ChatOpenAI(
+                    model=config["llm_config"]["model"],
+                    temperature=config["llm_config"]["temperature"],
+                    max_tokens=config["llm_config"]["max_tokens"],
+                    top_p=config["llm_config"]["top_p"],
+                    api_key=deepseek_api_key,
+                    base_url="https://api.deepseek.com"  # DeepSeek API endpoint
+                )
+                print(f"DeepSeek LLM initialized for deployment {deployment_id} with model {config['llm_config']['model']}")
             else: # As of right now, anthropic works through google cloud only
                 # Initialize VertexAI (default)
                 self.llm = VertexAI(
@@ -148,10 +164,10 @@ class MCPChatDeployment:
         
         # No persistent MCP session - create per request
     
-    # Refresh the Google Cloud access token for DeepSeek and Meta if needed
+    # Refresh the Google Cloud access token for Meta if needed (DeepSeek uses its own API)
     def _refresh_google_cloud_maas_token(self):
         provider = self.config["llm_config"].get("provider")
-        if hasattr(self, '_get_access_token') and provider in ["deepseek", "meta"]:
+        if hasattr(self, '_get_access_token') and provider == "meta":
             try:
                 new_token = self._get_access_token()
                 
@@ -403,7 +419,7 @@ class MCPChatDeployment:
                     
                     # Check if this is an authentication error that might be resolved by token refresh
                     provider = self.config["llm_config"].get("provider")
-                    if (provider in ["deepseek", "meta"] and 
+                    if (provider == "meta" and 
                         ("invalid" in error_str or "unauthorized" in error_str or "authentication" in error_str or "token" in error_str)):
                         
                         print(f"[{self.deployment_id}] Detected potential auth error for {provider}, attempting token refresh")
@@ -507,7 +523,7 @@ class MCPChatDeployment:
                     
                     # Check if this is an authentication error that might be resolved by token refresh
                     provider = self.config["llm_config"].get("provider")
-                    if (provider in ["deepseek", "meta"] and 
+                    if (provider == "meta" and 
                         ("invalid" in error_str or "unauthorized" in error_str or "authentication" in error_str or "token" in error_str)):
                         
                         print(f"[{self.deployment_id}] Detected potential auth error for {provider} streaming, attempting token refresh")

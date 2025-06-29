@@ -11,9 +11,10 @@ export class DeepSeekNodeConfig extends BaseNodeConfig {
       key: "model",
       label: "Model",
       type: "select",
-      defaultValue: "deepseek-ai/deepseek-r1-0528-maas",
+      defaultValue: "deepseek-chat",
       options: [
-        "deepseek-ai/deepseek-r1-0528-maas"
+        "deepseek-chat",
+        "deepseek-reasoner"
       ],
     },
     {

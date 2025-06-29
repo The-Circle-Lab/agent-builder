@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session as DBSession, select
 from models.db_models import User, Document, Workflow, ChatConversation, ChatMessage, Deployment, AuthSession
-from database.database import get_session
+from database.database import get_session, engine
 from api.auth import get_current_user
 from models.deployment_models import (
     DeploymentRequest, DeploymentResponse, ChatRequest, ChatResponse,
@@ -283,14 +283,18 @@ async def chat_with_deployment(
 @router.websocket("/ws/{deployment_id}")
 async def websocket_chat(
     websocket: WebSocket,
-    deployment_id: str,
-    db: DBSession = Depends(get_session)
+    deployment_id: str
 ):
     await websocket.accept()
+    print(f"[WebSocket] Connection accepted for deployment {deployment_id}")
+    
+    # Create database session for WebSocket using proper async handling
+    db: DBSession = DBSession(engine)
     
     try:
         # Get session cookie from WebSocket headers
         cookie_header = websocket.headers.get("cookie", "")
+        print(f"[WebSocket] Cookie header: {cookie_header[:100]}...")  # Log first 100 chars
         sid = None
         
         # Parse session ID from cookie header
@@ -300,61 +304,82 @@ async def websocket_chat(
                 sid = cookie.split("=", 1)[1]
                 break
         
+        # Fallback: check query parameters for session ID
+        if not sid and websocket.query_params.get("sid"):
+            sid = websocket.query_params.get("sid")
+            print(f"[WebSocket] Using session ID from query parameter")
+        
+        print(f"[WebSocket] Extracted session ID: {sid[:20] if sid else 'None'}...")  # Log first 20 chars
+        
         if not sid:
+            print(f"[WebSocket] No session cookie found in headers or query params")
             await websocket.send_json({
                 "type": "error",
                 "message": "No session cookie found"
             })
-            await websocket.close()
+            await websocket.close(code=1000, reason="No authentication")
             return
         
         # Validate session
         session = db.get(AuthSession, sid)
         if not session:
+            print(f"[WebSocket] Session not found in database: {sid[:20]}...")
             await websocket.send_json({
                 "type": "error",
                 "message": "Invalid session"
             })
-            await websocket.close()
+            await websocket.close(code=1000, reason="Invalid session")
             return
         
+        print(f"[WebSocket] Session found, expires at: {session.expires_at}")
+        
         if session.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
+            print(f"[WebSocket] Session expired")
             await websocket.send_json({
                 "type": "error",
                 "message": "Session expired"
             })
-            await websocket.close()
+            await websocket.close(code=1000, reason="Session expired")
             return
         
         # Get user from session
         user = db.get(User, session.user_id)
         if not user:
+            print(f"[WebSocket] User not found for session user_id: {session.user_id}")
             await websocket.send_json({
                 "type": "error",
                 "message": "User not found"
             })
-            await websocket.close()
+            await websocket.close(code=1000, reason="User not found")
             return
         
+        print(f"[WebSocket] User authenticated: {user.email} (ID: {user.id})")
+        
         # Load deployment
+        print(f"[WebSocket] Loading deployment {deployment_id} for user {user.id}")
         if not await load_deployment_on_demand(deployment_id, user.id, db):
+            print(f"[WebSocket] Failed to load deployment {deployment_id}")
             await websocket.send_json({
                 "type": "error",
                 "message": "Deployment not found or failed to initialize"
             })
-            await websocket.close()
+            await websocket.close(code=1000, reason="Deployment not found")
             return
         
+        print(f"[WebSocket] Deployment loaded successfully")
         deployment = get_active_deployment(deployment_id)
         
         # Check user permission
         if deployment["user_id"] != user.id:
+            print(f"[WebSocket] Access denied: deployment user_id={deployment['user_id']}, current user_id={user.id}")
             await websocket.send_json({
                 "type": "error",
                 "message": "Access denied"
             })
-            await websocket.close()
+            await websocket.close(code=1000, reason="Access denied")
             return
+        
+        print(f"[WebSocket] User permission verified")
         
         # Send authentication success
         await websocket.send_json({
@@ -362,9 +387,22 @@ async def websocket_chat(
             "message": "Authenticated successfully"
         })
         
+        print(f"[WebSocket] Entering message loop for deployment {deployment_id}")
+        
         # Handle chat messages
         while True:
-            data = await websocket.receive_json()
+            try:
+                print(f"[WebSocket] Waiting for message...")
+                data = await websocket.receive_json()
+                print(f"[WebSocket] Received message: {data}")
+            except WebSocketDisconnect:
+                print(f"[WebSocket] Client disconnected normally")
+                break
+            except Exception as recv_error:
+                print(f"[WebSocket] Error receiving message: {recv_error}")
+                import traceback
+                print(f"[WebSocket] Receive error traceback:\n{traceback.format_exc()}")
+                break
             
             if data.get("type") == "chat":
                 message = data.get("message", "")
@@ -474,6 +512,8 @@ async def websocket_chat(
         print(f"WebSocket disconnected for deployment {deployment_id}")
     except Exception as e:
         print(f"WebSocket error: {e}")
+        import traceback
+        print(f"WebSocket error traceback:\n{traceback.format_exc()}")
         try:
             await websocket.send_json({
                 "type": "error",
@@ -482,6 +522,12 @@ async def websocket_chat(
         except:
             pass
     finally:
+        # Clean up database session
+        try:
+            db.close()
+        except:
+            pass
+        
         try:
             await websocket.close()
         except:
@@ -740,7 +786,6 @@ async def test_deployment_streaming(
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session)
 ):
-    """Test the streaming functionality of a deployment"""
     
     # Load deployment on-demand if not in memory
     if not await load_deployment_on_demand(deployment_id, current_user.id, db):

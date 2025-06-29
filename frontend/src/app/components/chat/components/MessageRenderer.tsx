@@ -167,50 +167,19 @@ const createMarkdownComponents = (
   em: ({ children, ...props }: React.ComponentProps<'em'>) => <em className="italic" {...props}>{children}</em>,
 });
 
-// Streaming-optimized message renderer
+// Streaming-optimized message renderer (refactored)
 export const StreamingMessageRenderer = ({ message }: { message: Message }) => {
-  // Process think tags first (show during streaming, remove when done)
+  // 1️⃣  Handle <think> tags so that they are either hidden (when done) or shown in a special style (while streaming).
   const processedText = processThinkTags(message.text, message.isStreaming);
-  
-  // Parse the text to extract thinking parts and citations
-  const parts = parseSourceCitations(processedText, message.sources);
-  
-  // If we have thinking content or citations, render them specially
-  if (parts.some(part => part.type !== 'text')) {
-    return (
-      <div className="text-sm prose prose-sm max-w-none">
-        {parts.map((part, index) => {
-          if (part.type === 'text') {
-            return (
-              <ReactMarkdown
-                key={`text-${index}`}
-                components={createMarkdownComponents(message.sources, message.isUser, true)}
-              >
-                {part.content as string}
-              </ReactMarkdown>
-            );
-          } else if (part.type === 'citation') {
-            return (
-              <span key={`citation-${index}`} className="inline-flex flex-wrap items-center">
-                {(part.content as string[]).map((filename, fileIndex) => (
-                  <SourceCitationButton key={`${index}-${fileIndex}`} filename={filename} />
-                ))}
-              </span>
-            );
-          } else if (part.type === 'thinking') {
-            return (
-              <ThinkingText key={`thinking-${index}`}>
-                {part.content as string}
-              </ThinkingText>
-            );
-          }
-          return null;
-        })}
-      </div>
-    );
-  }
-  
-  // Otherwise, render as normal markdown
+
+  /*
+   * We intentionally run **one single** ReactMarkdown pass over the full
+   * message text. Our custom markdown component mappings are responsible for
+   * finding citations / thinking tokens inside every string fragment and
+   * converting them to React elements.  
+   * This avoids splitting the markdown into many sub-renders which previously
+   * broke list indentation and line-breaks.
+   */
   return (
     <div className="text-sm prose prose-sm max-w-none">
       <ReactMarkdown
