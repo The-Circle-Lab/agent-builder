@@ -1,7 +1,7 @@
 from typing import Dict, Any
 from sqlmodel import Session as DBSession, select
 from models.db_models import Deployment
-from services.mcp_deployment_service import MCPChatDeployment
+from services.deployment_service import MCPChatDeployment
 from datetime import datetime, timezone
 
 # Store active deployments with MCP sessions

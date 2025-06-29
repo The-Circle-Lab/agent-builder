@@ -61,11 +61,11 @@ class MCPChatDeployment:
                 )
                 print(f"OpenAI LLM initialized for deployment {deployment_id} with model {config['llm_config']['model']}")
             elif provider == "meta":
-                # Initialize DeepSeek via Google Cloud Vertex AI MaaS
+                # Initialize Alternative Models via Google Cloud Vertex AI MaaS
                 print(f"DEBUG: Initializing Google Cloud Vertex AI MaaS provider for deployment {deployment_id}")
                 
                 project = app_config.get("google_cloud", {}).get("project")
-                # DeepSeek and Meta models are currently served only from us-central1
+                # Meta models are currently served only from us-central1
                 location_cfg = app_config.get("google_cloud", {}).get("location", "us-east5")
                 location = "us-central1" if location_cfg != "us-central1" else location_cfg
                 
@@ -94,7 +94,7 @@ class MCPChatDeployment:
                 
                 access_token = get_access_token()
                 
-                # DeepSeek models use OpenAI-compatible API format via Google Cloud
+                # Meta models use OpenAI-compatible API format via Google Cloud
                 base_url = f"https://{location}-aiplatform.googleapis.com/v1/projects/{project}/locations/{location}/endpoints/openapi"
                 
                 print(f"DEBUG: Google Cloud Vertex AI MaaS base URL: {base_url}")

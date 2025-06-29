@@ -12,7 +12,7 @@ from services.deployment_manager import (
     load_deployment_on_demand, get_active_deployment, add_active_deployment,
     remove_active_deployment, is_deployment_active
 )
-from services.mcp_deployment_service import MCPChatDeployment
+from services.deployment_service import MCPChatDeployment
 from typing import List
 from datetime import datetime, timezone
 import uuid
