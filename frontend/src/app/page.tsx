@@ -1,16 +1,22 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { AuthAPI } from "./components/agentBuilder/scripts/authAPI";
+import { AuthAPI, User } from "./components/agentBuilder/scripts/authAPI";
 import LoginPage from "./components/loginPage";
-import WorkflowsPage from "./components/workflowsPage";
+import ClassesPage from "./components/classes/ClassesPage";
+import ClassDetailPage from "./components/classes/ClassDetailPage";
 import WorkflowEditorPage from "./components/workflowEditorPage";
-import DeploymentsPage from "./components/deploymentsPage";
+import ChatInterface from "./components/chat/ChatInterface";
 import { APP_STATES, type AppState } from "@/lib/constants";
+import { Class } from "@/lib/types";
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>(APP_STATES.LOADING);
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [currentClass, setCurrentClass] = useState<Class | null>(null);
   const [currentWorkflowId, setCurrentWorkflowId] = useState<number | null>(null);
+  const [currentDeploymentId, setCurrentDeploymentId] = useState<string | null>(null);
+  const [currentDeploymentName, setCurrentDeploymentName] = useState<string>("");
 
   useEffect(() => {
     checkAuthStatus();
@@ -18,37 +24,66 @@ export default function App() {
 
   const checkAuthStatus = async () => {
     try {
-      const isAuthenticated = await AuthAPI.checkAuth();
-      if (isAuthenticated) {
-        setAppState(APP_STATES.WORKFLOWS);
-      } else {
-        setAppState(APP_STATES.LOGIN);
-      }
+      const user = await AuthAPI.getCurrentUser();
+      setCurrentUser(user);
+      setAppState(APP_STATES.CLASSES);
     } catch {
       setAppState(APP_STATES.LOGIN);
     }
   };
 
-  const handleLogin = () => {
-    setAppState(APP_STATES.WORKFLOWS);
+  const handleLogin = async () => {
+    try {
+      const user = await AuthAPI.getCurrentUser();
+      setCurrentUser(user);
+      setAppState(APP_STATES.CLASSES);
+    } catch (err) {
+      console.error('Failed to get user info after login:', err);
+    }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      await AuthAPI.logout();
+    } catch (err) {
+      console.error('Logout error:', err);
+    }
+    setCurrentUser(null);
+    setCurrentClass(null);
+    setCurrentWorkflowId(null);
+    setCurrentDeploymentId(null);
     setAppState(APP_STATES.LOGIN);
   };
 
-  const handleEditWorkflow = (workflowId: number | null) => {
+  const handleSelectClass = (classObj: Class) => {
+    setCurrentClass(classObj);
+    setAppState(APP_STATES.CLASS_DETAIL);
+  };
+
+  const handleBackToClasses = () => {
+    setCurrentClass(null);
+    setAppState(APP_STATES.CLASSES);
+  };
+
+  const handleEditWorkflow = (workflowId: number) => {
     setCurrentWorkflowId(workflowId);
     setAppState(APP_STATES.EDITOR);
   };
 
-  const handleBackToWorkflows = () => {
-    setCurrentWorkflowId(null);  
-    setAppState(APP_STATES.WORKFLOWS);
+  const handleBackFromEditor = () => {
+    setCurrentWorkflowId(null);
+    setAppState(APP_STATES.CLASS_DETAIL);
   };
 
-  const handleViewDeployments = () => {
-    setAppState(APP_STATES.DEPLOYMENTS);
+  const handleChatWithDeployment = (deploymentId: string, deploymentName: string) => {
+    setCurrentDeploymentId(deploymentId);
+    setCurrentDeploymentName(deploymentName);
+    setAppState(APP_STATES.CHAT);
+  };
+
+  const handleBackFromChat = () => {
+    setCurrentDeploymentId(null);
+    setAppState(APP_STATES.CLASS_DETAIL);
   };
 
   // Loading state
@@ -68,32 +103,74 @@ export default function App() {
     return <LoginPage onLogin={handleLogin} />;
   }
 
+  // Ensure we have a user for authenticated pages
+  if (!currentUser) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-gray-600">Session expired. Please log in again.</p>
+          <button
+            onClick={() => setAppState(APP_STATES.LOGIN)}
+            className="mt-4 text-blue-600 hover:text-blue-700"
+          >
+            Go to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Classes list page
+  if (appState === APP_STATES.CLASSES) {
+    return (
+      <ClassesPage 
+        user={currentUser}
+        onSelectClass={handleSelectClass}
+        onLogout={handleLogout}
+      />
+    );
+  }
+
+  // Class detail page
+  if (appState === APP_STATES.CLASS_DETAIL && currentClass) {
+    return (
+      <ClassDetailPage
+        user={currentUser}
+        classObj={currentClass}
+        onBack={handleBackToClasses}
+        onEditWorkflow={handleEditWorkflow}
+        onChatWithDeployment={handleChatWithDeployment}
+      />
+    );
+  }
+
   // Workflow editor page
-  if (appState === APP_STATES.EDITOR) {
+  if (appState === APP_STATES.EDITOR && currentWorkflowId) {
     return (
       <WorkflowEditorPage 
         workflowId={currentWorkflowId} 
-        onBack={handleBackToWorkflows} 
+        onBack={handleBackFromEditor} 
       />
     );
   }
 
-  // Deployments page
-  if (appState === APP_STATES.DEPLOYMENTS) {
+  // Chat interface
+  if (appState === APP_STATES.CHAT && currentDeploymentId) {
     return (
-      <DeploymentsPage 
-        onLogout={handleLogout} 
-        onBack={handleBackToWorkflows} 
+      <ChatInterface
+        deploymentId={currentDeploymentId}
+        workflowName={currentDeploymentName}
+        onBack={handleBackFromChat}
       />
     );
   }
 
-  // Workflows list page (default)
+  // Default to classes page
   return (
-    <WorkflowsPage 
-      onLogout={handleLogout} 
-      onEditWorkflow={handleEditWorkflow}
-      onViewDeployments={handleViewDeployments}
+    <ClassesPage 
+      user={currentUser}
+      onSelectClass={handleSelectClass}
+      onLogout={handleLogout}
     />
   );
 }

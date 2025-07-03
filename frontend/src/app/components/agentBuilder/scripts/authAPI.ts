@@ -10,12 +10,13 @@ export interface LoginRequest {
 export interface RegisterRequest {
   email: string;
   password: string;
-  student?: boolean;
+  is_instructor?: boolean;
 }
 
 export interface User {
   id: number;
   email: string;
+  student: boolean;
 }
 
 export class AuthAPI {
@@ -52,7 +53,7 @@ export class AuthAPI {
 
     const response = await apiClient.post(ROUTES.AUTH.REGISTER, {
       ...userData,
-      student: userData.student ?? true
+      is_instructor: userData.is_instructor ?? false
     });
     
     if (response.error) {

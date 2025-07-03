@@ -1,8 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session as DBSession, select
-from models.db_models import User, Document, Workflow, ChatConversation, ChatMessage, Deployment, AuthSession
+from models.db_models import User, Document, Workflow, ChatConversation, ChatMessage, Deployment, AuthSession, ClassRole
 from database.database import get_session, engine
 from api.auth import get_current_user
+from scripts.permission_helpers import (
+    user_can_modify_workflow, user_can_access_workflow, user_can_modify_deployment,
+    user_can_access_deployment, user_has_role_in_class, user_can_create_resources
+)
 from models.deployment_models import (
     DeploymentRequest, DeploymentResponse, ChatRequest, ChatResponse,
     ConversationCreateRequest, ConversationResponse, MessageResponse
@@ -56,6 +60,13 @@ async def deploy_workflow(
         
         print(f"User authenticated: {current_user.id} ({current_user.email})")
         
+        # Check if user can create deployments (must be instructor)
+        if not user_can_create_resources(current_user, db):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only instructors can deploy workflows"
+            )
+        
         # Validate required environment variables
         required_env_vars = {
             "GOOGLE_CLOUD_PROJECT": "Google Cloud Project ID is required for Vertex AI"
@@ -82,16 +93,17 @@ async def deploy_workflow(
         
         # Get workflow and its documents
         workflow = db.get(Workflow, request.workflow_id)
-        if not workflow:
+        if not workflow or not workflow.is_active:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Workflow not found"
             )
         
-        if workflow.created_by_id != current_user.id:
+        # Check if user can modify this workflow (must be instructor in class)
+        if not user_can_modify_workflow(current_user, workflow, db):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Access denied to this workflow"
+                detail="Only instructors of this class can deploy workflows"
             )
         
         # Check for document collection if MCP is enabled and has documents
@@ -141,6 +153,7 @@ async def deploy_workflow(
                 deployment_id=deployment_id,
                 user_id=current_user.id,
                 workflow_id=workflow.id,
+                class_id=workflow.class_id,
                 workflow_name=request.workflow_name,
                 collection_name=collection_name,
                 config=config
@@ -198,6 +211,27 @@ async def chat_with_deployment(
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session)
 ):
+    # Get deployment from database first to check permissions
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True
+        )
+    ).first()
+    
+    if not db_deployment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found"
+        )
+    
+    # Check if user can access this deployment (class membership based)
+    if not user_can_access_deployment(current_user, db_deployment, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You must be a member of this class to use this deployment."
+        )
+    
     # Load deployment on-demand if not in memory
     if not await load_deployment_on_demand(deployment_id, current_user.id, db):
         raise HTTPException(
@@ -206,13 +240,6 @@ async def chat_with_deployment(
         )
     
     deployment = get_active_deployment(deployment_id)
-    
-    # Check user permission (redundant but safe)
-    if deployment["user_id"] != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied"
-        )
     
     try:
         print(f"Processing chat request for deployment {deployment_id}: {request.message}")
@@ -355,7 +382,34 @@ async def websocket_chat(
         
         print(f"[WebSocket] User authenticated: {user.email} (ID: {user.id})")
         
-        # Load deployment
+        # Get deployment from database first to check permissions
+        db_deployment = db.exec(
+            select(Deployment).where(
+                Deployment.deployment_id == deployment_id,
+                Deployment.is_active == True
+            )
+        ).first()
+        
+        if not db_deployment:
+            print(f"[WebSocket] Deployment not found in database: {deployment_id}")
+            await websocket.send_json({
+                "type": "error",
+                "message": "Deployment not found"
+            })
+            await websocket.close(code=1000, reason="Deployment not found")
+            return
+        
+        # Check if user can access this deployment (class membership based)
+        if not user_can_access_deployment(user, db_deployment, db):
+            print(f"[WebSocket] Access denied: user {user.id} not authorized for deployment {deployment_id} in class {db_deployment.class_id}")
+            await websocket.send_json({
+                "type": "error",
+                "message": "Access denied. You must be a member of this class to use this deployment."
+            })
+            await websocket.close(code=1000, reason="Access denied")
+            return
+        
+        # Load deployment in memory
         print(f"[WebSocket] Loading deployment {deployment_id} for user {user.id}")
         if not await load_deployment_on_demand(deployment_id, user.id, db):
             print(f"[WebSocket] Failed to load deployment {deployment_id}")
@@ -368,16 +422,6 @@ async def websocket_chat(
         
         print(f"[WebSocket] Deployment loaded successfully")
         deployment = get_active_deployment(deployment_id)
-        
-        # Check user permission
-        if deployment["user_id"] != user.id:
-            print(f"[WebSocket] Access denied: deployment user_id={deployment['user_id']}, current user_id={user.id}")
-            await websocket.send_json({
-                "type": "error",
-                "message": "Access denied"
-            })
-            await websocket.close(code=1000, reason="Access denied")
-            return
         
         print(f"[WebSocket] User permission verified")
         
@@ -540,17 +584,13 @@ async def list_active_deployments(
     db: DBSession = Depends(get_session)
 ):
     try:
-        # Get deployments from database (don't load into memory yet)
-        db_deployments = db.exec(
-            select(Deployment).where(
-                Deployment.user_id == current_user.id,
-                Deployment.is_active == True
-            )
-        ).all()
+        # Get all deployments accessible to user (based on class membership)
+        from scripts.permission_helpers import get_accessible_deployments
+        accessible_deployments = get_accessible_deployments(current_user, db)
         
         user_deployments = []
         
-        for deployment in db_deployments:
+        for deployment in accessible_deployments:
             # Just list the deployment info without loading it into memory
             user_deployments.append({
                 "deployment_id": deployment.deployment_id,
@@ -583,6 +623,27 @@ async def create_conversation(
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session)
 ):
+    # Get deployment from database to check permissions
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True
+        )
+    ).first()
+    
+    if not db_deployment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found"
+        )
+    
+    # Check if user can access this deployment (class membership based)
+    if not user_can_access_deployment(current_user, db_deployment, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You must be a member of this class to create conversations."
+        )
+    
     # Load deployment on-demand if not in memory
     if not await load_deployment_on_demand(deployment_id, current_user.id, db):
         raise HTTPException(
@@ -623,16 +684,28 @@ async def get_conversations(
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session)
 ):
-    # Load deployment on-demand if not in memory  
-    if not await load_deployment_on_demand(deployment_id, current_user.id, db):
+    # Get deployment from database to check permissions
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True
+        )
+    ).first()
+    
+    if not db_deployment:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Deployment not found or failed to initialize"
+            detail="Deployment not found"
         )
     
-    deployment = get_active_deployment(deployment_id)
+    # Check if user can access this deployment (class membership based)
+    if not user_can_access_deployment(current_user, db_deployment, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You must be a member of this class to view conversations."
+        )
     
-    # Get conversations with message counts
+    # Get conversations with message counts (only user's own conversations)
     conversations = db.exec(
         select(ChatConversation).where(
             ChatConversation.deployment_id == deployment_id,
@@ -660,6 +733,65 @@ async def get_conversations(
     
     return result
 
+# Get all student conversations for a deployment (instructors only)
+@router.get("/{deployment_id}/all-conversations", response_model=List[ConversationResponse])
+async def get_all_student_conversations(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    # Get deployment from database to check permissions
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True
+        )
+    ).first()
+    
+    if not db_deployment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found"
+        )
+    
+    # Check if user is instructor in this class
+    if not user_has_role_in_class(current_user, db_deployment.class_id, ClassRole.INSTRUCTOR, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only instructors can view all student conversations"
+        )
+    
+    # Get all conversations for this deployment
+    conversations = db.exec(
+        select(ChatConversation).where(
+            ChatConversation.deployment_id == deployment_id,
+            ChatConversation.is_active == True
+        ).order_by(ChatConversation.updated_at.desc())
+    ).all()
+    
+    result = []
+    for conv in conversations:
+        # Count messages for this conversation
+        message_count = db.exec(
+            select(ChatMessage).where(ChatMessage.conversation_id == conv.id)
+        ).all()
+        
+        # Get user info for the conversation owner
+        conv_user = db.get(User, conv.user_id)
+        user_email = conv_user.email if conv_user else "Unknown"
+        
+        result.append(ConversationResponse(
+            id=conv.id,
+            deployment_id=conv.deployment_id,
+            title=f"{conv.title} (by {user_email})",
+            workflow_name=conv.workflow_name,
+            created_at=conv.created_at,
+            updated_at=conv.updated_at,
+            message_count=len(message_count)
+        ))
+    
+    return result
+
 # Get messages for a specific conversation
 @router.get("/{deployment_id}/conversations/{conversation_id}/messages", response_model=List[MessageResponse])
 async def get_conversation_messages(
@@ -668,21 +800,38 @@ async def get_conversation_messages(
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session)
 ):
-    # Load deployment on-demand if not in memory
-    if not await load_deployment_on_demand(deployment_id, current_user.id, db):
+    # Get deployment from database to check permissions
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True
+        )
+    ).first()
+    
+    if not db_deployment:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Deployment not found or failed to initialize"
+            detail="Deployment not found"
         )
     
-    deployment = get_active_deployment(deployment_id)
-    
-    # Verify conversation exists and belongs to user
+    # Verify conversation exists
     conversation = db.get(ChatConversation, conversation_id)
-    if not conversation or conversation.user_id != current_user.id or conversation.deployment_id != deployment_id:
+    if not conversation or conversation.deployment_id != deployment_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found"
+        )
+    
+    # Check permissions - user can view their own conversations or instructors can view any
+    user_can_view = (
+        conversation.user_id == current_user.id or 
+        user_has_role_in_class(current_user, db_deployment.class_id, ClassRole.INSTRUCTOR, db)
+    )
+    
+    if not user_can_view:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You can only view your own conversations or be an instructor of this class."
         )
     
     messages = db.exec(
@@ -710,21 +859,38 @@ async def delete_conversation(
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session)
 ):
-    # Load deployment on-demand if not in memory
-    if not await load_deployment_on_demand(deployment_id, current_user.id, db):
+    # Get deployment from database to check permissions
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True
+        )
+    ).first()
+    
+    if not db_deployment:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Deployment not found or failed to initialize"
+            detail="Deployment not found"
         )
-    
-    deployment = get_active_deployment(deployment_id)
     
     # Verify conversation exists and belongs to user
     conversation = db.get(ChatConversation, conversation_id)
-    if not conversation or conversation.user_id != current_user.id or conversation.deployment_id != deployment_id:
+    if not conversation or conversation.deployment_id != deployment_id:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Conversation not found"
+        )
+    
+    # Check permissions - user can delete their own conversations or instructors can delete any
+    user_can_delete = (
+        conversation.user_id == current_user.id or 
+        user_has_role_in_class(current_user, db_deployment.class_id, ClassRole.INSTRUCTOR, db)
+    )
+    
+    if not user_can_delete:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You can only delete your own conversations or be an instructor of this class."
         )
     
     # Soft delete the conversation
@@ -741,12 +907,10 @@ async def delete_deployment(
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session)
 ):
-    
     # Check if deployment exists in database
     db_deployment = db.exec(
         select(Deployment).where(
             Deployment.deployment_id == deployment_id,
-            Deployment.user_id == current_user.id,
             Deployment.is_active == True
         )
     ).first()
@@ -755,6 +919,13 @@ async def delete_deployment(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Deployment not found"
+        )
+    
+    # Check if user can modify this deployment (must be instructor in class)
+    if not user_can_modify_deployment(current_user, db_deployment, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only instructors of this class can delete deployments"
         )
     
     # Clean up MCP server if loaded in memory

@@ -43,7 +43,7 @@ export class AgentNodeClass extends BaseNode<AgentNodeProps, AgentNodeData> {
             />
             <div className="text-white font-bold mt-2">AI Agent</div>
           </div>,
-          "flex flex-col items-center w-48"
+          "flex flex-col items-center w-47"
         )}
 
         {/* LLM Model Handle - Bottom Left */}

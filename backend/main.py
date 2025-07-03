@@ -6,6 +6,7 @@ from api.auth import router as auth_router, get_current_user
 from api.workflow_api import router as workflow_router
 from api.document_api import router as document_router
 from api.deployment_routes import router as deployment_router
+from api.class_api import router as class_router
 from services.deployment_manager import cleanup_all_deployments
 from models.db_models import User
 from contextlib import asynccontextmanager
@@ -68,6 +69,7 @@ app.add_middleware(
     expose_headers=["*"],  # Add this for WebSocket
 )
 app.include_router(auth_router)
+app.include_router(class_router)
 app.include_router(workflow_router)
 app.include_router(document_router)
 app.include_router(deployment_router)
@@ -78,7 +80,16 @@ def read_root():
 
 @app.get("/me")
 def me(user = Depends(get_current_user)):
-    return {"id": user.id, "email": user.email}
+    # Get user's roles from class memberships
+    from database.database import get_session
+    from scripts.permission_helpers import user_is_student_only
+    from sqlmodel import Session as DBSession
+    
+    db: DBSession = next(get_session())
+    is_student = user_is_student_only(user, db)
+    db.close()
+    
+    return {"id": user.id, "email": user.email, "student": is_student}
 
 # Test WebSocket endpoint
 @app.websocket("/ws/test")

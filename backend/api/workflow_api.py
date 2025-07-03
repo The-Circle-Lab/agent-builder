@@ -1,9 +1,13 @@
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select, Session as DBSession
-from models.db_models import User, Workflow, Class, Document
+from models.db_models import User, Workflow, Class, Document, ClassMembership, ClassRole
 from database.database import get_session
 from api.auth import get_current_user
+from scripts.permission_helpers import (
+    user_has_role_in_class, user_can_modify_workflow, user_can_access_workflow,
+    get_accessible_workflows, user_can_create_resources
+)
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
@@ -23,6 +27,7 @@ class WorkflowCreateRequest(BaseModel):
     name: str
     description: Optional[str] = None
     workflow_data: Dict[str, Any]
+    class_id: int
 
 class WorkflowUpdateRequest(BaseModel):
     name: Optional[str] = None
@@ -35,6 +40,7 @@ class WorkflowResponse(BaseModel):
     description: Optional[str]
     workflow_data: Dict[str, Any]
     workflow_collection_id: str
+    class_id: int
     created_at: datetime
     updated_at: datetime
 
@@ -43,10 +49,9 @@ def get_user_workflows(
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session)
 ):
-    workflows = db.exec(
-        select(Workflow).where(Workflow.created_by_id == current_user.id)
-    ).all()
-    return workflows
+    # Get workflows accessible to user (based on class membership)
+    accessible_workflows = get_accessible_workflows(current_user, db)
+    return accessible_workflows
 
 @router.post("/", response_model=WorkflowResponse)
 def create_workflow(
@@ -54,26 +59,34 @@ def create_workflow(
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session)
 ):
-    # Get or create default class
-    default_class = db.exec(select(Class).where(Class.code == "DEFAULT")).first()
-    if not default_class:
-        # Create default class if it doesn't exist
-        default_class = Class(
-            code="DEFAULT",
-            name="Default Class",
-            description="Default class for workflows",
-            admin_id=current_user.id
+    # Check if user can create workflows (must be instructor)
+    if not user_can_create_resources(current_user, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only instructors can create workflows"
         )
-        db.add(default_class)
-        db.commit()
-        db.refresh(default_class)
+    
+    # Verify class exists
+    class_obj = db.get(Class, request.class_id)
+    if not class_obj or not class_obj.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Class not found"
+        )
+    
+    # Check if user is instructor in the specified class
+    if not user_has_role_in_class(current_user, request.class_id, ClassRole.INSTRUCTOR, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You must be an instructor of this class to create workflows"
+        )
     
     workflow = Workflow(
         name=request.name,
         description=request.description,
         workflow_data=request.workflow_data,
         created_by_id=current_user.id,
-        class_id=default_class.id
+        class_id=request.class_id
     )
     
     db.add(workflow)
@@ -88,10 +101,11 @@ def get_workflow(
     db: DBSession = Depends(get_session)
 ):
     workflow = db.get(Workflow, workflow_id)
-    if not workflow:
+    if not workflow or not workflow.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow not found")
     
-    if workflow.created_by_id != current_user.id:
+    # Check if user can access this workflow (class membership based)
+    if not user_can_access_workflow(current_user, workflow, db):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
     
     return workflow
@@ -104,11 +118,15 @@ def update_workflow(
     db: DBSession = Depends(get_session)
 ):
     workflow = db.get(Workflow, workflow_id)
-    if not workflow:
+    if not workflow or not workflow.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow not found")
     
-    if workflow.created_by_id != current_user.id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
+    # Check if user can modify this workflow (must be instructor in class)
+    if not user_can_modify_workflow(current_user, workflow, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only instructors of this class can modify workflows"
+        )
     
     if request.name is not None:
         workflow.name = request.name
@@ -131,11 +149,15 @@ def delete_workflow(
     db: DBSession = Depends(get_session)
 ):
     workflow = db.get(Workflow, workflow_id)
-    if not workflow:
+    if not workflow or not workflow.is_active:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Workflow not found")
     
-    if workflow.created_by_id != current_user.id:
-        raise HTTPException(status.HTTP_403_FORBIDDEN, "Access denied")
+    # Check if user can modify this workflow (must be instructor in class)
+    if not user_can_modify_workflow(current_user, workflow, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only instructors of this class can delete workflows"
+        )
     
     # Delete associated document collection
     user_collection_name = f"{workflow.workflow_collection_id}_{current_user.id}"

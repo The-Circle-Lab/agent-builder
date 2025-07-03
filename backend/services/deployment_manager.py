@@ -13,11 +13,10 @@ async def load_deployment_on_demand(deployment_id: str, user_id: int, db: DBSess
         return True  # Already loaded
     
     try:
-        # Get deployment from database
+        # Get deployment from database (don't filter by user_id since permission check is done separately)
         db_deployment = db.exec(
             select(Deployment).where(
                 Deployment.deployment_id == deployment_id,
-                Deployment.user_id == user_id,
                 Deployment.is_active == True
             )
         ).first()
@@ -51,8 +50,7 @@ async def load_deployment_on_demand(deployment_id: str, user_id: int, db: DBSess
         try:
             db_deployment = db.exec(
                 select(Deployment).where(
-                    Deployment.deployment_id == deployment_id,
-                    Deployment.user_id == user_id
+                    Deployment.deployment_id == deployment_id
                 )
             ).first()
             if db_deployment:

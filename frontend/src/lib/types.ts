@@ -54,4 +54,68 @@ export interface LoadingProps {
 export interface ErrorProps {
   error?: string | null;
   onErrorDismiss?: () => void;
+}
+
+// Class-related types
+export type ClassRole = 'student' | 'instructor';
+
+export interface Class {
+  id: number;
+  code: string;
+  name: string;
+  description?: string;
+  created_at: string;
+  is_active: boolean;
+  user_role: ClassRole;
+  member_count: number;
+}
+
+export interface ClassMember {
+  id: number;
+  email: string;
+  role: ClassRole;
+  joined_at: string;
+}
+
+export interface Workflow {
+  id: number;
+  name: string;
+  description?: string;
+  class_id: number;
+  created_at: string;
+  updated_at: string;
+  is_public: boolean;
+  workflow_data: any;
+}
+
+export interface Deployment {
+  deployment_id: string;
+  workflow_name: string;
+  created_at: string;
+  chat_url: string;
+  is_loaded: boolean;
+  configuration: {
+    provider: string;
+    model: string;
+    has_rag: boolean;
+    mcp_enabled: boolean;
+  };
+}
+
+export interface Conversation {
+  id: number;
+  deployment_id: string;
+  title: string;
+  workflow_name: string;
+  created_at: string;
+  updated_at: string;
+  message_count: number;
+}
+
+export interface ChatMessage {
+  id: number;
+  message_text: string;
+  is_user_message: boolean;
+  sources?: string[];
+  created_at: string;
 } 

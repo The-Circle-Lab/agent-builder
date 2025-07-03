@@ -37,17 +37,21 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
       setWorkflowName(workflow.name);
       setWorkflowDescription(workflow.description || "");
       
-      // Load workflow data if it exists
-      if (workflow.workflow_data && workflow.workflow_data.nodes) {
+      // Load workflow data if it exists and has nodes
+      if (workflow.workflow_data && workflow.workflow_data.nodes && workflow.workflow_data.nodes.length > 0) {
         setCurrentNodes(workflow.workflow_data.nodes);
         setCurrentEdges(workflow.workflow_data.edges || []);
+      } else {
+        // If no workflow data or empty nodes, keep the initial chat node
+        setCurrentNodes(initialNodes);
+        setCurrentEdges(initialEdges);
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : "Failed to load workflow");
     } finally {
       setLoading(false);
     }
-  }, [workflowId]);
+  }, [workflowId, initialNodes, initialEdges]);
 
   useEffect(() => {
     if (workflowId) {

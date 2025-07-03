@@ -12,6 +12,7 @@ interface FormData {
   email: string;
   password: string;
   confirmPassword: string;
+  is_instructor: boolean;
 }
 
 export default function LoginPage({ onLogin }: LoginPageProps) {
@@ -20,6 +21,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     email: "",
     password: "",
     confirmPassword: "",
+    is_instructor: false,
   });
   const [fieldErrors, setFieldErrors] = useState<Partial<FormData>>({});
 
@@ -103,7 +105,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       await handleAuth(false, {
         email: formData.email,
         password: formData.password,
-        student: true
+        is_instructor: formData.is_instructor
       });
     }
   };
@@ -116,6 +118,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       email: "",
       password: "",
       confirmPassword: "",
+      is_instructor: false,
     });
   };
 
@@ -143,7 +146,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               value={formData.email}
               onChange={handleInputChange}
               required
-              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 ${
+              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200  text-black ${
                 fieldErrors.email ? 'border-red-300' : 'border-gray-300'
               }`}
               placeholder="Enter your email"
@@ -168,7 +171,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               value={formData.password}
               onChange={handleInputChange}
               required
-              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 ${
+              className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 text-black ${
                 fieldErrors.password ? 'border-red-300' : 'border-gray-300'
               }`}
               placeholder="Enter your password"
@@ -194,7 +197,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 value={formData.confirmPassword}
                 onChange={handleInputChange}
                 required
-                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200 ${
+                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200  text-black ${
                   fieldErrors.confirmPassword ? 'border-red-300' : 'border-gray-300'
                 }`}
                 placeholder="Confirm your password"
@@ -206,6 +209,34 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                   {fieldErrors.confirmPassword}
                 </p>
               )}
+            </div>
+          )}
+
+          {!isLogin && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Account Type
+              </label>
+              <div className="join flex justify-center">
+                <input
+                  type="radio"
+                  name="account-type"
+                  className="btn join-item bg-blue-300 border-blue-400 text-blue-900 hover:bg-blue-400 checked:bg-blue-500 checked:text-white"
+                  aria-label="Student"
+                  value="student"
+                  checked={!formData.is_instructor}
+                  onChange={() => setFormData(prev => ({ ...prev, is_instructor: false }))}
+                />
+                <input
+                  type="radio"
+                  name="account-type"
+                  className="btn join-item bg-violet-400 border-violet-500 text-purple-950 hover:bg-violet-500 checked:bg-violet-900 checked:text-white"
+                  aria-label="Instructor"
+                  value="instructor"
+                  checked={formData.is_instructor}
+                  onChange={() => setFormData(prev => ({ ...prev, is_instructor: true }))}
+                />
+              </div>
             </div>
           )}
 

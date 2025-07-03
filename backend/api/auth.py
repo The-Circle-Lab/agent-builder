@@ -30,7 +30,7 @@ class LoginRequest(BaseModel):
 class RegisterRequest(BaseModel):
     email: str
     password: str
-    student: bool = True
+    is_instructor: bool = False  # Changed from student to is_instructor for clarity
 
 
 def get_current_user(sid: str | None = Cookie(None),
@@ -91,7 +91,11 @@ def register(request: RegisterRequest, db: DBSession = Depends(get_session)):
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Email already registered")
     
     hashed_password = hash_pw(request.password)
-    user = User(email=request.email, hashed_password=hashed_password, student=request.student)
+    user = User(
+        email=request.email, 
+        hashed_password=hashed_password,
+        is_global_instructor=request.is_instructor
+    )
     
     db.add(user)
     db.commit()
@@ -116,9 +120,14 @@ def register(request: RegisterRequest, db: DBSession = Depends(get_session)):
 
 
 @router.get("/me")
-def get_me(current_user: User = Depends(get_current_user)):
+def get_me(current_user: User = Depends(get_current_user), db: DBSession = Depends(get_session)):
+    # Import here to avoid circular import
+    from scripts.permission_helpers import user_is_student_only
+    
+    is_student = user_is_student_only(current_user, db)
+    
     return {
         "id": current_user.id,
         "email": current_user.email,
-        "student": current_user.student
+        "student": is_student
     }

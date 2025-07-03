@@ -13,6 +13,7 @@ export const ROUTES = {
     LOGOUT: '/auth/logout',
     ME: '/me',
   },
+  CLASSES: '/api/classes',
   WORKFLOWS: '/api/workflows',
   DOCUMENTS: '/api/documents',
   DEPLOYMENTS: '/api/deploy',
@@ -61,10 +62,13 @@ export const ERROR_MESSAGES = {
 // Application States
 export const APP_STATES = {
   LOADING: 'loading',
-  LOGIN: 'login', 
+  LOGIN: 'login',
+  CLASSES: 'classes',
+  CLASS_DETAIL: 'classDetail',
   WORKFLOWS: 'workflows',
   EDITOR: 'editor',
   DEPLOYMENTS: 'deployments',
+  CHAT: 'chat',
 } as const;
 
 export type AppState = typeof APP_STATES[keyof typeof APP_STATES]; 

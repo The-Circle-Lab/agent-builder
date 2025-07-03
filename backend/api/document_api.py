@@ -7,9 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, s
 from fastapi.responses import JSONResponse
 from sqlmodel import Session as DBSession, select
 from api.auth import get_current_user
-from models.db_models import User, Document, Workflow
+from models.db_models import User, Document, Workflow, ClassRole
 from database.database import get_session
 from scripts.utils import create_qdrant_client, get_user_collection_name
+from scripts.permission_helpers import (
+    user_can_access_workflow, user_can_modify_workflow, user_has_role_in_class
+)
 import sys
 
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
@@ -81,16 +84,17 @@ async def upload_documents(
     
     # Verify workflow exists and user has access
     workflow = db.get(Workflow, workflow_id)
-    if not workflow:
+    if not workflow or not workflow.is_active:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Workflow not found"
         )
     
-    if workflow.created_by_id != current_user.id:
+    # Check if user can modify this workflow (must be instructor in class)
+    if not user_can_modify_workflow(current_user, workflow, db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied to this workflow"
+            detail="Only instructors of this class can upload documents to workflows"
         )
     
     processed_files = []
@@ -241,13 +245,14 @@ async def list_workflow_documents(
     try:
         # Verify workflow exists and user has access
         workflow = db.get(Workflow, workflow_id)
-        if not workflow:
+        if not workflow or not workflow.is_active:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Workflow not found"
             )
         
-        if workflow.created_by_id != current_user.id:
+        # Check if user can access this workflow (class membership based)
+        if not user_can_access_workflow(current_user, workflow, db):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Access denied to this workflow"
@@ -344,7 +349,6 @@ async def remove_document(
         document = db.exec(
             select(Document).where(
                 Document.id == document_id,
-                Document.uploaded_by_id == current_user.id,
                 Document.is_active == True
             )
         ).first()
@@ -353,6 +357,21 @@ async def remove_document(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Document not found"
+            )
+        
+        # Get the workflow to check class permissions
+        workflow = db.get(Workflow, document.workflow_id)
+        if not workflow or not workflow.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Associated workflow not found"
+            )
+        
+        # Check if user can modify this workflow (must be instructor in class)
+        if not user_can_modify_workflow(current_user, workflow, db):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only instructors of this class can delete documents"
             )
         
         # Initialize Qdrant client
@@ -410,7 +429,6 @@ async def delete_collection(
         documents = db.exec(
             select(Document).where(
                 Document.user_collection_name == user_collection,
-                Document.uploaded_by_id == current_user.id,
                 Document.is_active == True
             )
         ).all()
@@ -420,6 +438,17 @@ async def delete_collection(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Collection not found or already empty"
             )
+        
+        # Check if user can modify workflows that contain these documents
+        workflow_ids = set(doc.workflow_id for doc in documents if doc.workflow_id)
+        for workflow_id in workflow_ids:
+            workflow = db.get(Workflow, workflow_id)
+            if workflow and workflow.is_active:
+                if not user_can_modify_workflow(current_user, workflow, db):
+                    raise HTTPException(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        detail="Only instructors of the class can delete collections"
+                    )
         
         # Initialize Qdrant client
         qdrant_client = create_qdrant_client()

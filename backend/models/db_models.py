@@ -13,11 +13,10 @@ class User(SQLModel, table=True):
     email: str = Field(index=True, unique=True)
     hashed_password: str
     is_active: bool = True
-    student: bool = True
+    is_global_instructor: bool = False  # Global instructor flag for bootstrapping
     auth_sessions: List["AuthSession"] = Relationship(back_populates="user", sa_relationship_kwargs={"cascade": "all, delete"})
     
     # Class relationships
-    created_classes: List["Class"] = Relationship(back_populates="admin")
     class_memberships: List["ClassMembership"] = Relationship(back_populates="user", sa_relationship_kwargs={"cascade": "all, delete"})
     
     # Workflow relationships
@@ -46,14 +45,13 @@ class Class(SQLModel, table=True):
     code: str = Field(index=True, unique=True)  # String code for users to join
     name: str = Field(index=True)
     description: str | None = None
-    admin_id: int = Field(foreign_key="user.id")  # Admin/creator of the class
     created_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
     is_active: bool = True
     
     # Relationships
-    admin: Optional[User] = Relationship(back_populates="created_classes")
     memberships: List["ClassMembership"] = Relationship(back_populates="class_", sa_relationship_kwargs={"cascade": "all, delete"})
     workflows: List["Workflow"] = Relationship(back_populates="class_", sa_relationship_kwargs={"cascade": "all, delete"})
+    deployments: List["Deployment"] = Relationship(back_populates="class_", sa_relationship_kwargs={"cascade": "all, delete"})
 
 
 class ClassMembership(SQLModel, table=True):
@@ -78,7 +76,7 @@ class Workflow(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str = Field(index=True)
     description: str | None = None
-    class_id: int | None = Field(default=None, foreign_key="class.id")
+    class_id: int = Field(foreign_key="class.id")  # Now required - all workflows must belong to a class
     created_by_id: int = Field(foreign_key="user.id")
     
     # Unique collection ID for document isolation
@@ -97,6 +95,7 @@ class Workflow(SQLModel, table=True):
     class_: Optional["Class"] = Relationship(back_populates="workflows")
     created_by: Optional[User] = Relationship(back_populates="created_workflows")
     documents: List["Document"] = Relationship(back_populates="workflow")
+    deployments: List["Deployment"] = Relationship(back_populates="workflow")
 
 
 class Document(SQLModel, table=True):
@@ -158,6 +157,7 @@ class Deployment(SQLModel, table=True):
     deployment_id: str = Field(index=True, unique=True)  # UUID for the deployment
     user_id: int = Field(foreign_key="user.id")
     workflow_id: int = Field(foreign_key="workflow.id")
+    class_id: int = Field(foreign_key="class.id")  # Direct class relationship for access control
     workflow_name: str = Field(index=True)
     collection_name: str | None = Field(default=None, index=True)  # Collection name for MCP
     
@@ -171,6 +171,7 @@ class Deployment(SQLModel, table=True):
     
     # Relationships
     user: Optional[User] = Relationship(back_populates="deployments")
-    workflow: Optional["Workflow"] = Relationship()
+    workflow: Optional["Workflow"] = Relationship(back_populates="deployments")
+    class_: Optional["Class"] = Relationship(back_populates="deployments")
 
 
