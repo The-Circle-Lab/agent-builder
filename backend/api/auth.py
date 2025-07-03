@@ -121,7 +121,6 @@ def register(request: RegisterRequest, db: DBSession = Depends(get_session)):
 
 @router.get("/me")
 def get_me(current_user: User = Depends(get_current_user), db: DBSession = Depends(get_session)):
-    # Import here to avoid circular import
     from scripts.permission_helpers import user_is_student_only
     
     is_student = user_is_student_only(current_user, db)

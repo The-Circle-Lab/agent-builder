@@ -1,7 +1,7 @@
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select, Session as DBSession
-from models.db_models import User, Workflow, Class, Document, ClassMembership, ClassRole
+from models.db_models import User, Workflow, Class, Document, ClassMembership, ClassRole, Deployment
 from database.database import get_session
 from api.auth import get_current_user
 from scripts.permission_helpers import (
@@ -163,6 +163,23 @@ def delete_workflow(
     user_collection_name = f"{workflow.workflow_collection_id}_{current_user.id}"
     
     try:
+        # First, find and deactivate all deployments for this workflow
+        deployments = db.exec(
+            select(Deployment).where(
+                Deployment.workflow_id == workflow_id,
+                Deployment.is_active == True
+            )
+        ).all()
+        
+        deployments_deactivated = len(deployments)
+        
+        # Deactivate all deployments (soft delete)
+        for deployment in deployments:
+            deployment.is_active = False
+            deployment.updated_at = datetime.now(timezone.utc)
+            db.add(deployment)
+            print(f"Deactivated deployment: {deployment.deployment_id}")
+        
         # Find all documents in this workflow's collection
         documents = db.exec(
             select(Document).where(
@@ -194,8 +211,9 @@ def delete_workflow(
         db.commit()
         
         return {
-            "message": "Workflow and associated documents deleted successfully",
+            "message": "Workflow and associated data deleted successfully",
             "workflow_id": workflow_id,
+            "deployments_deactivated": deployments_deactivated,
             "documents_deleted": documents_deleted,
             "chunks_deleted": total_chunks_deleted,
             "collection_deleted": user_collection_name if documents else None

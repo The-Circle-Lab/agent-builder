@@ -1,7 +1,8 @@
 import React from "react";
 import Image from "next/image";
 import { Handle, Position, Edge, Node } from "@xyflow/react";
-import { PlusButton, NodePropertyConfig, NodeData } from "..";
+import { PlusButton } from "../components/plusButton";
+import { NodePropertyConfig, NodeData } from "../types";
 import { BaseNode, BaseNodeProps, NodeDataFromConfig } from "./baseNode";
 import { agentNodeConfig, AgentNodeConfig } from "./configs/agentNodeConfig";
 

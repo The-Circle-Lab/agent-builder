@@ -1,7 +1,7 @@
 import React, { Component } from "react";
 import { NodeProps, Edge, Node } from "@xyflow/react";
-import { NodeContainer, NodePropertyConfig, NodeData } from "..";
-import { PropertyDefinition } from "../types";
+import { NodeContainer } from "../components/nodeContainer";
+import { NodePropertyConfig, NodeData, PropertyDefinition } from "../types";
 
 // Utility type to map PropertyDefinition types to TypeScript types
 type PropertyTypeMap = {

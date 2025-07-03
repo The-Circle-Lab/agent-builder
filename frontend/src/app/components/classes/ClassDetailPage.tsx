@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
+import { Node, Edge } from '@xyflow/react';
 import { Class, Workflow, Deployment } from '@/lib/types';
 import { ClassAPI } from './classAPI';
 import ClassWorkflows from './ClassWorkflows';
@@ -8,6 +9,7 @@ import ClassDeployments from './ClassDeployments';
 import ClassMembers from './ClassMembers';
 import JoinCodeModal from './JoinCodeModal';
 import StudentConversationsModal from './StudentConversationsModal';
+import { createWorkflowJSON } from '../agentBuilder/scripts/exportWorkflow';
 import { 
   ArrowLeftIcon, 
   KeyIcon,
@@ -53,7 +55,7 @@ export default function ClassDetailPage({
       
       const [classWorkflows, classDeployments] = await Promise.all([
         ClassAPI.getClassWorkflows(classObj.id),
-        ClassAPI.getClassDeployments(classObj.id)
+        ClassAPI.getClassDeployments()
       ]);
       
       setWorkflows(classWorkflows);
@@ -77,10 +79,27 @@ export default function ClassDetailPage({
 
   const handleDeployWorkflow = async (workflow: Workflow) => {
     try {
+      // Convert workflow data from saved format (nodes/edges) to deployment format (numbered nodes)
+      let deploymentData = workflow.workflow_data;
+      
+      // Check if workflow_data is in the saved format (has nodes/edges)
+      if (workflow.workflow_data && workflow.workflow_data.nodes && workflow.workflow_data.edges) {
+        try {
+          // Convert from saved format to deployment format
+          const nodes = workflow.workflow_data.nodes as Node[];
+          const edges = workflow.workflow_data.edges as Edge[];
+          const workflowJSON = createWorkflowJSON(nodes, edges);
+          deploymentData = JSON.parse(workflowJSON);
+        } catch (conversionError) {
+          console.error('Failed to convert workflow data format:', conversionError);
+          throw new Error('Failed to prepare workflow for deployment. Please try editing and saving the workflow first.');
+        }
+      }
+      
       const deployment = await ClassAPI.deployWorkflow(
         workflow.id, 
         workflow.name, 
-        workflow.workflow_data
+        deploymentData
       );
       await loadClassData(); // Reload to get the new deployment
       return deployment;

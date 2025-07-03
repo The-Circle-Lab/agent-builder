@@ -3,14 +3,14 @@
 import React, { useState, useEffect } from 'react';
 import { ClassRole, ClassMember } from '@/lib/types';
 import { ClassAPI } from './classAPI';
-import { UserGroupIcon, AcademicCapIcon, UserIcon } from '@heroicons/react/24/outline';
+import { AcademicCapIcon, UserIcon } from '@heroicons/react/24/outline';
 
 interface ClassMembersProps {
   classId: number;
   currentUserRole: ClassRole;
 }
 
-export default function ClassMembers({ classId, currentUserRole }: ClassMembersProps) {
+export default function ClassMembers({ classId }: ClassMembersProps) {
   const [members, setMembers] = useState<ClassMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +70,7 @@ export default function ClassMembers({ classId, currentUserRole }: ClassMembersP
       ) : (
         <div className="bg-white shadow-sm rounded-lg border border-gray-200">
           <ul className="divide-y divide-gray-200">
-            {sortedMembers.map((member, index) => (
+            {sortedMembers.map((member) => (
             <li key={member.id} className="px-6 py-4 hover:bg-gray-50">
               <div className="flex items-center justify-between">
                 <div className="flex items-center">

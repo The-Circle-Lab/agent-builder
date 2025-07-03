@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @plugin "daisyui";
+@plugin "@tailwindcss/typography";
 
 :root {
   /* Base Colors */
@@ -158,4 +159,13 @@ body {
   color: var(--foreground);
   font-family: var(--font-family-primary);
   line-height: var(--line-height-normal);
+}
+
+/* Chat message text color override */
+.chat-bubble-assistant {
+  color: #000000 !important;
+}
+
+.chat-bubble-assistant * {
+  color: #000000 !important;
 }

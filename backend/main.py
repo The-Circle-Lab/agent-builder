@@ -7,6 +7,7 @@ from api.workflow_api import router as workflow_router
 from api.document_api import router as document_router
 from api.deployment_routes import router as deployment_router
 from api.class_api import router as class_router
+from api.file_storage import router as file_storage_router
 from services.deployment_manager import cleanup_all_deployments
 from models.db_models import User
 from contextlib import asynccontextmanager
@@ -73,6 +74,7 @@ app.include_router(class_router)
 app.include_router(workflow_router)
 app.include_router(document_router)
 app.include_router(deployment_router)
+app.include_router(file_storage_router)
 
 @app.get("/")
 def read_root():

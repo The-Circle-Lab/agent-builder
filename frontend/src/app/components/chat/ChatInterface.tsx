@@ -5,17 +5,20 @@ import { DeploymentAPI } from "../agentBuilder/scripts/deploymentAPI";
 import { ChatInterfaceProps, Message } from "./types/chat";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useConversations } from "./hooks/useConversations";
+import { useDeploymentFiles } from "./hooks/useDeploymentFiles";
 import { formatChatHistory } from "./utils/messageParser";
 import { ConversationSidebar } from "./components/ConversationSidebar";
 import { ChatHeader } from "./components/ChatHeader";
 import { ChatInput } from "./components/ChatInput";
 import { StreamingMessageRenderer } from "./components/MessageRenderer";
+import { FilesPanel } from "./components/FilesPanel";
 
 export default function ChatInterface({ deploymentId, workflowName, onBack }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
   const [showSidebar, setShowSidebar] = useState(false);
+  const [showFilesPanel, setShowFilesPanel] = useState(false);
   const [useWebSocketMode, setUseWebSocketMode] = useState(true);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -32,6 +35,9 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
     deleteConversation,
     ensureConversation
   } = useConversations(deploymentId);
+
+  // Use deployment files hook
+  const { fileCount } = useDeploymentFiles(deploymentId);
 
   // WebSocket handlers
   const handleTyping = () => setIsLoading(true);
@@ -232,8 +238,10 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
           workflowName={workflowName}
           currentConversationId={currentConversationId}
           wsConnected={wsConnected}
+          fileCount={fileCount}
           onBack={onBack}
           onToggleSidebar={() => setShowSidebar(!showSidebar)}
+          onToggleFiles={() => setShowFilesPanel(!showFilesPanel)}
         />
 
         {/* Messages */}
@@ -256,7 +264,7 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
               </div>
               
               <div className={`chat-bubble max-w-xs lg:max-w-md ${
-                message.isUser ? "chat-bubble-primary" : "bg-gray-100 text-gray-700"
+                message.isUser ? "chat-bubble-primary" : "bg-gray-100 chat-bubble-assistant"
               }`}>
                 <StreamingMessageRenderer message={message} />
               </div>
@@ -290,7 +298,7 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
               <div className="chat-header text-header">
                 Assistant
               </div>
-              <div className="chat-bubble bg-gray-100 text-gray-700 max-w-xs lg:max-w-md">
+              <div className="chat-bubble bg-gray-100 chat-bubble-assistant max-w-xs lg:max-w-md">
                 <div className="flex items-center space-x-2">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
                   <span className="text-sm">Thinking...</span>
@@ -309,6 +317,13 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
           onClearError={() => setError("")}
         />
       </div>
+
+      {/* Files Panel */}
+      <FilesPanel
+        deploymentId={deploymentId}
+        isOpen={showFilesPanel}
+        onClose={() => setShowFilesPanel(false)}
+      />
     </div>
   );
 } 

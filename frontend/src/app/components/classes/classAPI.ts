@@ -124,10 +124,8 @@ export class ClassAPI {
   }
 
   // Get class deployments (filter by class)
-  static async getClassDeployments(classId: number): Promise<Deployment[]> {
+  static async getClassDeployments(): Promise<Deployment[]> {
     const activeDeployments = await this.getActiveDeployments();
-    // For now, return all deployments as we'll filter on backend later
-    // TODO: Filter by classId when backend supports it
     return activeDeployments.deployments;
   }
 

@@ -77,3 +77,4 @@ coverage.xml
 # Node.js (if any Node.js tools are used at root level)
 node_modules/
 
+backend/uploads/

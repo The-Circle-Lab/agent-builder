@@ -108,26 +108,41 @@ async def deploy_workflow(
         
         # Check for document collection if MCP is enabled and has documents
         collection_name = None
+        rag_document_ids = []
         if config["has_mcp"] and config.get("mcp_has_documents", True):
-            # Check if we have documents for this specific workflow
+            # Check if we have documents for this specific workflow (from any class member)
             try:
+                print(f"[DEPLOY] Looking for documents in workflow {workflow.id}")
                 stmt = select(Document).where(
                     Document.workflow_id == workflow.id,
-                    Document.uploaded_by_id == current_user.id,
                     Document.is_active == True
                 )
                 documents = db.exec(stmt).all()
+                print(f"[DEPLOY] Found {len(documents)} documents for workflow {workflow.id}")
+                if documents:
+                    for doc in documents:
+                        print(f"[DEPLOY]   - Document {doc.id}: {doc.original_filename} (uploaded by {doc.uploaded_by_id})")
             except Exception as doc_error:
                 print(f"Error querying documents: {doc_error}")
                 documents = []
             
             if documents:
-                # Use the workflow-specific collection
-                collection_name = f"{workflow.workflow_collection_id}_{current_user.id}"
+                # Use the workflow-specific collection (should use the uploader's collection)
+                # Get the first document's uploader to determine collection name
+                first_doc_uploader_id = documents[0].uploaded_by_id
+                collection_name = f"{workflow.workflow_collection_id}_{first_doc_uploader_id}"
+                rag_document_ids = [doc.id for doc in documents]
                 print(f"Using workflow collection: {collection_name}")
-                print(f"Documents in workflow: {len(documents)}")
+                print(f"Documents in workflow: {len(documents)} - IDs: {rag_document_ids}")
+                print(f"Documents uploaded by user {first_doc_uploader_id}")
             else:
-                print(f"No documents found for workflow {workflow.id}")
+                print(f"[DEPLOY] No documents found for workflow {workflow.id}")
+                # Debug: Check if there are any documents at all for this workflow (including inactive)
+                debug_stmt = select(Document).where(Document.workflow_id == workflow.id)
+                debug_docs = db.exec(debug_stmt).all()
+                print(f"[DEPLOY] Total documents for workflow {workflow.id} (including inactive): {len(debug_docs)}")
+                for doc in debug_docs:
+                    print(f"[DEPLOY]   - Document {doc.id}: {doc.original_filename} (active: {doc.is_active}, uploaded by: {doc.uploaded_by_id})")
             
             config["collection_name"] = collection_name
         
@@ -156,7 +171,8 @@ async def deploy_workflow(
                 class_id=workflow.class_id,
                 workflow_name=request.workflow_name,
                 collection_name=collection_name,
-                config=config
+                config=config,
+                rag_document_ids=rag_document_ids if rag_document_ids else None
             )
             db.add(db_deployment)
             db.commit()
@@ -189,7 +205,9 @@ async def deploy_workflow(
                 "model": config["llm_config"]["model"],
                 "has_rag": config["has_mcp"],
                 "collection": collection_name,
-                "mcp_enabled": config["has_mcp"]
+                "mcp_enabled": config["has_mcp"],
+                "file_count": len(rag_document_ids),
+                "files_url": f"/api/deploy/{deployment_id}/files" if rag_document_ids else None
             }
         )
         
@@ -591,13 +609,30 @@ async def list_active_deployments(
         user_deployments = []
         
         for deployment in accessible_deployments:
+            # Get file count for this deployment
+            rag_document_ids = deployment.rag_document_ids or []
+            file_count = 0
+            
+            if rag_document_ids:
+                # Count active documents for this deployment
+                active_docs = db.exec(
+                    select(Document).where(
+                        Document.id.in_(rag_document_ids),
+                        Document.is_active == True
+                    )
+                ).all()
+                file_count = len(active_docs)
+            
             # Just list the deployment info without loading it into memory
             user_deployments.append({
                 "deployment_id": deployment.deployment_id,
                 "workflow_name": deployment.workflow_name,
                 "created_at": deployment.created_at.isoformat(),
                 "chat_url": f"/chat/{deployment.deployment_id}",
+                "files_url": f"/api/deploy/{deployment.deployment_id}/files",
                 "is_loaded": is_deployment_active(deployment.deployment_id),  # Show if currently loaded
+                "file_count": file_count,
+                "has_files": file_count > 0,
                 "configuration": {
                     "provider": deployment.config["llm_config"].get("provider", "vertexai"),
                     "model": deployment.config["llm_config"]["model"],
@@ -948,6 +983,127 @@ async def delete_deployment(
     db.commit()
     
     return {"message": f"Deployment {deployment_id} deleted successfully"}
+
+# Get files used for RAG in a deployment
+@router.get("/{deployment_id}/files")
+async def get_deployment_files(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """
+    Get all files/documents used for RAG in a specific deployment
+    """
+    try:
+        print(f"[FILES] Getting files for deployment {deployment_id} requested by user {current_user.id}")
+        
+        # Get deployment from database to check permissions
+        db_deployment = db.exec(
+            select(Deployment).where(
+                Deployment.deployment_id == deployment_id,
+                Deployment.is_active == True
+            )
+        ).first()
+        
+        if not db_deployment:
+            print(f"[FILES] Deployment {deployment_id} not found in database")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Deployment not found"
+            )
+        
+        print(f"[FILES] Found deployment: ID={db_deployment.id}, workflow_id={db_deployment.workflow_id}, class_id={db_deployment.class_id}")
+        print(f"[FILES] RAG document IDs: {db_deployment.rag_document_ids}")
+        print(f"[FILES] Collection name: {db_deployment.collection_name}")
+        
+        # Check if user can access this deployment (class membership based)
+        if not user_can_access_deployment(current_user, db_deployment, db):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access denied. You must be a member of this class to view deployment files."
+            )
+        
+        # Get RAG document IDs from deployment
+        rag_document_ids = db_deployment.rag_document_ids or []
+        print(f"[FILES] RAG document IDs from deployment: {rag_document_ids}")
+        
+        if not rag_document_ids:
+            print(f"[FILES] No RAG document IDs found for deployment {deployment_id}")
+            print(f"[FILES] Has MCP enabled: {db_deployment.config.get('has_mcp', False)}")
+            return {
+                "deployment_id": deployment_id,
+                "workflow_name": db_deployment.workflow_name,
+                "has_rag": db_deployment.config.get("has_mcp", False),
+                "file_count": 0,
+                "files": [],
+                "message": "No files used for RAG in this deployment"
+            }
+        
+        # Get documents by IDs
+        documents = db.exec(
+            select(Document).where(
+                Document.id.in_(rag_document_ids),
+                Document.is_active == True
+            ).order_by(Document.uploaded_at.desc())
+        ).all()
+        
+        print(f"[FILES] Found {len(documents)} documents in database for IDs: {rag_document_ids}")
+        
+        # Get the backend base URL from environment or default
+        backend_host = os.getenv("BACKEND_HOST", "localhost")
+        backend_port = os.getenv("BACKEND_PORT", "8000")
+        backend_scheme = os.getenv("BACKEND_SCHEME", "http")
+        backend_base_url = f"{backend_scheme}://{backend_host}:{backend_port}"
+        
+        # Prepare file list with viewing information
+        file_list = []
+        for doc in documents:
+            file_info = {
+                "id": doc.id,
+                "filename": doc.original_filename,
+                "file_size": doc.file_size,
+                "file_type": doc.file_type,
+                "chunk_count": doc.chunk_count,
+                "upload_id": doc.upload_id,
+                "uploaded_at": doc.uploaded_at.isoformat(),
+                "uploaded_by_id": doc.uploaded_by_id,
+                "has_stored_file": doc.storage_path is not None,
+                "can_view": doc.storage_path is not None,
+                "can_download": doc.storage_path is not None,
+                "view_url": f"{backend_base_url}/api/files/view/{doc.id}" if doc.storage_path else None,
+                "download_url": f"{backend_base_url}/api/files/download/{doc.id}" if doc.storage_path else None
+            }
+            
+            # Get uploader info for display
+            if doc.uploaded_by_id:
+                uploader = db.get(User, doc.uploaded_by_id)
+                file_info["uploaded_by_email"] = uploader.email if uploader else "Unknown"
+            
+            file_list.append(file_info)
+        
+        return {
+            "deployment_id": deployment_id,
+            "workflow_name": db_deployment.workflow_name,
+            "workflow_id": db_deployment.workflow_id,
+            "class_id": db_deployment.class_id,
+            "collection_name": db_deployment.collection_name,
+            "has_rag": db_deployment.config.get("has_mcp", False),
+            "rag_enabled": len(rag_document_ids) > 0,
+            "file_count": len(file_list),
+            "files": file_list,
+            "created_at": db_deployment.created_at.isoformat()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Error getting deployment files: {e}")
+        import traceback
+        print(f"Deployment files error traceback:\n{traceback.format_exc()}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get deployment files: {str(e)}"
+        )
 
 # Test streaming functionality for a deployment
 @router.post("/{deployment_id}/test-streaming")

@@ -4,5 +4,9 @@ export { PlusButton } from "./components/plusButton";
 
 // Export types
 export * from "./types";
-export * from "./nodeRegistry";
+
+// Export node operations hook
 export * from "../../hooks/useNodeOperations";
+
+// Export node registry (imported after nodeTypes to avoid circular deps)
+export * from "./nodeRegistry";

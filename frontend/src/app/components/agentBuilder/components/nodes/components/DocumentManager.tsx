@@ -90,7 +90,7 @@ export default function DocumentManager({
         return;
       }
 
-      const response = await DocumentAPI.uploadDocuments(validFiles, numericWorkflowId);
+      await DocumentAPI.uploadDocuments(validFiles, numericWorkflowId);
       await loadDocuments(); // Refresh the list
       
       // Clear file input

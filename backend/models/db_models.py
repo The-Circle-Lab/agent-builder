@@ -94,8 +94,8 @@ class Workflow(SQLModel, table=True):
     # Relationships
     class_: Optional["Class"] = Relationship(back_populates="workflows")
     created_by: Optional[User] = Relationship(back_populates="created_workflows")
-    documents: List["Document"] = Relationship(back_populates="workflow")
-    deployments: List["Deployment"] = Relationship(back_populates="workflow")
+    documents: List["Document"] = Relationship(back_populates="workflow", sa_relationship_kwargs={"cascade": "all, delete"})
+    deployments: List["Deployment"] = Relationship(back_populates="workflow", sa_relationship_kwargs={"cascade": "all, delete"})
 
 
 class Document(SQLModel, table=True):
@@ -108,6 +108,7 @@ class Document(SQLModel, table=True):
     user_collection_name: str = Field(index=True)  # Full collection name with user ID
     upload_id: str = Field(index=True, unique=True)  # UUID for this upload
     chunk_count: int  # Number of chunks created from this document
+    storage_path: str | None = Field(default=None, index=True)  # Path to stored file on disk
     
     # Workflow association
     workflow_id: int | None = Field(default=None, foreign_key="workflow.id")
@@ -163,6 +164,9 @@ class Deployment(SQLModel, table=True):
     
     # Store the deployment configuration as JSON
     config: Dict[str, Any] = Field(sa_column=Column(JSON))
+    
+    # Track documents used for RAG in this deployment
+    rag_document_ids: List[int] | None = Field(default=None, sa_column=Column(JSON))  # Document IDs used for RAG
     
     # Metadata
     created_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))

@@ -678,4 +678,63 @@ class MCPChatDeployment:
     
     # Clean up resources
     async def close(self):
-        print(f"MCPChatDeployment {self.deployment_id} cleaned up") 
+        print(f"MCPChatDeployment {self.deployment_id} cleaned up")
+
+# Helper function to get file information for a deployment
+def get_deployment_files_info(deployment_id: str, db_deployment, db_session) -> Dict[str, Any]:
+    try:
+        from sqlmodel import select
+        from models.db_models import Document
+        
+        # Get RAG document IDs from deployment
+        rag_document_ids = db_deployment.rag_document_ids or []
+        
+        if not rag_document_ids:
+            return {
+                "deployment_id": deployment_id,
+                "file_count": 0,
+                "files": [],
+                "has_rag_files": False
+            }
+        
+        # Get documents by IDs
+        documents = db_session.exec(
+            select(Document).where(
+                Document.id.in_(rag_document_ids),
+                Document.is_active == True
+            ).order_by(Document.uploaded_at.desc())
+        ).all()
+        
+        # Prepare simplified file list
+        file_list = []
+        for doc in documents:
+            file_info = {
+                "id": doc.id,
+                "filename": doc.original_filename,
+                "file_size": doc.file_size,
+                "file_type": doc.file_type,
+                "chunk_count": doc.chunk_count,
+                "uploaded_at": doc.uploaded_at.isoformat(),
+                "has_stored_file": doc.storage_path is not None,
+                "can_view": doc.storage_path is not None
+            }
+            file_list.append(file_info)
+        
+        return {
+            "deployment_id": deployment_id,
+            "file_count": len(file_list),
+            "files": file_list,
+            "has_rag_files": len(file_list) > 0,
+            "total_chunks": sum(doc.chunk_count for doc in documents),
+            "total_file_size": sum(doc.file_size for doc in documents)
+        }
+        
+    except Exception as e:
+        print(f"Error getting deployment files info: {e}")
+        return {
+            "deployment_id": deployment_id,
+            "file_count": 0,
+            "files": [],
+            "has_rag_files": False,
+            "error": str(e)
+        } 

@@ -2,28 +2,13 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import { Message } from '../types/chat';
 import { processThinkTags, parseSourceCitations } from '../utils/messageParser';
+import SourceCitation from './sourceCitation';
 
 // Component for rendering thinking text
 const ThinkingText = ({ children }: { children: React.ReactNode }) => (
   <span className="inline-block text-xs text-gray-400 italic opacity-70 bg-gray-50 px-1 py-0.5 rounded">
     {children}
   </span>
-);
-
-// Component for rendering source citation buttons
-export const SourceCitationButton = ({ filename }: { filename: string }) => (
-  <button
-    className="inline-flex items-center px-2 py-0.5 mx-0.5 my-0.5 bg-gray-100 hover:bg-gray-200 border border-gray-300 rounded text-xs font-normal text-gray-700 transition-colors duration-150 whitespace-nowrap"
-    onClick={() => {
-      // Handle source citation click
-    }}
-    title={`Source: ${filename}`}
-  >
-    <svg className="w-3 h-3 mr-1 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-    </svg>
-    <span className="truncate max-w-32">{filename}</span>
-  </button>
 );
 
 // Component for rendering text with source citations
@@ -38,9 +23,10 @@ const TextWithCitations = ({ text, sources }: { text: string; sources?: string[]
         } else if (part.type === 'citation') {
           return (
             <span key={index} className="inline-flex flex-wrap items-center">
-              {(part.content as string[]).map((filename, fileIndex) => (
-                <SourceCitationButton key={`${index}-${fileIndex}`} filename={filename} />
-              ))}
+              {(part.content as string[]).map((filename, fileIndex) => {
+                const citation = new SourceCitation(filename);
+                return <span key={`${index}-${fileIndex}`}>{citation.render()}</span>;
+              })}
             </span>
           );
         } else if (part.type === 'thinking') {
@@ -131,20 +117,20 @@ const createMarkdownComponents = (
       <code className={`px-1 py-0.5 rounded text-xs font-mono ${
         isUserMessage 
           ? "bg-blue-500 text-blue-100" 
-          : "bg-gray-100 text-gray-500"
-      }`} style={isUserMessage ? undefined : { backgroundColor: '#f3f4f6', color: '#4b5563' }} {...props}>
+          : "bg-gray-100 text-black"
+      }`} style={isUserMessage ? undefined : { backgroundColor: '#f3f4f6', color: '#000000' }} {...props}>
         {children}
       </code>
     ) : (
       <pre className={`p-2 rounded text-xs font-mono overflow-x-auto ${
         isUserMessage 
           ? "bg-blue-500 text-blue-100" 
-          : "bg-gray-100 text-gray-500"
-      }`} style={isUserMessage ? undefined : { backgroundColor: '#f3f4f6', color: '#4b5563' }}>
+          : "bg-gray-100 text-black"
+      }`} style={isUserMessage ? undefined : { backgroundColor: '#f3f4f6', color: '#000000' }}>
         <code className={`${
           isUserMessage 
             ? "text-blue-100" 
-            : "text-gray-500"
+            : "text-black"
         }`}>{children}</code>
       </pre>
     );
@@ -153,7 +139,7 @@ const createMarkdownComponents = (
     <blockquote className={`border-l-2 pl-2 my-2 ${
       isUserMessage 
         ? "border-blue-300 text-blue-100" 
-        : "border-gray-300 text-gray-600"
+        : "border-gray-300 text-black"
     }`} {...props}>
       {React.Children.map(children, (child) => {
         if (typeof child === 'string') {
@@ -181,14 +167,6 @@ export const StreamingMessageRenderer = ({ message }: { message: Message }) => {
   // 1️⃣  Handle <think> tags so that they are either hidden (when done) or shown in a special style (while streaming).
   const processedText = processThinkTags(message.text, message.isStreaming);
 
-  /*
-   * We intentionally run **one single** ReactMarkdown pass over the full
-   * message text. Our custom markdown component mappings are responsible for
-   * finding citations / thinking tokens inside every string fragment and
-   * converting them to React elements.  
-   * This avoids splitting the markdown into many sub-renders which previously
-   * broke list indentation and line-breaks.
-   */
   return (
     <div className="text-sm prose prose-sm max-w-none">
       <ReactMarkdown

@@ -85,7 +85,7 @@ export interface Workflow {
   created_at: string;
   updated_at: string;
   is_public: boolean;
-  workflow_data: any;
+  workflow_data: Record<string, unknown>;
 }
 
 export interface Deployment {

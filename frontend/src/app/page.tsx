@@ -135,7 +135,6 @@ export default function App() {
   if (appState === APP_STATES.CLASS_DETAIL && currentClass) {
     return (
       <ClassDetailPage
-        user={currentUser}
         classObj={currentClass}
         onBack={handleBackToClasses}
         onEditWorkflow={handleEditWorkflow}

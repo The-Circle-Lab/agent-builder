@@ -70,6 +70,11 @@ llm:
     max_tokens: 1000
     top_p: 0.9
 
+# File Storage Configuration
+file_storage:
+  base_directory: "./uploads"
+  max_file_age_days: 365  # Keep files for 1 year
+
 # File paths
 paths:
   logs_dir: "./logs"

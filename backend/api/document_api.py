@@ -13,6 +13,7 @@ from scripts.utils import create_qdrant_client, get_user_collection_name
 from scripts.permission_helpers import (
     user_can_access_workflow, user_can_modify_workflow, user_has_role_in_class
 )
+from api.file_storage import store_file, delete_stored_file
 import sys
 
 from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader
@@ -165,7 +166,8 @@ async def upload_documents(
                 'upload_id': upload_id,
                 'chunks': len(chunks),
                 'size': len(file_content),
-                'file_type': Path(file.filename or '').suffix.lower().lstrip('.')
+                'file_type': Path(file.filename or '').suffix.lower().lstrip('.'),
+                'file_content': file_content  # Store file content for disk storage
             })
         
         if not all_chunks:
@@ -189,9 +191,24 @@ async def upload_documents(
             ids=[str(uuid.uuid4()) for _ in all_chunks],
         )
         
-        # Save document metadata to database
+        # Save document metadata to database and store files on disk
         saved_documents = []
+        response_files = []
+        
         for file_info in processed_files:
+            # Store file on disk and get storage path
+            try:
+                storage_path = store_file(
+                    file_content=file_info['file_content'],
+                    workflow_id=workflow.id,
+                    upload_id=file_info['upload_id'],
+                    filename=file_info['filename']
+                )
+            except Exception as storage_error:
+                # If storage fails, continue without storing the file
+                print(f"Warning: Failed to store file {file_info['filename']}: {storage_error}")
+                storage_path = None
+            
             document = Document(
                 filename=file_info['filename'],
                 original_filename=file_info['filename'],
@@ -201,11 +218,22 @@ async def upload_documents(
                 user_collection_name=user_collection,
                 upload_id=file_info['upload_id'],
                 chunk_count=file_info['chunks'],
+                storage_path=storage_path,
                 uploaded_by_id=current_user.id,
                 workflow_id=workflow.id
             )
             db.add(document)
             saved_documents.append(document)
+            
+            # Create response data without file_content (bytes are not JSON serializable)
+            response_files.append({
+                'filename': file_info['filename'],
+                'upload_id': file_info['upload_id'],
+                'chunks': file_info['chunks'],
+                'size': file_info['size'],
+                'file_type': file_info['file_type'],
+                'storage_path': storage_path
+            })
         
         db.commit()
         
@@ -217,7 +245,7 @@ async def upload_documents(
                 "workflow_name": workflow.name,
                 "collection_name": user_collection,
                 "total_chunks": len(all_chunks),
-                "files_processed": processed_files
+                "files_processed": response_files
             }
         )
         
@@ -276,7 +304,9 @@ async def list_workflow_documents(
                 "chunk_count": doc.chunk_count,
                 "upload_id": doc.upload_id,
                 "uploaded_at": doc.uploaded_at.isoformat(),
-                "collection_name": doc.collection_name
+                "collection_name": doc.collection_name,
+                "has_stored_file": doc.storage_path is not None,
+                "can_view": doc.storage_path is not None  # Indicates if file can be viewed/downloaded
             })
         
         return {
@@ -396,6 +426,13 @@ async def remove_document(
             # Log the error but don't fail the operation if Qdrant deletion fails
             print(f"Warning: Failed to delete from Qdrant: {qdrant_error}")
         
+        # Delete stored file from disk if it exists
+        if document.storage_path:
+            try:
+                delete_stored_file(document.storage_path)
+            except Exception as storage_error:
+                print(f"Warning: Failed to delete stored file: {storage_error}")
+        
         # Mark document as inactive (soft delete)
         document.is_active = False
         db.add(document)
@@ -459,11 +496,18 @@ async def delete_collection(
         except Exception as qdrant_error:
             print(f"Warning: Failed to delete collection from Qdrant: {qdrant_error}")
         
-        # Mark all documents as inactive
+        # Delete stored files and mark all documents as inactive
         document_count = len(documents)
         total_chunks = sum(doc.chunk_count for doc in documents)
         
         for doc in documents:
+            # Delete stored file from disk if it exists
+            if doc.storage_path:
+                try:
+                    delete_stored_file(doc.storage_path)
+                except Exception as storage_error:
+                    print(f"Warning: Failed to delete stored file {doc.original_filename}: {storage_error}")
+            
             doc.is_active = False
             db.add(doc)
         
