@@ -11,6 +11,8 @@ type PropertyTypeMap = {
   checkbox: boolean;
   select: string;
   range: number;
+  dynamicTextList: string[];
+  testCases: import("../types").TestCase[];
 };
 
 // Utility type to infer the data interface from a configuration
@@ -88,9 +90,12 @@ export abstract class BaseNode<
     const defaultData = {} as TData;
 
     config.properties.forEach((property) => {
-      (defaultData as unknown as Record<string, string | number | boolean>)[
-        property.key
-      ] = property.defaultValue;
+      (
+        defaultData as unknown as Record<
+          string,
+          string | number | boolean | string[] | import("../types").TestCase[]
+        >
+      )[property.key] = property.defaultValue;
     });
 
     return defaultData;

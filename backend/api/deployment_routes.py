@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import Session as DBSession, select
-from models.db_models import User, Document, Workflow, ChatConversation, ChatMessage, Deployment, AuthSession, ClassRole
+from models.db_models import User, Document, Workflow, ChatConversation, ChatMessage, Deployment, AuthSession, ClassRole, DeploymentType
 from database.database import get_session, engine
 from api.auth import get_current_user
 from scripts.permission_helpers import (
@@ -11,17 +11,17 @@ from models.deployment_models import (
     DeploymentRequest, DeploymentResponse, ChatRequest, ChatResponse,
     ConversationCreateRequest, ConversationResponse, MessageResponse
 )
-from services.deployment_config_service import parse_workflow_config
 from services.deployment_manager import (
     load_deployment_on_demand, get_active_deployment, add_active_deployment,
     remove_active_deployment, is_deployment_active
 )
-from services.deployment_service import MCPChatDeployment
+from services.deployment_service import AgentDeployment
 from typing import List, Dict, Any, Tuple
 import uuid
 import os
 from fastapi import WebSocket, WebSocketDisconnect
 from datetime import datetime, timezone
+from services.config_service import parse_agent_config
 
 # Import extracted helper utilities
 from scripts.deployment_helpers import (
@@ -95,7 +95,8 @@ async def deploy_workflow(
         deployment_id = str(uuid.uuid4())
         
         # Parse workflow configuration
-        config = parse_workflow_config(request.workflow_data)
+        config = parse_agent_config(request.workflow_data['2'])
+        print(request.workflow_data)
         
         # Get workflow and its documents
         workflow = db.get(Workflow, request.workflow_id)
@@ -152,8 +153,9 @@ async def deploy_workflow(
             
             config["collection_name"] = collection_name
         
-        # Create MCP chat deployment
-        mcp_deployment = MCPChatDeployment(deployment_id, config, collection_name)
+        deployment_type = request.type if hasattr(request, "type") else DeploymentType.CHAT
+
+        mcp_deployment = AgentDeployment(deployment_id, request.workflow_data, collection_name)
         
         # Log LLM configuration for deployment
         llm_config = config["llm_config"]
@@ -167,6 +169,11 @@ async def deploy_workflow(
         print(f"[{deployment_id}]   Has MCP/RAG: {config['has_mcp']}")
         print(f"[{deployment_id}]   Collection: {collection_name}")
         
+        combined_config = {
+            **config,  # parsed agent/LLM config keys
+            "__workflow_nodes__": request.workflow_data,  # raw workflow graph
+        }
+
         # Store deployment configuration in database and memory
         try:
             # Save to database
@@ -177,8 +184,9 @@ async def deploy_workflow(
                 class_id=workflow.class_id,
                 workflow_name=request.workflow_name,
                 collection_name=collection_name,
-                config=config,
-                rag_document_ids=rag_document_ids if rag_document_ids else None
+                config=combined_config,
+                rag_document_ids=rag_document_ids if rag_document_ids else None,
+                type=deployment_type
             )
             db.add(db_deployment)
             db.commit()
@@ -188,10 +196,11 @@ async def deploy_workflow(
             add_active_deployment(deployment_id, {
                 "user_id": current_user.id,
                 "workflow_name": request.workflow_name,
-                "config": config,
+                "config": combined_config,
                 "mcp_deployment": mcp_deployment,
                 "created_at": datetime.now(timezone.utc).isoformat(),
-                "chat_history": []
+                "chat_history": [],
+                "type": deployment_type
             })
             print(f"Deployment stored successfully for user {current_user.id} (DB ID: {db_deployment.id})")
         except Exception as storage_error:
@@ -204,6 +213,7 @@ async def deploy_workflow(
             deployment_id=deployment_id,
             chat_url=chat_url,
             message=f"Successfully deployed {request.workflow_name} with MCP server",
+            type=deployment_type,
             configuration={
                 "workflow_id": workflow.id,
                 "workflow_collection_id": workflow.workflow_collection_id,

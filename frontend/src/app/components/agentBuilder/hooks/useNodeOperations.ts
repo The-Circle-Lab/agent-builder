@@ -10,6 +10,7 @@ const CONNECTION_MAPPINGS: Record<
   tools: { sourceHandle: "tools", targetHandle: "mcp-input" },
   Agent: { sourceHandle: "chat-output", targetHandle: "agent-input" },
   Output: { sourceHandle: "output", targetHandle: "result-input" },
+  Tests: { sourceHandle: "tests-input", targetHandle: "tests-output" },
 };
 
 // Define handle positions for different node types and handles
@@ -21,6 +22,10 @@ const HANDLE_POSITIONS: Record<
     "llm-model": { x: 0.25, y: 1 }, // 25% from left, bottom of node
     tools: { x: 0.75, y: 1 }, // 75% from left, bottom of node
     output: { x: 1, y: 0.5 }, // Right side, middle
+  },
+  code: {
+    "tests-input": { x: 1, y: 0.5 }, // Right-middle of code node
+    "chat-output": { x: 0.5, y: 1 }, // Bottom-center for chatbot connection
   },
 };
 

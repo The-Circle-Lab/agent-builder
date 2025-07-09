@@ -1,19 +1,17 @@
 from typing import Dict, Any
 from sqlmodel import Session as DBSession, select
 from models.db_models import Deployment
-from services.deployment_service import MCPChatDeployment
+from services.deployment_service import AgentDeployment
 from datetime import datetime, timezone
 
 # Store active deployments with MCP sessions
 ACTIVE_DEPLOYMENTS: Dict[str, Dict[str, Any]] = {}
 
-# load deployment on demand if not already in memory
 async def load_deployment_on_demand(deployment_id: str, user_id: int, db: DBSession) -> bool:
     if deployment_id in ACTIVE_DEPLOYMENTS:
         return True  # Already loaded
     
     try:
-        # Get deployment from database (don't filter by user_id since permission check is done separately)
         db_deployment = db.exec(
             select(Deployment).where(
                 Deployment.deployment_id == deployment_id,
@@ -24,21 +22,35 @@ async def load_deployment_on_demand(deployment_id: str, user_id: int, db: DBSess
         if not db_deployment:
             return False
         
-        # Create MCP deployment object
-        mcp_deployment = MCPChatDeployment(
-            db_deployment.deployment_id, 
-            db_deployment.config, 
-            db_deployment.collection_name
+
+        workflow_data = db_deployment.config.get("__workflow_nodes__") if isinstance(db_deployment.config, dict) else None
+
+        if workflow_data is None:
+            from models.db_models import Workflow 
+
+            workflow_record: "Workflow" | None = db.get(Workflow, db_deployment.workflow_id)
+
+            workflow_data = (
+                workflow_record.workflow_data if (workflow_record and workflow_record.is_active) else None
+            )
+
+        if workflow_data is None:
+            workflow_data = db_deployment.config
+
+        mcp_deployment = AgentDeployment(
+            db_deployment.deployment_id,
+            workflow_data,
+            db_deployment.collection_name,
         )
         
-        # Store in active deployments
         ACTIVE_DEPLOYMENTS[deployment_id] = {
             "user_id": db_deployment.user_id,
             "workflow_name": db_deployment.workflow_name,
             "config": db_deployment.config,
             "mcp_deployment": mcp_deployment,
             "created_at": db_deployment.created_at.isoformat(),
-            "chat_history": []
+            "chat_history": [],
+            "type": db_deployment.type
         }
         
         print(f"Loaded deployment {deployment_id} on-demand for user {user_id}")

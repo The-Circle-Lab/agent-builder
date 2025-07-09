@@ -41,6 +41,14 @@ export const connectionConfig: ConnectionConfig = {
     maxConnections: 1, // Can only receive one MCP input
     compatibleWith: ["tools"], // Can receive from tools handle
   },
+  "tests-output": {
+    maxConnections: -1, // Can only connect to one test input
+    compatibleWith: ["tests-input"], // Can connect to test output
+  },
+  "tests-input": {
+    maxConnections: -1, // Can only connect to one test input
+    compatibleWith: ["tests-output"], // Can connect to test output
+  },
 };
 
 import { Edge } from "@xyflow/react";

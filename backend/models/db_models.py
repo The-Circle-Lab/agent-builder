@@ -8,6 +8,11 @@ class ClassRole(str, Enum):
     STUDENT = "student"
     INSTRUCTOR = "instructor"
 
+
+class DeploymentType(str, Enum):
+    CHAT = "chat"
+    CODE = "code"
+
 class User(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     email: str = Field(index=True, unique=True)
@@ -161,6 +166,8 @@ class Deployment(SQLModel, table=True):
     class_id: int = Field(foreign_key="class.id")  # Direct class relationship for access control
     workflow_name: str = Field(index=True)
     collection_name: str | None = Field(default=None, index=True)  # Collection name for MCP
+
+    type: DeploymentType = Field(default=DeploymentType.CHAT, index=True)
     
     # Store the deployment configuration as JSON
     config: Dict[str, Any] = Field(sa_column=Column(JSON))

@@ -18,10 +18,8 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
   const [error, setError] = useState("");
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved" | "error">("saved");
   
-  // Always start with a chat node for new workflows
-  const [initialNodes] = useState<Node[]>([
-    { id: "1", position: { x: -15, y: -15 }, data: { label: "2" }, type: "chat" },
-  ]);
+  // Start with an empty canvas for new workflows
+  const [initialNodes] = useState<Node[]>([]);
   const [initialEdges] = useState<Edge[]>([]);
 
   const [currentNodes, setCurrentNodes] = useState<Node[]>(initialNodes);
@@ -42,7 +40,7 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
         setCurrentNodes(workflow.workflow_data.nodes);
         setCurrentEdges(workflow.workflow_data.edges || []);
       } else {
-        // If no workflow data or empty nodes, keep the initial chat node
+        // If no workflow data or empty nodes, keep the empty initial state
         setCurrentNodes(initialNodes);
         setCurrentEdges(initialEdges);
       }

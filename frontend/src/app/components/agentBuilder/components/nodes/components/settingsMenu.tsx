@@ -27,10 +27,10 @@ interface GenericFormProps {
 function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFormProps) {
   const [formData, setFormData] = useState<NodeData>(() => {
     // Initialize form data with existing data or default values
-    const initialData: Record<string, string | number | boolean> = {};
+    const initialData: Record<string, unknown> = {};
     properties.forEach((prop) => {
       initialData[prop.key] =
-        (data as Record<string, string | number | boolean>)[prop.key] ??
+        (data as Record<string, unknown>)[prop.key] ??
         prop.defaultValue;
     });
     return initialData as NodeData;
@@ -41,9 +41,58 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
     onSave(formData);
   };
 
-  const handleInputChange = useCallback((key: string, value: string | number | boolean) => {
-    setFormData((prev) => ({ ...prev, [key]: value }));
-  }, []);
+  const handleInputChange = useCallback(
+    (key: string, value: unknown) => {
+      setFormData((prev) => {
+        const updated = { ...prev, [key]: value } as Record<string, unknown>;
+
+        // Maintain dynamicTextList lengths based on their countKey values
+        properties.forEach((prop) => {
+          // Dynamic text list adjustment
+          if (prop.type === "dynamicTextList" && prop.countKey) {
+            const count = updated[prop.countKey] as number | undefined;
+            if (typeof count === "number") {
+              const listKey = prop.key;
+              let list = updated[listKey] as string[] | undefined;
+              if (!Array.isArray(list)) list = [];
+
+              if (list.length > count) {
+                list = list.slice(0, count);
+              } else if (list.length < count) {
+                list = [...list, ...Array(count - list.length).fill("")];
+              }
+
+              updated[listKey] = list;
+            }
+          }
+
+          // Test cases parameter length adjustment
+          if (prop.type === "testCases" && prop.countKey) {
+            const count = updated[prop.countKey] as number | undefined;
+            if (typeof count === "number") {
+              const testsKey = prop.key;
+              let tests = updated[testsKey] as import("../types").TestCase[] | undefined;
+              if (!Array.isArray(tests)) tests = [];
+
+              tests = tests.map((t) => {
+                let params = Array.isArray(t.parameters) ? [...t.parameters] : [];
+                if (params.length > count) params = params.slice(0, count);
+                else if (params.length < count) {
+                  params = [...params, ...Array(count - params.length).fill("")];
+                }
+                return { ...t, parameters: params };
+              });
+
+              updated[testsKey] = tests;
+            }
+          }
+        });
+
+        return updated as NodeData;
+      });
+    },
+    [properties]
+  );
 
   // Create memoized document change handlers for upload fields
   const documentChangeHandlers = useMemo(() => {
@@ -62,7 +111,8 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
   const renderField = (property: PropertyDefinition) => {
     const { key, label, type, placeholder, options, min, max, step, rows } =
       property;
-    const value = (formData as Record<string, string | number | boolean>)[key];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const value: any = (formData as Record<string, unknown>)[key];
 
     switch (type) {
       case "text":
@@ -188,6 +238,132 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
             />
           </div>
         );
+
+      case "dynamicTextList": {
+        const countKey = property.countKey;
+        const count = (formData as Record<string, unknown>)[countKey ?? ""] as number | undefined;
+        const list = Array.isArray(value) ? (value as string[]) : [];
+
+        const effectiveCount = typeof count === "number" ? count : list.length;
+
+        const handleListItemChange = (index: number, val: string) => {
+          const newList = [...list];
+          newList[index] = val;
+          handleInputChange(key, newList);
+        };
+
+        // Hide the entire section (including the title) when the count is zero
+        if (effectiveCount === 0) {
+          return null;
+        }
+
+        return (
+          <div key={key}>
+            <label className="block text-sm font-medium text-gray-200 mb-2">
+              {label}
+            </label>
+            <div className="space-y-2">
+              {Array.from({ length: effectiveCount }).map((_, idx) => (
+                <input
+                  key={`${key}-${idx}`}
+                  type="text"
+                  value={list[idx] ?? ""}
+                  onChange={(e) => handleListItemChange(idx, e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder={`${placeholder || "Enter value"} #${idx + 1}`}
+                />
+              ))}
+            </div>
+          </div>
+        );
+      }
+
+      case "testCases": {
+        const countKey = property.countKey;
+        const paramCount = (formData as Record<string, unknown>)[countKey ?? ""] as number | undefined;
+        const effectiveParamCount = typeof paramCount === "number" ? paramCount : 0;
+
+        // Hide section if param count is 0
+        if (effectiveParamCount === 0) return null;
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const tests: any[] = Array.isArray(value) ? value : [];
+
+        const updateTest = (index: number, field: string, val: string, paramIdx?: number) => {
+          const newTests = tests.map((t, i) => {
+            if (i !== index) return t;
+            if (field === "expected") {
+              return { ...t, expected: val };
+            }
+            // field === "param"
+            const newParams = Array.isArray(t.parameters) ? [...t.parameters] : [];
+            if (typeof paramIdx === "number") {
+              newParams[paramIdx] = val;
+            }
+            return { ...t, parameters: newParams };
+          });
+          handleInputChange(key, newTests);
+        };
+
+        const addTest = () => {
+          const emptyParams = Array.from({ length: effectiveParamCount }).fill("");
+          const newTests = [...tests, { parameters: emptyParams, expected: "" }];
+          handleInputChange(key, newTests);
+        };
+
+        const deleteTest = (idx: number) => {
+          const newTests = tests.filter((_t, i) => i !== idx);
+          handleInputChange(key, newTests);
+        };
+
+        return (
+          <div key={key} className="space-y-2">
+            <label className="block text-sm font-medium text-gray-200 mb-2">
+              {label}
+            </label>
+            {tests.map((test, idx) => (
+              <div key={`${key}-test-${idx}`} className="space-y-1 border border-gray-600 p-2 rounded-md">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-300 text-sm">Test #{idx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => deleteTest(idx)}
+                    className="text-red-400 hover:text-red-500"
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="grid grid-cols-1 gap-2 mt-2">
+                  {Array.from({ length: effectiveParamCount }).map((_, pIdx) => (
+                    <input
+                      key={`param-${pIdx}`}
+                      type="text"
+                      value={test.parameters?.[pIdx] ?? ""}
+                      onChange={(e) => updateTest(idx, "param", e.target.value, pIdx)}
+                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder={`Parameter #${pIdx + 1}`}
+                    />
+                  ))}
+                  <input
+                    type="text"
+                    value={test.expected ?? ""}
+                    onChange={(e) => updateTest(idx, "expected", e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Expected Return"
+                  />
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addTest}
+              className="px-3 py-1 bg-green-600 text-white rounded-md hover:bg-green-700"
+            >
+              Add Test
+            </button>
+          </div>
+        );
+      }
 
       default:
         return null;

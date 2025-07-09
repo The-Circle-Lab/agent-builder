@@ -1,17 +1,54 @@
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 from datetime import datetime
+from models.db_models import DeploymentType
+from typing import Self
+
+class AgentNode:
+    current_agent: object 
+    next_agent: Self | None = None
+
+    def __init__(self, agent: object):
+        self.current_agent = agent
+
+class AgentNodeList:
+    front: AgentNode | None = None
+    back: AgentNode | None = None
+    count: int = 0
+
+    def append(self, agent: AgentNode):
+        if self.front is None:
+            self.front = agent
+            self.back = agent
+            self.count += 1
+        else:
+            self.back.next_agent = agent
+            self.back = agent
+            self.count += 1
+    
+    def pop(self):
+        if self.front is None:
+            return None
+        else:
+            agent = self.front
+            self.front = self.front.next_agent
+            if (self.count == 1):
+                self.back = None
+            self.count -= 1
+            return agent
 
 class DeploymentRequest(BaseModel):
     workflow_name: str
     workflow_id: int
     workflow_data: Dict[str, Any]
+    type: DeploymentType = DeploymentType.CHAT
 
 class DeploymentResponse(BaseModel):
     deployment_id: str
     chat_url: str
     message: str
     configuration: Dict[str, Any]
+    type: DeploymentType = DeploymentType.CHAT
 
 class ChatRequest(BaseModel):
     message: str

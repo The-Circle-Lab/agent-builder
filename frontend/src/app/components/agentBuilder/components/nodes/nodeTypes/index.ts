@@ -7,6 +7,8 @@ import * as outputNode from "./outputNode";
 import * as mcpNode from "./mcpNode";
 import * as deepSeekNode from "./deepSeekNode";
 import * as metaNode from "./metaNode";
+import * as codeNode from "./codeNode";
+import * as testsNode from "./testsNode";
 import { BaseNode, BaseNodeProps, BaseNodeData } from "./baseNode";
 
 // Base classes and interfaces
@@ -26,8 +28,10 @@ export const NodeTypes = {
   deepseek: deepSeekNode.DeepSeekNode,
   meta: metaNode.MetaNode,
   chat: chatNode.ChatNode,
+  code: codeNode.CodeNode,
   result: outputNode.OutputNode,
   mcp: mcpNode.McpNode,
+  tests: testsNode.TestsNode,
 };
 
 export const NodeClasses = {
@@ -36,10 +40,12 @@ export const NodeClasses = {
   openAI: openAINode.OpenAINodeClass,
   anthropic: anthropicNode.AnthropicNodeClass,
   chat: chatNode.ChatNodeClass,
+  code: codeNode.CodeNodeClass,
   result: outputNode.OutputNodeClass,
   mcp: mcpNode.McpNodeClass,
   deepSeek: deepSeekNode.DeepSeekNodeClass,
   meta: metaNode.MetaNodeClass,
+  tests: testsNode.TestsNodeClass,
 };
 
 export const NodeConfigs = {
@@ -48,10 +54,12 @@ export const NodeConfigs = {
   openAI: openAINode.openAINodeConfig,
   anthropic: anthropicNode.anthropicNodeConfig,
   chat: chatNode.chatNodeConfig,
+  code: codeNode.codeNodeConfig,
   result: outputNode.outputNodeConfig,
   mcp: mcpNode.mcpNodeConfig,
   deepSeek: deepSeekNode.deepSeekNodeConfig,
   meta: metaNode.metaNodeConfig,
+  tests: testsNode.testsNodeConfig,
 };
 
 export const NodeCreators = {
@@ -60,10 +68,12 @@ export const NodeCreators = {
   openAI: openAINode.createOpenAINodeType,
   anthropic: anthropicNode.createAnthropicNodeType,
   chat: chatNode.createChatNodeType,
+  code: codeNode.createCodeNodeType,
   result: outputNode.createOutputNodeType,
   mcp: mcpNode.createMcpNodeType,
   deepSeek: deepSeekNode.createDeepSeekNodeType,
   meta: metaNode.createMetaNodeType,
+  tests: testsNode.createTestsNodeType,
 };
 
 // Registry of available node types (dynamically generated from NodeClasses)

@@ -93,7 +93,7 @@ export function checkWorkflowValidity(nodes: Node[], edges: Edge[]): boolean {
       NodeClasses[currentNode.type as keyof typeof NodeClasses];
     if (!nodeClass) return false;
 
-    if (nodeClass.nodeType === "end") {
+    if (nodeClass.nodeType === "end" || nodeClass.nodeType === "start") {
       return true;
     }
 
@@ -103,6 +103,7 @@ export function checkWorkflowValidity(nodes: Node[], edges: Edge[]): boolean {
 
     currentNode = tempInstance.getNextNode(nodes);
   }
+
 
   return false;
 }

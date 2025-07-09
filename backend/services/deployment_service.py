@@ -1,9 +1,13 @@
 from typing import Dict, Any, List, Optional
-
+from models.deployment_models import AgentNode, AgentNodeList
 from services.deployment_types.chat import Chat
+from models.db_models import DeploymentType
+from services.config_service import parse_agent_config
 
+class AgentDeployment:
+    _services: AgentNodeList
+    _deployment_type: DeploymentType
 
-class MCPChatDeployment:
     def __init__(
         self,
         deployment_id: str,
@@ -11,12 +15,31 @@ class MCPChatDeployment:
         collection_name: Optional[str] = None,
     ) -> None:
         self.deployment_id = deployment_id
+        self._services = AgentNodeList() 
         
-        self._chat = Chat(
-            config=config,
-            rag_used=config.get("has_mcp", False),
-            collection_name=collection_name,
-        )
+        if (config['1']['type'] == 'chat'):
+            self._deployment_type = DeploymentType.CHAT
+        elif (config['1']['type'] == 'code'):
+            self._deployment_type = DeploymentType.CODE
+        else:
+            raise ValueError(f"Invalid deployment type: {config['1']['type']}")
+        
+        i = 2
+        while (str(i) in config):
+            if (config[str(i)]['type'] == "result"):
+                break
+            elif (config[str(i)]['type'] == "agent"):
+                agent_config = parse_agent_config(config[str(i)])
+                chat_service = Chat(
+                    config=agent_config,
+                    rag_used=agent_config.get("has_mcp", False),
+                    collection_name=collection_name,
+                )
+                self._services.append(AgentNode(chat_service))
+            i += 1
+        
+        if (self._services.count == 0):
+            raise ValueError("No agents found in the workflow")
 
     async def chat(
         self,
@@ -24,7 +47,7 @@ class MCPChatDeployment:
         history: List[List[str]] | None = None,
     ) -> Dict[str, Any]:
         history = history or []
-        return await self._chat.chat(message, history, stream=False)
+        return await self._services.back.current_agent.chat(message, history, stream=False)
 
     async def chat_streaming(
         self,
@@ -33,7 +56,7 @@ class MCPChatDeployment:
         stream_callback=None,
     ) -> Dict[str, Any]:
         history = history or []
-        return await self._chat.chat(
+        return await self._services.back.current_agent.chat(
             message,
             history,
             stream=True,
@@ -41,13 +64,13 @@ class MCPChatDeployment:
         )
 
     async def _prepare_context(self, message: str, k: int = 15):  
-        return await self._chat._prepare_context(message, k)  # type: ignore[attr-defined]
+        return await self._services.back.current_agent._prepare_context(message, k)  
 
     def _extract_unique_sources(self, search_results):  
-        return self._chat._extract_unique_sources(search_results)  # type: ignore[attr-defined]
+        return self._services.back.current_agent._extract_unique_sources(search_results) 
 
     async def close(self) -> None:
-        print(f"MCPChatDeployment {self.deployment_id} cleaned up")
+        print(f"AgentDeployment {self.deployment_id} cleaned up")
 
 
 def get_deployment_files_info(

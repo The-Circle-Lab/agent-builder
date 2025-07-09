@@ -81,6 +81,17 @@ export function getNodeAttachments(
     }
 
     return Object.keys(attachments).length > 0 ? attachments : undefined;
+  } else if (node.type === "code") {
+    const attachments: Record<string, unknown> = {};
+    const testsNodes = getConnectedNodes(node.id, "tests-input", edges, nodes);
+    if (testsNodes.length > 0) {
+      attachments.tests = testsNodes.map((testsNode) => ({
+        type: testsNode.type,
+        config: getNodeConfig(testsNode),
+      }));
+    }
+
+    return Object.keys(attachments).length > 0 ? attachments : undefined;
   }
 
   return undefined;

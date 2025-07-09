@@ -68,6 +68,27 @@ const nodeOptions = [
     icon: "/output.svg",
     description: "Add an output node",
   },
+  {
+    category: "starter",
+    type: "chat",
+    name: "Chat",
+    icon: "/chat.svg",
+    description: "Add a chat node",
+  },
+  {
+    category: "starter",
+    type: "code",
+    name: "Code",
+    icon: "/code.svg",
+    description: "Add a code node",
+  },
+  {
+    category: "tests",
+    type: "tests",
+    name: "Tests",
+    icon: "/tests.svg",
+    description: "Add a tests node",
+  },
 ];
 
 // Define which categories to show for each object type
@@ -76,6 +97,8 @@ const objectTypeFilters: Record<string, string[]> = {
   tools: ["tools"],
   Agent: ["output"],
   Output: ["output"],
+  Starter: ["starter"],
+  Tests: ["tests"],
 };
 
 export function SideMenu({

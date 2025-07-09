@@ -31,9 +31,7 @@ interface WorkflowEditorProps {
 }
 
 export default function WorkflowEditor({
-  initialNodes = [
-    { id: "1", position: { x: -15, y: -15 }, data: { label: "2" }, type: "chat" },
-  ],
+  initialNodes = [],
   initialEdges = [],
   onWorkflowChange,
   autoSave = false,
@@ -206,6 +204,27 @@ export default function WorkflowEditor({
       >
         <Background variant="dots" gap={12} size={1} color="#6B7280" bgColor="#374151"/>
       </ReactFlow>
+
+      {nodes.length === 0 && (
+        <button
+          onClick={() => handleOpenSideMenu("Starter")}
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center shadow-lg transition-all duration-200 z-20"
+        >
+          <svg
+            className="w-8 h-8 text-white"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+            />
+          </svg>
+        </button>
+      )}
 
       {/* Deploy Button - Bottom Right */}
       <div className="absolute bottom-6 right-6 z-10">

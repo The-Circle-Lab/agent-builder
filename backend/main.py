@@ -3,8 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 from database.database import init_db, shutdown_db
 from api.auth import router as auth_router, get_current_user
-from api.workflow_api import router as workflow_router
-from api.document_api import router as document_router
+from api.workflows import router as workflow_router
+from api.documents import router as document_router
 from api.deployment_routes import router as deployment_router
 from api.classes import router as class_router
 from api.file_storage import router as file_storage_router
