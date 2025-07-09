@@ -18,20 +18,20 @@ export const connectionConfig: ConnectionConfig = {
     compatibleWith: ["mcp-input"], // Can connect to various tool inputs
   },
   "agent-input": {
-    maxConnections: 1, // Can only connect to one agent input
+    maxConnections: -1, // Can only connect to one agent input
     compatibleWith: ["output", "chat-output"], // Can connect to agent output
   },
   "chat-output": {
     maxConnections: 1, // Can only connect to one chat input
     compatibleWith: ["agent-input"], // Can connect to chat output
   },
-  input: {
+  "input": {
     maxConnections: 1, // Can only receive one input
     compatibleWith: ["output", "llm-model", "tools"], // Can receive from various sources
   },
-  output: {
-    maxConnections: 1, // Can output to multiple targets
-    compatibleWith: ["input"], // Can connect to inputs
+  "output": {
+    maxConnections: -1, // Can output to multiple targets
+    compatibleWith: ["input", "agent-input"], // Can connect to inputs
   },
   "llm-input": {
     maxConnections: 1, // Can only receive one LLM model connection

@@ -48,7 +48,7 @@ const nodeOptions = [
     description: "Add Meta language models",
   },
   {
-    category: "agent",
+    category: "output",
     type: "agent",
     name: "AI Agent",
     icon: "/agent.svg",
@@ -74,7 +74,7 @@ const nodeOptions = [
 const objectTypeFilters: Record<string, string[]> = {
   LLM: ["llm"],
   tools: ["tools"],
-  Agent: ["agent"],
+  Agent: ["output"],
   Output: ["output"],
 };
 

@@ -100,20 +100,21 @@ export function useNodeOperations(
 
       setNodes((nds: Node[]) => [...nds, newNode]);
 
-      // Create automatic connection if source node and object type are available
-      if (
-        sourceNodeId &&
-        sideMenuObjectType &&
-        CONNECTION_MAPPINGS[sideMenuObjectType]
-      ) {
-        const { sourceHandle, targetHandle } =
-          CONNECTION_MAPPINGS[sideMenuObjectType];
+      let mapping = undefined as | { sourceHandle: string; targetHandle: string } | undefined;
+      if (sideMenuObjectType) {
+        mapping = CONNECTION_MAPPINGS[sideMenuObjectType];
+        if (sideMenuObjectType === "Output" && nodeType === "agent") {
+          mapping = { sourceHandle: "output", targetHandle: "agent-input" };
+        }
+      }
+
+      if (sourceNodeId && mapping) {
         const newEdge: Edge = {
           id: `edge-${sourceNodeId}-${newNode.id}`,
           source: sourceNodeId,
           target: newNode.id,
-          sourceHandle,
-          targetHandle,
+          sourceHandle: mapping.sourceHandle,
+          targetHandle: mapping.targetHandle,
         };
         setEdges((eds: Edge[]) => [...eds, newEdge]);
       }

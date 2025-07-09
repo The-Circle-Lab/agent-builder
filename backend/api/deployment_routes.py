@@ -17,13 +17,20 @@ from services.deployment_manager import (
     remove_active_deployment, is_deployment_active
 )
 from services.deployment_service import MCPChatDeployment
-from typing import List
-from datetime import datetime, timezone
+from typing import List, Dict, Any, Tuple
 import uuid
 import os
 from fastapi import WebSocket, WebSocketDisconnect
-import json
-import asyncio
+from datetime import datetime, timezone
+
+# Import extracted helper utilities
+from scripts.deployment_helpers import (
+    _extract_sid_from_websocket,
+    _send_error_and_close,
+    _authenticate_websocket_user,
+    _save_chat_to_db,
+    _load_deployment_for_user,
+)
 
 router = APIRouter(prefix="/api/deploy", tags=["deployment"])
 
@@ -45,7 +52,6 @@ async def deploy_workflow(
     db: DBSession = Depends(get_session)
 ):
     try:
-        # Debug: Check if current_user is valid
         if current_user is None:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -227,372 +233,113 @@ async def chat_with_deployment(
     deployment_id: str,
     request: ChatRequest,
     current_user: User = Depends(get_current_user),
-    db: DBSession = Depends(get_session)
+    db: DBSession = Depends(get_session),
 ):
-    # Get deployment from database first to check permissions
-    db_deployment = db.exec(
-        select(Deployment).where(
-            Deployment.deployment_id == deployment_id,
-            Deployment.is_active == True
-        )
-    ).first()
-    
-    if not db_deployment:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Deployment not found"
-        )
-    
-    # Check if user can access this deployment (class membership based)
-    if not user_can_access_deployment(current_user, db_deployment, db):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Access denied. You must be a member of this class to use this deployment."
-        )
-    
-    # Load deployment on-demand if not in memory
-    if not await load_deployment_on_demand(deployment_id, current_user.id, db):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Deployment not found or failed to initialize"
-        )
-    
-    deployment = get_active_deployment(deployment_id)
-    
+    deployment = await _load_deployment_for_user(deployment_id, current_user, db)
+
     try:
-        print(f"Processing chat request for deployment {deployment_id}: {request.message}")
         mcp_deployment = deployment["mcp_deployment"]
-        
-        # Use MCP chat deployment
         result = await mcp_deployment.chat(request.message, request.history)
-        
-        # Store conversation in deployment history (for backward compatibility)
+
+        # Keep history in memory
         deployment["chat_history"].append([request.message, result["response"]])
-        
-        # Save to database if conversation_id is provided
-        saved_conversation_id = request.conversation_id
+
+        # Persist conversation if requested
         if request.conversation_id:
-            try:
-                # Verify conversation exists and belongs to user
-                conversation = db.get(ChatConversation, request.conversation_id)
-                if conversation and conversation.user_id == current_user.id and conversation.deployment_id == deployment_id:
-                    # Save user message
-                    user_message = ChatMessage(
-                        conversation_id=request.conversation_id,
-                        message_text=request.message,
-                        is_user_message=True
-                    )
-                    db.add(user_message)
-                    
-                    # Save assistant response
-                    assistant_message = ChatMessage(
-                        conversation_id=request.conversation_id,
-                        message_text=result["response"],
-                        is_user_message=False,
-                        sources=result["sources"] if result["sources"] else None
-                    )
-                    db.add(assistant_message)
-                    
-                    # Update conversation timestamp
-                    conversation.updated_at = datetime.now(timezone.utc)
-                    db.add(conversation)
-                    
-                    db.commit()
-                    print(f"Saved chat to conversation {request.conversation_id}")
-                else:
-                    print(f"Invalid conversation ID {request.conversation_id} for user {current_user.id}")
-                    saved_conversation_id = None
-            except Exception as save_error:
-                print(f"Failed to save chat to database: {save_error}")
-                db.rollback()
-                saved_conversation_id = None
-        
-        print(f"Chat request completed for deployment {deployment_id}")
+            _save_chat_to_db(
+                db,
+                current_user.id,
+                deployment_id,
+                request.conversation_id,
+                request.message,
+                result,
+            )
+
         return ChatResponse(
             response=result["response"],
             sources=result["sources"],
-            conversation_id=saved_conversation_id
-        )
-        
-    except Exception as e:
-        import traceback
-        error_traceback = traceback.format_exc()
-        print(f"Full chat error traceback for deployment {deployment_id}:\n{error_traceback}")
-        
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Chat failed: {str(e)}"
+            conversation_id=request.conversation_id,
         )
 
-# WebSocket endpoint for real-time chat
+    except Exception as exc:
+        print(f"Chat failed for deployment {deployment_id}: {exc}")
+        import traceback, sys
+        print("Chat error traceback:\n" + traceback.format_exc())
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Chat failed: {str(exc)}",
+        )
+
+# WebSocket chat
 @router.websocket("/ws/{deployment_id}")
 async def websocket_chat(
     websocket: WebSocket,
-    deployment_id: str
+    deployment_id: str,
 ):
     await websocket.accept()
-    print(f"[WebSocket] Connection accepted for deployment {deployment_id}")
-    
-    # Create database session for WebSocket using proper async handling
     db: DBSession = DBSession(engine)
-    
+
     try:
-        # Get session cookie from WebSocket headers
-        cookie_header = websocket.headers.get("cookie", "")
-        print(f"[WebSocket] Cookie header: {cookie_header[:100]}...")  # Log first 100 chars
-        sid = None
-        
-        # Parse session ID from cookie header
-        for cookie in cookie_header.split(";"):
-            cookie = cookie.strip()
-            if cookie.startswith("sid="):
-                sid = cookie.split("=", 1)[1]
-                break
-        
-        # Fallback: check query parameters for session ID
-        if not sid and websocket.query_params.get("sid"):
-            sid = websocket.query_params.get("sid")
-            print(f"[WebSocket] Using session ID from query parameter")
-        
-        print(f"[WebSocket] Extracted session ID: {sid[:20] if sid else 'None'}...")  # Log first 20 chars
-        
-        if not sid:
-            print(f"[WebSocket] No session cookie found in headers or query params")
-            await websocket.send_json({
-                "type": "error",
-                "message": "No session cookie found"
-            })
-            await websocket.close(code=1000, reason="No authentication")
-            return
-        
-        # Validate session
-        session = db.get(AuthSession, sid)
-        if not session:
-            print(f"[WebSocket] Session not found in database: {sid[:20]}...")
-            await websocket.send_json({
-                "type": "error",
-                "message": "Invalid session"
-            })
-            await websocket.close(code=1000, reason="Invalid session")
-            return
-        
-        print(f"[WebSocket] Session found, expires at: {session.expires_at}")
-        
-        if session.expires_at.replace(tzinfo=timezone.utc) < datetime.now(timezone.utc):
-            print(f"[WebSocket] Session expired")
-            await websocket.send_json({
-                "type": "error",
-                "message": "Session expired"
-            })
-            await websocket.close(code=1000, reason="Session expired")
-            return
-        
-        # Get user from session
-        user = db.get(User, session.user_id)
-        if not user:
-            print(f"[WebSocket] User not found for session user_id: {session.user_id}")
-            await websocket.send_json({
-                "type": "error",
-                "message": "User not found"
-            })
-            await websocket.close(code=1000, reason="User not found")
-            return
-        
-        print(f"[WebSocket] User authenticated: {user.email} (ID: {user.id})")
-        
-        # Get deployment from database first to check permissions
-        db_deployment = db.exec(
-            select(Deployment).where(
-                Deployment.deployment_id == deployment_id,
-                Deployment.is_active == True
-            )
-        ).first()
-        
-        if not db_deployment:
-            print(f"[WebSocket] Deployment not found in database: {deployment_id}")
-            await websocket.send_json({
-                "type": "error",
-                "message": "Deployment not found"
-            })
-            await websocket.close(code=1000, reason="Deployment not found")
-            return
-        
-        # Check if user can access this deployment (class membership based)
-        if not user_can_access_deployment(user, db_deployment, db):
-            print(f"[WebSocket] Access denied: user {user.id} not authorized for deployment {deployment_id} in class {db_deployment.class_id}")
-            await websocket.send_json({
-                "type": "error",
-                "message": "Access denied. You must be a member of this class to use this deployment."
-            })
-            await websocket.close(code=1000, reason="Access denied")
-            return
-        
-        # Load deployment in memory
-        print(f"[WebSocket] Loading deployment {deployment_id} for user {user.id}")
+        user, _ = await _authenticate_websocket_user(websocket, deployment_id, db)
+
         if not await load_deployment_on_demand(deployment_id, user.id, db):
-            print(f"[WebSocket] Failed to load deployment {deployment_id}")
-            await websocket.send_json({
-                "type": "error",
-                "message": "Deployment not found or failed to initialize"
-            })
-            await websocket.close(code=1000, reason="Deployment not found")
+            await _send_error_and_close(
+                websocket,
+                "Deployment not found or failed to initialize",
+                "Deployment not available",
+            )
             return
-        
-        print(f"[WebSocket] Deployment loaded successfully")
+
         deployment = get_active_deployment(deployment_id)
-        
-        print(f"[WebSocket] User permission verified")
-        
-        # Send authentication success
-        await websocket.send_json({
-            "type": "auth_success",
-            "message": "Authenticated successfully"
-        })
-        
-        print(f"[WebSocket] Entering message loop for deployment {deployment_id}")
-        
-        # Handle chat messages
+        await websocket.send_json({"type": "auth_success", "message": "Authenticated successfully"})
+
         while True:
             try:
-                print(f"[WebSocket] Waiting for message...")
                 data = await websocket.receive_json()
-                print(f"[WebSocket] Received message: {data}")
             except WebSocketDisconnect:
-                print(f"[WebSocket] Client disconnected normally")
                 break
-            except Exception as recv_error:
-                print(f"[WebSocket] Error receiving message: {recv_error}")
-                import traceback
-                print(f"[WebSocket] Receive error traceback:\n{traceback.format_exc()}")
-                break
-            
-            if data.get("type") == "chat":
-                message = data.get("message", "")
-                history = data.get("history", [])
-                conversation_id = data.get("conversation_id")
-                
-                print(f"WebSocket chat request for deployment {deployment_id}: {message}")
-                
-                try:
-                    mcp_deployment = deployment["mcp_deployment"]
-                    
-                    # Send typing indicator
-                    await websocket.send_json({
-                        "type": "typing",
-                        "message": "Assistant is typing..."
-                    })
-                    
-                    # Pre-search for context to get sources early for real-time citation processing
-                    search_results, context = await mcp_deployment._prepare_context(message)
-                    sources = mcp_deployment._extract_unique_sources(search_results)
-                    
-                    # Send sources information early for real-time citation processing
-                    if sources:
-                        await websocket.send_json({
-                            "type": "sources",
-                            "sources": sources
-                        })
-                        print(f"WebSocket: Sent sources ({len(sources)} sources) for real-time citation processing")
-                    
-                    # Create a proper async callback for streaming
-                    async def stream_callback(chunk):
-                        try:
-                            await websocket.send_json({
-                                "type": "stream",
-                                "chunk": chunk,
-                                "sources": sources  # Include sources for real-time citation processing
-                            })
-                            print(f"WebSocket: Sent streaming chunk ({len(chunk)} chars)")
-                        except Exception as e:
-                            print(f"WebSocket: Failed to send streaming chunk: {e}")
-                    
-                    # Get response from MCP deployment with streaming support
-                    result = await mcp_deployment.chat_streaming(
-                        message, 
-                        history,
-                        stream_callback
-                    )
-                    
-                    # Send final response
-                    await websocket.send_json({
-                        "type": "response",
-                        "response": result["response"],
-                        "sources": result["sources"]
-                    })
-                    
-                    print(f"WebSocket: Sent final response ({len(result['response'])} chars) with {len(result.get('sources', []))} sources")
-                    
-                    # Store conversation in deployment history
-                    deployment["chat_history"].append([message, result["response"]])
-                    
-                    # Save to database if conversation_id is provided
-                    if conversation_id:
-                        try:
-                            conversation = db.get(ChatConversation, conversation_id)
-                            if conversation and conversation.user_id == user.id and conversation.deployment_id == deployment_id:
-                                # Save user message
-                                user_message = ChatMessage(
-                                    conversation_id=conversation_id,
-                                    message_text=message,
-                                    is_user_message=True
-                                )
-                                db.add(user_message)
-                                
-                                # Save assistant response
-                                assistant_message = ChatMessage(
-                                    conversation_id=conversation_id,
-                                    message_text=result["response"],
-                                    is_user_message=False,
-                                    sources=result["sources"] if result["sources"] else None
-                                )
-                                db.add(assistant_message)
-                                
-                                # Update conversation timestamp
-                                conversation.updated_at = datetime.now(timezone.utc)
-                                db.add(conversation)
-                                
-                                db.commit()
-                                print(f"WebSocket: Saved chat to conversation {conversation_id}")
-                        except Exception as save_error:
-                            print(f"WebSocket: Failed to save chat to database: {save_error}")
-                            db.rollback()
-                    
-                except Exception as e:
-                    print(f"WebSocket chat error: {e}")
-                    await websocket.send_json({
-                        "type": "error",
-                        "message": f"Chat failed: {str(e)}"
-                    })
-            
-            elif data.get("type") == "ping":
-                # Handle ping/pong for connection keepalive
-                await websocket.send_json({
-                    "type": "pong"
-                })
-    
-    except WebSocketDisconnect:
-        print(f"WebSocket disconnected for deployment {deployment_id}")
-    except Exception as e:
-        print(f"WebSocket error: {e}")
-        import traceback
-        print(f"WebSocket error traceback:\n{traceback.format_exc()}")
-        try:
+
+            msg_type = data.get("type")
+            if msg_type == "ping":
+                await websocket.send_json({"type": "pong"})
+                continue
+            if msg_type != "chat":
+                continue 
+
+            message: str = data.get("message", "")
+            history = data.get("history", [])
+            conversation_id = data.get("conversation_id")
+
+            mcp_deployment = deployment["mcp_deployment"]
+
+            await websocket.send_json({"type": "typing", "message": "Assistant is typing..."})
+
+            async def stream_callback(chunk: str) -> None:
+                await websocket.send_json({"type": "stream", "chunk": chunk})
+
+            result = await mcp_deployment.chat_streaming(message, history, stream_callback)
+
             await websocket.send_json({
-                "type": "error",
-                "message": f"WebSocket error: {str(e)}"
+                "type": "response",
+                "response": result["response"],
+                "sources": result["sources"],
             })
-        except:
-            pass
+
+            deployment["chat_history"].append([message, result["response"]])
+
+            if conversation_id:
+                _save_chat_to_db(db, user.id, deployment_id, conversation_id, message, result)
+
+    except WebSocketDisconnect:
+        pass  # Normal client disconnect
     finally:
-        # Clean up database session
         try:
             db.close()
-        except:
+        except Exception:
             pass
-        
         try:
             await websocket.close()
-        except:
+        except Exception:
             pass
 
 # Get active deployments
@@ -991,9 +738,6 @@ async def get_deployment_files(
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session)
 ):
-    """
-    Get all files/documents used for RAG in a specific deployment
-    """
     try:
         print(f"[FILES] Getting files for deployment {deployment_id} requested by user {current_user.id}")
         

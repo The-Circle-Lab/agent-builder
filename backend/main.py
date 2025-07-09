@@ -6,7 +6,7 @@ from api.auth import router as auth_router, get_current_user
 from api.workflow_api import router as workflow_router
 from api.document_api import router as document_router
 from api.deployment_routes import router as deployment_router
-from api.class_api import router as class_router
+from api.classes import router as class_router
 from api.file_storage import router as file_storage_router
 from services.deployment_manager import cleanup_all_deployments
 from models.db_models import User
