@@ -49,7 +49,7 @@ class Chat:
     _prompt_template: ChatPromptTemplate
     _config: Dict[str, Any]
     
-    def __init__(self, config: Dict[str, Any], rag_used: bool, collection_name: str):
+    def __init__(self, config: Dict[str, Any], rag_used: bool, collection_name: str, *, is_code_mode: bool = False, deployment_id: str | None = None):
         try:
             self._config = config
             self._model = config["llm_config"]["model"]
@@ -67,6 +67,10 @@ class Chat:
 
             self._rag_used = rag_used
             self._collection_name = collection_name
+
+            # Code-deployment specific metadata
+            self._is_code_mode = is_code_mode
+            self._deployment_id = deployment_id
 
             _user_prompt_template = self._get_user_prompt_template(config["agent_config"]["prompt"])
             _system_prompt = config["agent_config"]["system_prompt"] or ""
@@ -108,9 +112,9 @@ class Chat:
             # If no {input} placeholder, append the input at the end
             template = f"{base_template}\n\nUser message: {{input}}"
         
-        # Include context for RAG-enabled workflows
-        if self._rag_used:
-            return f"Context from documents:\n{{context}}\n\nQuestion: {template}"
+        # Include context for RAG-enabled workflows OR code deployments
+        if self._rag_used or self._is_code_mode:
+            return f"Context:\n{{context}}\n\nQuestion: {template}"
         else:
             return template
     
@@ -177,7 +181,12 @@ class Chat:
         else:
             user_prompt_text = raw_user_template.format(input=message)
 
+        print(f"[DEBUG] Final user prompt text: {user_prompt_text}")
         messages.append(HumanMessage(content=user_prompt_text))
+        
+        print(f"[DEBUG] All messages being sent to LLM:")
+        for i, msg in enumerate(messages):
+            print(f"[DEBUG]   Message {i}: {type(msg).__name__} - {msg.content[:100]}...")
         
         return messages
     
@@ -211,15 +220,156 @@ class Chat:
             self._memory.chat_memory.add_user_message(user_msg)
             self._memory.chat_memory.add_ai_message(ai_msg)
 
-    async def _prepare_context(self, message: str, k: int = 15) -> Tuple[List[Dict[str, Any]], str]:
+    async def _prepare_context(self, message: str, user_id: Optional[int] = None, k: int = 15) -> Tuple[List[Dict[str, Any]], str]:
+        """Prepare RAG/document context plus (optionally) code-deployment context."""
+        print(f"[DEBUG] _prepare_context called: is_code_mode={self._is_code_mode}, deployment_id={self._deployment_id}")
         search_results = []
-        context = ""
-        
+        context_parts: List[str] = []
+
+        # Document RAG context
         if self._rag_used and self._collection_name:
+            print(f"[DEBUG] Searching documents with RAG")
             search_results = await self._search_with_mcp(message, k=k)
-            context = self._format_search_results(search_results)
-        
-        return search_results, context
+            doc_context = self._format_search_results(search_results)
+            if doc_context:
+                context_parts.append(doc_context)
+                print(f"[DEBUG] Added document context: {len(doc_context)} chars")
+
+        # Code deployment context (problem description / last submission)
+        if self._is_code_mode and self._deployment_id:
+            print(f"[DEBUG] Building code context for CODE deployment")
+            code_context = await self._build_code_context(user_id)
+            if code_context:
+                context_parts.append(code_context)
+                print(f"[DEBUG] Added code context: {len(code_context)} chars")
+            else:
+                print(f"[DEBUG] No code context returned")
+        else:
+            print(f"[DEBUG] Skipping code context: is_code_mode={self._is_code_mode}, deployment_id={self._deployment_id}")
+
+        full_context = "\n\n".join(context_parts)
+        print(f"[DEBUG] Final context: {len(full_context)} chars")
+        print(f"[DEBUG] Full context content:\n{full_context}")
+        return search_results, full_context
+
+    async def _build_code_context(self, user_id: Optional[int]) -> str:
+        try:
+            print(f"[DEBUG] Building code context for deployment_id={self._deployment_id}, user_id={user_id}")
+            
+            # Always include problem description
+            problem_info = await self._call_mcp_tool(
+                "get_code_deployment_info",
+                {"deployment_id": self._deployment_id},
+                timeout=15.0,
+            )
+            print(f"[DEBUG] Problem info response: {problem_info}")
+            
+            context_lines: List[str] = []
+            if problem_info and isinstance(problem_info, dict) and not problem_info.get("error"):
+                p = problem_info.get("problem", {})
+                if p:
+                    context_lines.append("Code Challenge Information:")
+                    if p.get("title"):
+                        context_lines.append(f"Title: {p.get('title')}")
+                    if p.get("description"):
+                        context_lines.append(f"Description: {p.get('description')}")
+                    if p.get("function_name"):
+                        context_lines.append(f"Function: {p.get('function_name')}")
+                    if p.get("parameter_names"):
+                        params = ", ".join(p.get("parameter_names"))
+                        context_lines.append(f"Parameters: {params}")
+                    if p.get("test_cases_count") is not None:
+                        context_lines.append(f"Total Test Cases: {p.get('test_cases_count')}")
+            else:
+                print(f"[DEBUG] Problem info error or empty: {problem_info}")
+                
+            # User's last submission
+            if user_id is not None:
+                submission_info = await self._call_mcp_tool(
+                    "get_last_code_submission",
+                    {"deployment_id": self._deployment_id, "user_id": user_id},
+                    timeout=15.0,
+                )
+                print(f"[DEBUG] Submission info response: {submission_info}")
+                
+                if submission_info and isinstance(submission_info, dict) and submission_info.get("submission"):
+                    sub = submission_info["submission"]
+                    context_lines.append("\nYour last submission:")
+                    context_lines.append(f"Status: {sub.get('status')}")
+                    if sub.get("error"):
+                        context_lines.append(f"Error: {sub.get('error')}")
+                    context_lines.append(f"Submitted At: {sub.get('submitted_at')}")
+                    
+                    # Add test details if available
+                    if sub.get("test_summary"):
+                        ts = sub["test_summary"]
+                        context_lines.append(f"Tests Passed: {ts.get('passed_tests')}/{ts.get('total_tests')}")
+                    if sub.get("passed_test_ids"):
+                        context_lines.append(f"Passed Test IDs: {sub['passed_test_ids']}")
+                    if sub.get("failed_test_ids"):
+                        context_lines.append(f"Failed Test IDs: {sub['failed_test_ids']}")
+                else:
+                    print(f"[DEBUG] No submission found or submission info error: {submission_info}")
+            else:
+                print(f"[DEBUG] No user_id provided, skipping submission lookup")
+                
+            final_context = "\n".join(context_lines)
+            print(f"[DEBUG] Final code context: {final_context}")
+            return final_context
+        except Exception as e:
+            print(f"[DEBUG] Error building code context: {e}")
+            import traceback
+            print(f"[DEBUG] Code context error traceback:\n{traceback.format_exc()}")
+            return ""
+
+    async def _call_mcp_tool(self, tool_name: str, arguments: Dict[str, Any], timeout: float = 30.0):
+        try:
+            print(f"[DEBUG] Calling MCP tool '{tool_name}' with args: {arguments}")
+            server_script = str(Path(__file__).parent.parent / "mcp_server.py")
+            print(f"[DEBUG] Using server script: {server_script}")
+            
+            server_params = StdioServerParameters(
+                command="python",
+                args=[server_script],
+                env=None,
+            )
+            async with stdio_client(server_params) as (read_stream, write_stream):
+                async with ClientSession(read_stream, write_stream) as session:
+                    print(f"[DEBUG] MCP session initialized")
+                    await session.initialize()
+                    print(f"[DEBUG] Calling tool {tool_name}")
+                    result = await asyncio.wait_for(
+                        session.call_tool(tool_name, arguments=arguments),
+                        timeout=timeout,
+                    )
+                    print(f"[DEBUG] MCP tool result: {result}")
+                    
+                    if result.content and len(result.content) > 0:
+                        content = result.content[0]
+                        print(f"[DEBUG] Content type: {type(content)}, hasattr text: {hasattr(content, 'text')}")
+                        
+                        if hasattr(content, "text") and isinstance(content.text, str):
+                            print(f"[DEBUG] Raw content text: {content.text}")
+                            try:
+                                parsed = json.loads(content.text)
+                                print(f"[DEBUG] Parsed JSON: {parsed}")
+                                return parsed
+                            except json.JSONDecodeError as e:
+                                print(f"[DEBUG] JSON decode error: {e}")
+                                return None
+                        elif isinstance(content, dict):
+                            print(f"[DEBUG] Content is dict: {content}")
+                            return content
+                        else:
+                            print(f"[DEBUG] Content format not recognized: {content}")
+                    else:
+                        print(f"[DEBUG] No content in result")
+                    return None
+        except Exception as exc:
+            print(f"[DEBUG] MCP tool call '{tool_name}' failed: {exc}")
+            import traceback
+            print(f"[DEBUG] MCP call error traceback:\n{traceback.format_exc()}")
+            return None
 
     def _extract_unique_sources(self, search_results: List[Dict[str, Any]]) -> List[str]:
         sources = set()
@@ -237,11 +387,11 @@ class Chat:
         self._memory.chat_memory.add_user_message(user_message)
         self._memory.chat_memory.add_ai_message(ai_response)
 
-    async def chat(self, message: str, history: List[List[str]] = [], stream: bool = False, stream_callback: Optional[callable] = None) -> Dict[str, Any]:
+    async def chat(self, message: str, history: List[List[str]] = [], stream: bool = False, stream_callback: Optional[callable] = None, user_id: Optional[int] = None) -> Dict[str, Any]:
         try:
             await self._restore_conversation_history(history)
             
-            search_results, context = await self._prepare_context(message)
+            search_results, context = await self._prepare_context(message, user_id=user_id)
             
             full_response = ""
             max_retries = 3
@@ -334,7 +484,7 @@ class Chat:
         print(f"Starting MCP search for query: '{query}' (k={k})")
         
         try:
-            server_script = str(Path(__file__).parent / "mcp_server.py")
+            server_script = str(Path(__file__).parent.parent / "mcp_server.py")
             
             server_params = StdioServerParameters(
                 command="python",

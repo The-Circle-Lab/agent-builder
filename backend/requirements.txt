@@ -16,3 +16,4 @@ sqlmodel==0.0.24
 starlette==0.47.1
 uvicorn[standard]==0.34.0
 websockets==14.1
+docker==7.0.0

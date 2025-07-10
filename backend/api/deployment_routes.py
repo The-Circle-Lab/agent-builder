@@ -11,6 +11,7 @@ from models.deployment_models import (
     DeploymentRequest, DeploymentResponse, ChatRequest, ChatResponse,
     ConversationCreateRequest, ConversationResponse, MessageResponse
 )
+from pydantic import BaseModel
 from services.deployment_manager import (
     load_deployment_on_demand, get_active_deployment, add_active_deployment,
     remove_active_deployment, is_deployment_active
@@ -95,8 +96,14 @@ async def deploy_workflow(
         deployment_id = str(uuid.uuid4())
         
         # Parse workflow configuration
-        config = parse_agent_config(request.workflow_data['2'])
-        print(request.workflow_data)
+        if ('2' in request.workflow_data):
+            config = parse_agent_config(request.workflow_data['2'])
+        else:
+            config = None
+        print(f"[DEPLOY] Workflow data keys: {list(request.workflow_data.keys())}")
+        if '1' in request.workflow_data:
+            print(f"[DEPLOY] Node 1 type: {request.workflow_data['1'].get('type', 'NOT FOUND')}")
+        print(f"[DEPLOY] Full workflow data: {request.workflow_data}")
         
         # Get workflow and its documents
         workflow = db.get(Workflow, request.workflow_id)
@@ -116,7 +123,7 @@ async def deploy_workflow(
         # Check for document collection if MCP is enabled and has documents
         collection_name = None
         rag_document_ids = []
-        if config["has_mcp"] and config.get("mcp_has_documents", True):
+        if config and config["has_mcp"] and config.get("mcp_has_documents", True):
             # Check if we have documents for this specific workflow (from any class member)
             try:
                 print(f"[DEPLOY] Looking for documents in workflow {workflow.id}")
@@ -156,19 +163,69 @@ async def deploy_workflow(
         deployment_type = request.type if hasattr(request, "type") else DeploymentType.CHAT
 
         mcp_deployment = AgentDeployment(deployment_id, request.workflow_data, collection_name)
+
+        deployment_type = mcp_deployment.get_deployment_type()
+        
+        print(f"[DEPLOY] Deployment type detected: {deployment_type}")
+        print(f"[DEPLOY] Deployment type value: {deployment_type.value}")
+        
+        # Create Problem entity for CODE deployments
+        created_problem_id = None
+        if deployment_type == DeploymentType.CODE:
+            try:
+                from models.db_models import Problem, TestCase
+                
+                # Get problem info from the deployment
+                problem_info = mcp_deployment.get_code_problem_info()
+                if problem_info:
+                    # Create the problem
+                    problem = Problem(
+                        title=f"{request.workflow_name} - Code Challenge",
+                        description=problem_info.get("description", "Code Challenge"),
+                        class_id=workflow.class_id,
+                        created_by_id=current_user.id,
+                    )
+                    db.add(problem)
+                    db.commit()
+                    db.refresh(problem)
+                    created_problem_id = problem.id
+                    
+                    # Create test cases if available in the workflow data
+                    if '1' in request.workflow_data and 'attachments' in request.workflow_data['1']:
+                        tests = request.workflow_data['1']['attachments'].get('tests', [])
+                        if tests and 'config' in tests[0]:
+                            test_cases_data = tests[0]['config'].get('test_cases', [])
+                            for test_case_data in test_cases_data:
+                                test_case = TestCase(
+                                    problem_id=problem.id,
+                                    input=test_case_data.get('parameters', []),
+                                    expected_output=str(test_case_data.get('expected', ''))
+                                )
+                                db.add(test_case)
+                    
+                    db.commit()
+                    print(f"[DEPLOY] Created problem {problem.id} for CODE deployment")
+                
+            except Exception as problem_error:
+                print(f"[DEPLOY] Warning: Failed to create problem entity: {problem_error}")
+                # Continue with deployment even if problem creation fails
         
         # Log LLM configuration for deployment
-        llm_config = config["llm_config"]
-        provider = llm_config.get("provider", "vertexai")
-        print(f"[{deployment_id}] DEPLOYMENT CREATED - LLM Configuration:")
-        print(f"[{deployment_id}]   Provider: {provider.upper()}")
-        print(f"[{deployment_id}]   Model: {llm_config['model']}")
-        print(f"[{deployment_id}]   Temperature: {llm_config['temperature']}")
-        print(f"[{deployment_id}]   Max Tokens: {llm_config['max_tokens']}")
-        print(f"[{deployment_id}]   Top P: {llm_config['top_p']}")
-        print(f"[{deployment_id}]   Has MCP/RAG: {config['has_mcp']}")
-        print(f"[{deployment_id}]   Collection: {collection_name}")
+        if config:
+            llm_config = config["llm_config"]
+            provider = llm_config.get("provider", "vertexai")
+            print(f"[{deployment_id}] DEPLOYMENT CREATED - LLM Configuration:")
+            print(f"[{deployment_id}]   Provider: {provider.upper()}")
+            print(f"[{deployment_id}]   Model: {llm_config['model']}")
+            print(f"[{deployment_id}]   Temperature: {llm_config['temperature']}")
+            print(f"[{deployment_id}]   Max Tokens: {llm_config['max_tokens']}")
+            print(f"[{deployment_id}]   Top P: {llm_config['top_p']}")
+            print(f"[{deployment_id}]   Has MCP/RAG: {config['has_mcp']}")
+            print(f"[{deployment_id}]   Collection: {collection_name}")
         
+        if not config:
+            config = {}
+
         combined_config = {
             **config,  # parsed agent/LLM config keys
             "__workflow_nodes__": request.workflow_data,  # raw workflow graph
@@ -191,6 +248,23 @@ async def deploy_workflow(
             db.add(db_deployment)
             db.commit()
             db.refresh(db_deployment)
+            
+            # Link problem to deployment for CODE deployments
+            if created_problem_id and deployment_type == DeploymentType.CODE:
+                try:
+                    from models.db_models import DeploymentProblemLink
+                    
+                    # Create the link between deployment and problem
+                    problem_link = DeploymentProblemLink(
+                        deployment_id=db_deployment.id,
+                        problem_id=created_problem_id
+                    )
+                    db.add(problem_link)
+                    db.commit()
+                    print(f"[DEPLOY] Linked problem {created_problem_id} to deployment {db_deployment.id}")
+                    
+                except Exception as link_error:
+                    print(f"[DEPLOY] Warning: Failed to link problem to deployment: {link_error}")
             
             # Store in memory for active use
             add_active_deployment(deployment_id, {
@@ -217,11 +291,11 @@ async def deploy_workflow(
             configuration={
                 "workflow_id": workflow.id,
                 "workflow_collection_id": workflow.workflow_collection_id,
-                "provider": config["llm_config"].get("provider", "vertexai"),
-                "model": config["llm_config"]["model"],
-                "has_rag": config["has_mcp"],
+                "provider": config.get("llm_config", {}).get("provider", "vertexai"),
+                "model": config.get("llm_config", {}).get("model", ""),
+                "has_rag": config.get("has_mcp", False),
                 "collection": collection_name,
-                "mcp_enabled": config["has_mcp"],
+                "mcp_enabled": config.get("has_mcp", False),
                 "file_count": len(rag_document_ids),
                 "files_url": f"/api/deploy/{deployment_id}/files" if rag_document_ids else None
             }
@@ -249,7 +323,14 @@ async def chat_with_deployment(
 
     try:
         mcp_deployment = deployment["mcp_deployment"]
-        result = await mcp_deployment.chat(request.message, request.history)
+
+        if (not mcp_deployment.get_contains_chat()):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Deployment does not contain a chat agent"
+            )
+
+        result = await mcp_deployment.chat(request.message, request.history, user_id=current_user.id)
 
         # Keep history in memory
         deployment["chat_history"].append([request.message, result["response"]])
@@ -301,6 +382,15 @@ async def websocket_chat(
             return
 
         deployment = get_active_deployment(deployment_id)
+
+        if (not deployment["mcp_deployment"].get_contains_chat()):
+            await _send_error_and_close(
+                websocket,
+                "Deployment does not contain a chat agent",
+                "Deployment does not contain a chat agent",
+            )
+            return
+        
         await websocket.send_json({"type": "auth_success", "message": "Authenticated successfully"})
 
         while True:
@@ -327,7 +417,7 @@ async def websocket_chat(
             async def stream_callback(chunk: str) -> None:
                 await websocket.send_json({"type": "stream", "chunk": chunk})
 
-            result = await mcp_deployment.chat_streaming(message, history, stream_callback)
+            result = await mcp_deployment.chat_streaming(message, history, stream_callback, user_id=user.id)
 
             await websocket.send_json({
                 "type": "response",
@@ -390,11 +480,12 @@ async def list_active_deployments(
                 "is_loaded": is_deployment_active(deployment.deployment_id),  # Show if currently loaded
                 "file_count": file_count,
                 "has_files": file_count > 0,
+                "type": deployment.type.value,
                 "configuration": {
-                    "provider": deployment.config["llm_config"].get("provider", "vertexai"),
-                    "model": deployment.config["llm_config"]["model"],
-                    "has_rag": deployment.config["has_mcp"],
-                    "mcp_enabled": deployment.config["has_mcp"]
+                    "provider": deployment.config.get("llm_config", {}).get("provider", "vertexai"),
+                    "model": deployment.config.get("llm_config", {}).get("model", ""),
+                    "has_rag": deployment.config.get("has_mcp", False),
+                    "mcp_enabled": deployment.config.get("has_mcp", False)
                 }
             })
         
@@ -405,6 +496,503 @@ async def list_active_deployments(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to list deployments: {str(e)}"
+        )
+
+
+@router.get("/{deployment_id}/type")
+async def get_deployment_type_endpoint(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True,
+        )
+    ).first()
+
+    if not db_deployment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found",
+        )
+
+    if not user_can_access_deployment(current_user, db_deployment, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You must be a member of this class to view deployment info.",
+        )
+
+    return {
+        "deployment_id": deployment_id,
+        "type": db_deployment.type.value,
+    }
+
+
+@router.get("/{deployment_id}/contains-chat")
+async def deployment_contains_chat_endpoint(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True,
+        )
+    ).first()
+
+    if not db_deployment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found",
+        )
+
+    if not user_can_access_deployment(current_user, db_deployment, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You must be a member of this class to view deployment info.",
+        )
+
+    if not await load_deployment_on_demand(deployment_id, current_user.id, db):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found or failed to initialize",
+        )
+
+    deployment_mem = get_active_deployment(deployment_id)
+    contains_chat: bool = deployment_mem["mcp_deployment"].get_contains_chat()
+
+    return {
+        "deployment_id": deployment_id,
+        "contains_chat": contains_chat,
+    }
+
+
+@router.get("/{deployment_id}/problem-info")
+async def get_code_problem_info_endpoint(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True,
+        )
+    ).first()
+
+    if not db_deployment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found",
+        )
+
+    if not user_can_access_deployment(current_user, db_deployment, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You must be a member of this class to view deployment info.",
+        )
+
+    if db_deployment.type != DeploymentType.CODE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Deployment is not of CODE type",
+        )
+
+    # Ensure deployment is loaded and obtain problem info
+    if not await load_deployment_on_demand(deployment_id, current_user.id, db):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found or failed to initialize",
+        )
+
+    deployment_mem = get_active_deployment(deployment_id)
+    problem_info = deployment_mem["mcp_deployment"].get_code_problem_info()
+
+    return {
+        "deployment_id": deployment_id,
+        "problem_info": problem_info,
+    }
+
+
+# Request model for code submission
+class CodeSubmissionRequest(BaseModel):
+    code: str
+
+# Request model for code saving
+class CodeSaveRequest(BaseModel):
+    code: str
+
+# Response model for code loading
+class CodeLoadResponse(BaseModel):
+    deployment_id: str
+    code: str
+    last_saved: str
+
+# Response models for detailed test results
+class TestCaseResult(BaseModel):
+    test_id: int
+    parameters: List[Any]
+    expected_output: Any
+    actual_output: Any | None
+    passed: bool
+    error: str | None
+    execution_time: float | None
+
+class DetailedCodeTestResult(BaseModel):
+    deployment_id: str
+    all_passed: bool
+    message: str
+    total_tests: int
+    passed_tests: int
+    failed_tests: int
+    test_results: List[TestCaseResult]
+
+# Run tests for CODE deployment
+@router.post("/{deployment_id}/run-tests")
+async def run_code_tests_endpoint(
+    deployment_id: str,
+    request: CodeSubmissionRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    # Validate deployment exists and user has access
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True,
+        )
+    ).first()
+
+    if not db_deployment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found",
+        )
+
+    if not user_can_access_deployment(current_user, db_deployment, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You must be a member of this class to run tests.",
+        )
+
+    if db_deployment.type != DeploymentType.CODE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Deployment is not of CODE type",
+        )
+
+    # Load deployment and run tests
+    if not await load_deployment_on_demand(deployment_id, current_user.id, db):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found or failed to initialize",
+        )
+
+    deployment_mem = get_active_deployment(deployment_id)
+    mcp_deployment = deployment_mem["mcp_deployment"]
+    
+    try:
+        import time
+        start_time = time.time()
+        
+        # Find the linked problem for this deployment
+        from models.db_models import Problem, DeploymentProblemLink, Submission, SubmissionStatus
+        
+
+        linked_problem = db.exec(
+            select(Problem)
+            .join(DeploymentProblemLink, Problem.id == DeploymentProblemLink.problem_id)
+            .where(DeploymentProblemLink.deployment_id == db_deployment.id)
+        ).first()
+
+        submission = Submission(
+                user_id=current_user.id,
+                code=request.code,
+                problem_id=linked_problem.id,
+                status=SubmissionStatus.QUEUED,
+                execution_time=0,
+                error=None,
+                analysis=None
+            )
+        db.add(submission)
+        db.commit()
+        db.refresh(submission)
+
+        # Run all tests - now returns detailed results with analysis support
+        test_results = mcp_deployment.run_all_tests(request.code, database_session=db, submission_id=submission.id)
+        
+        execution_time = time.time() - start_time
+        
+        if test_results is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Test execution failed to return results"
+            )
+        
+        
+        # Create submission record if we have a linked problem
+        if linked_problem:
+            # Determine submission status
+            if test_results["all_passed"]:
+                status = SubmissionStatus.PASSED
+            else:
+                status = SubmissionStatus.FAILED
+            
+            # Create submission record
+            submission.execution_time = execution_time
+            submission.error = None if test_results["all_passed"] else f"{test_results['failed_tests']} tests failed"
+            submission.status = status
+            db.commit()
+            db.refresh(submission)
+            print(f"[SUBMISSION] Created submission {submission.id} for user {current_user.id} on problem {linked_problem.id}")
+        
+        # Format the response
+        all_passed = test_results["all_passed"]
+        message = "All tests passed!" if all_passed else f"{test_results['failed_tests']} out of {test_results['total_tests']} tests failed"
+        
+        return DetailedCodeTestResult(
+            deployment_id=deployment_id,
+            all_passed=all_passed,
+            message=message,
+            total_tests=test_results["total_tests"],
+            passed_tests=test_results["passed_tests"],
+            failed_tests=test_results["failed_tests"],
+            test_results=[
+                TestCaseResult(
+                    test_id=result["test_id"],
+                    parameters=result["parameters"],
+                    expected_output=result["expected_output"],
+                    actual_output=result["actual_output"],
+                    passed=result["passed"],
+                    error=result["error"],
+                    execution_time=result["execution_time"]
+                )
+                for result in test_results["test_results"]
+            ]
+        )
+        
+    except Exception as e:
+        print(f"Error running tests for deployment {deployment_id}: {e}")
+        import traceback
+        print(f"Test execution error traceback:\n{traceback.format_exc()}")
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to run tests: {str(e)}"
+        )
+
+# Save user code for CODE deployment
+@router.post("/{deployment_id}/save-code")
+async def save_user_code(
+    deployment_id: str,
+    request: CodeSaveRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    # Validate deployment exists and user has access
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True,
+        )
+    ).first()
+
+    if not db_deployment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found",
+        )
+
+    if not user_can_access_deployment(current_user, db_deployment, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You must be a member of this class to save code.",
+        )
+
+    if db_deployment.type != DeploymentType.CODE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Deployment is not of CODE type",
+        )
+
+    try:
+        # For now, we'll use a simple approach: store code in a new model or extend existing one
+        # Let's use a deployment-based approach for UserProblemState
+        from models.db_models import UserProblemState, Problem, DeploymentProblemLink
+        
+        # First, try to find a properly linked problem
+        linked_problem = db.exec(
+            select(Problem)
+            .join(DeploymentProblemLink, Problem.id == DeploymentProblemLink.problem_id)
+            .where(DeploymentProblemLink.deployment_id == db_deployment.id)
+        ).first()
+        
+        existing_problem = linked_problem
+        
+        if not existing_problem:
+            # Fallback: check for virtual problem by identifier
+            problem_identifier = f"deployment_{deployment_id}"
+            existing_problem = db.exec(
+                select(Problem).where(
+                    Problem.title == problem_identifier,
+                    Problem.class_id == db_deployment.class_id,
+                )
+            ).first()
+        
+        if not existing_problem:
+            # Create a virtual problem for this deployment as last resort
+            problem_info = {}
+            if await load_deployment_on_demand(deployment_id, current_user.id, db):
+                deployment_mem = get_active_deployment(deployment_id)
+                problem_info = deployment_mem["mcp_deployment"].get_code_problem_info() or {}
+            
+            existing_problem = Problem(
+                title=f"deployment_{deployment_id}",
+                description=problem_info.get("description", "Code Challenge"),
+                class_id=db_deployment.class_id,
+                created_by_id=db_deployment.user_id,
+            )
+            db.add(existing_problem)
+            db.commit()
+            db.refresh(existing_problem)
+        
+        # Check if user already has a state for this problem
+        user_state = db.exec(
+            select(UserProblemState).where(
+                UserProblemState.user_id == current_user.id,
+                UserProblemState.problem_id == existing_problem.id,
+            )
+        ).first()
+        
+        if user_state:
+            # Update existing state
+            user_state.current_code = request.code
+            db.add(user_state)
+        else:
+            # Create new state
+            user_state = UserProblemState(
+                user_id=current_user.id,
+                problem_id=existing_problem.id,
+                current_code=request.code,
+            )
+            db.add(user_state)
+        
+        db.commit()
+        
+        return {
+            "deployment_id": deployment_id,
+            "message": "Code saved successfully",
+            "saved_at": datetime.now(timezone.utc).isoformat(),
+        }
+        
+    except Exception as e:
+        print(f"Error saving code for deployment {deployment_id}: {e}")
+        import traceback
+        print(f"Code save error traceback:\n{traceback.format_exc()}")
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to save code: {str(e)}"
+        )
+
+# Load user code for CODE deployment
+@router.get("/{deployment_id}/load-code", response_model=CodeLoadResponse)
+async def load_user_code(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    # Validate deployment exists and user has access
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True,
+        )
+    ).first()
+
+    if not db_deployment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found",
+        )
+
+    if not user_can_access_deployment(current_user, db_deployment, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Access denied. You must be a member of this class to load code.",
+        )
+
+    if db_deployment.type != DeploymentType.CODE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Deployment is not of CODE type",
+        )
+
+    try:
+        # Look for existing user code state
+        from models.db_models import UserProblemState, Problem, DeploymentProblemLink
+        
+        # First, try to find a properly linked problem
+        linked_problem = db.exec(
+            select(Problem)
+            .join(DeploymentProblemLink, Problem.id == DeploymentProblemLink.problem_id)
+            .where(DeploymentProblemLink.deployment_id == db_deployment.id)
+        ).first()
+        
+        existing_problem = linked_problem
+        
+        if not existing_problem:
+            # Fallback: check for virtual problem by identifier
+            problem_identifier = f"deployment_{deployment_id}"
+            existing_problem = db.exec(
+                select(Problem).where(
+                    Problem.title == problem_identifier,
+                    Problem.class_id == db_deployment.class_id,
+                )
+            ).first()
+        
+        if not existing_problem:
+            # No saved code, return empty
+            return CodeLoadResponse(
+                deployment_id=deployment_id,
+                code="",
+                last_saved="",
+            )
+        
+        # Check if user has saved code for this problem
+        user_state = db.exec(
+            select(UserProblemState).where(
+                UserProblemState.user_id == current_user.id,
+                UserProblemState.problem_id == existing_problem.id,
+            )
+        ).first()
+        
+        if user_state:
+            return CodeLoadResponse(
+                deployment_id=deployment_id,
+                code=user_state.current_code,
+                last_saved=existing_problem.created_at.isoformat(),
+            )
+        else:
+            # No saved code for this user
+            return CodeLoadResponse(
+                deployment_id=deployment_id,
+                code="",
+                last_saved="",
+            )
+        
+    except Exception as e:
+        print(f"Error loading code for deployment {deployment_id}: {e}")
+        import traceback
+        print(f"Code load error traceback:\n{traceback.format_exc()}")
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to load code: {str(e)}"
         )
 
 # Create new conversation for a deployment
@@ -905,3 +1493,246 @@ async def test_deployment_streaming(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to test streaming: {str(e)}"
         ) 
+
+# Get student submissions for CODE deployment (instructors only)
+@router.get("/{deployment_id}/submissions")
+async def get_deployment_submissions(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    # Validate deployment exists and user has access
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True,
+        )
+    ).first()
+
+    if not db_deployment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found",
+        )
+
+    # Check if user is instructor in this class
+    if not user_has_role_in_class(current_user, db_deployment.class_id, ClassRole.INSTRUCTOR, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only instructors can view student submissions"
+        )
+
+    if db_deployment.type != DeploymentType.CODE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Deployment is not of CODE type",
+        )
+
+    try:
+        from models.db_models import Problem, DeploymentProblemLink, Submission, User as DbUser, SubmissionStatus
+        
+        # Find the linked problem for this deployment
+        linked_problem = db.exec(
+            select(Problem)
+            .join(DeploymentProblemLink, Problem.id == DeploymentProblemLink.problem_id)
+            .where(DeploymentProblemLink.deployment_id == db_deployment.id)
+        ).first()
+        
+        if not linked_problem:
+            return {
+                "deployment_id": deployment_id,
+                "deployment_name": db_deployment.workflow_name,
+                "problem_id": None,
+                "submissions": [],
+                "student_count": 0,
+                "total_submissions": 0
+            }
+        
+        # Get all submissions for this problem with user information
+        submissions_query = (
+            select(Submission, DbUser)
+            .join(DbUser, Submission.user_id == DbUser.id)
+            .where(Submission.problem_id == linked_problem.id)
+            .order_by(Submission.submitted_at.desc())
+        )
+        
+        submission_results = db.exec(submissions_query).all()
+        
+        # Group submissions by user (latest submission per user)
+        user_submissions = {}
+        all_submissions = []
+        
+        for submission, user in submission_results:
+            submission_data = {
+                "id": submission.id,
+                "user_id": user.id,
+                "user_email": user.email,
+                "code": submission.code,
+                "status": submission.status.value,
+                "execution_time": submission.execution_time,
+                "error": submission.error,
+                "submitted_at": submission.submitted_at.isoformat(),
+                "passed": submission.status == SubmissionStatus.PASSED
+            }
+            
+            all_submissions.append(submission_data)
+            
+            # Keep track of latest submission per user
+            if user.id not in user_submissions or submission.submitted_at > user_submissions[user.id]["submitted_at_dt"]:
+                user_submissions[user.id] = {
+                    **submission_data,
+                    "submitted_at_dt": submission.submitted_at
+                }
+        
+        # Remove the datetime object used for comparison
+        for user_sub in user_submissions.values():
+            del user_sub["submitted_at_dt"]
+        
+        # Get problem info for context
+        problem_info = None
+        if await load_deployment_on_demand(deployment_id, current_user.id, db):
+            deployment_mem = get_active_deployment(deployment_id)
+            problem_info = deployment_mem["mcp_deployment"].get_code_problem_info()
+        
+        return {
+            "deployment_id": deployment_id,
+            "deployment_name": db_deployment.workflow_name,
+            "problem_id": linked_problem.id,
+            "problem_title": linked_problem.title,
+            "problem_description": linked_problem.description,
+            "problem_info": problem_info,
+            "latest_submissions": list(user_submissions.values()),
+            "all_submissions": all_submissions,
+            "student_count": len(user_submissions),
+            "total_submissions": len(all_submissions),
+            "passed_students": sum(1 for sub in user_submissions.values() if sub["passed"]),
+            "failed_students": sum(1 for sub in user_submissions.values() if not sub["passed"])
+        }
+        
+    except Exception as e:
+        print(f"Error getting submissions for deployment {deployment_id}: {e}")
+        import traceback
+        print(f"Submissions error traceback:\n{traceback.format_exc()}")
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get submissions: {str(e)}"
+        )
+
+# Get detailed test results for a specific submission (instructors only)
+@router.get("/{deployment_id}/submissions/{submission_id}/test-results")
+async def get_submission_test_results(
+    deployment_id: str,
+    submission_id: int,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    # Validate deployment exists and user has access
+    db_deployment = db.exec(
+        select(Deployment).where(
+            Deployment.deployment_id == deployment_id,
+            Deployment.is_active == True,
+        )
+    ).first()
+
+    if not db_deployment:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Deployment not found",
+        )
+
+    # Check if user is instructor in this class
+    if not user_has_role_in_class(current_user, db_deployment.class_id, ClassRole.INSTRUCTOR, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only instructors can view submission details"
+        )
+
+    if db_deployment.type != DeploymentType.CODE:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Deployment is not of CODE type",
+        )
+
+    try:
+        from models.db_models import Submission, User as DbUser
+        
+        # Get the submission with user info
+        submission_query = (
+            select(Submission, DbUser)
+            .join(DbUser, Submission.user_id == DbUser.id)
+            .where(Submission.id == submission_id)
+        )
+        
+        submission_result = db.exec(submission_query).first()
+        
+        if not submission_result:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Submission not found"
+            )
+        
+        submission, user = submission_result
+        
+        # Load deployment and run tests on the submitted code to get detailed results
+        if not await load_deployment_on_demand(deployment_id, current_user.id, db):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Deployment not found or failed to initialize",
+            )
+
+        deployment_mem = get_active_deployment(deployment_id)
+        mcp_deployment = deployment_mem["mcp_deployment"]
+        
+        # Re-run tests on submitted code to get detailed results
+        test_results = mcp_deployment.run_all_tests(submission.code)
+        
+        if test_results is None:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to run tests on submitted code"
+            )
+        
+        return {
+            "submission_id": submission.id,
+            "deployment_id": deployment_id,
+            "user_email": user.email,
+            "user_id": user.id,
+            "submitted_at": submission.submitted_at.isoformat(),
+            "status": submission.status.value,
+            "execution_time": submission.execution_time,
+            "code": submission.code,
+            "analysis": submission.analysis,
+            "test_results": DetailedCodeTestResult(
+                deployment_id=deployment_id,
+                all_passed=test_results["all_passed"],
+                message="All tests passed!" if test_results["all_passed"] else f"{test_results['failed_tests']} out of {test_results['total_tests']} tests failed",
+                total_tests=test_results["total_tests"],
+                passed_tests=test_results["passed_tests"],
+                failed_tests=test_results["failed_tests"],
+                test_results=[
+                    TestCaseResult(
+                        test_id=result["test_id"],
+                        parameters=result["parameters"],
+                        expected_output=result["expected_output"],
+                        actual_output=result["actual_output"],
+                        passed=result["passed"],
+                        error=result["error"],
+                        execution_time=result["execution_time"]
+                    )
+                    for result in test_results["test_results"]
+                ]
+            )
+        }
+        
+    except Exception as e:
+        print(f"Error getting test results for submission {submission_id}: {e}")
+        import traceback
+        print(f"Submission test results error traceback:\n{traceback.format_exc()}")
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get test results: {str(e)}"
+        )
+
+# Load user code for CODE deployment 

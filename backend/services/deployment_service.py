@@ -1,12 +1,16 @@
 from typing import Dict, Any, List, Optional
+import ast
 from models.deployment_models import AgentNode, AgentNodeList
 from services.deployment_types.chat import Chat
 from models.db_models import DeploymentType
 from services.config_service import parse_agent_config
+from services.deployment_types.code import CodeDeployment
 
 class AgentDeployment:
     _services: AgentNodeList
     _deployment_type: DeploymentType
+    _contains_chat: bool
+    _code_service: "CodeDeployment | None" = None
 
     def __init__(
         self,
@@ -14,6 +18,7 @@ class AgentDeployment:
         config: Dict[str, Any],
         collection_name: Optional[str] = None,
     ) -> None:
+        self._contains_chat = True
         self.deployment_id = deployment_id
         self._services = AgentNodeList() 
         
@@ -21,6 +26,10 @@ class AgentDeployment:
             self._deployment_type = DeploymentType.CHAT
         elif (config['1']['type'] == 'code'):
             self._deployment_type = DeploymentType.CODE
+            self._code_service = CodeDeployment(
+                problem_config=config['1']
+            )
+            self._services.append(AgentNode(self._code_service))
         else:
             raise ValueError(f"Invalid deployment type: {config['1']['type']}")
         
@@ -34,33 +43,77 @@ class AgentDeployment:
                     config=agent_config,
                     rag_used=agent_config.get("has_mcp", False),
                     collection_name=collection_name,
+                    is_code_mode=(self._deployment_type == DeploymentType.CODE),
+                    deployment_id=self.deployment_id,
                 )
                 self._services.append(AgentNode(chat_service))
             i += 1
         
         if (self._services.count == 0):
-            raise ValueError("No agents found in the workflow")
+            if (self._deployment_type == DeploymentType.CHAT):
+                raise ValueError("No agents found in the workflow")
+        if (self._services.count == 1 and self._deployment_type == DeploymentType.CODE):
+            self._contains_chat = False
+        print("contains chat: ", self._contains_chat)
+
+    def get_contains_chat(self) -> bool:
+        return self._contains_chat
+
+    def get_deployment_type(self) -> DeploymentType:
+        return self._deployment_type
+
+    def get_code_problem_info(self) -> Optional[Dict[str, Any]]:
+        if self._deployment_type != DeploymentType.CODE or self._code_service is None:
+            return None
+        return self._code_service.get_problem_info()
+
+    def run_all_tests(self, code: str, database_session=None, submission_id=None):
+        if self._deployment_type != DeploymentType.CODE or self._code_service is None:
+            return None
+
+        try:
+            return self._code_service.run_all_tests(code, database_session=database_session, submission_id=submission_id)
+        except Exception as exc:
+            print(f"[AgentDeployment] Code test execution failed: {exc}")
+            raise
+
+    @staticmethod
+    def _convert_value(value: Any) -> Any:
+        if isinstance(value, str):
+            try:
+                return ast.literal_eval(value)
+            except (ValueError, SyntaxError):
+                # Fallback: return the original string if it cannot be parsed
+                return value
+        return value
 
     async def chat(
         self,
         message: str,
         history: List[List[str]] | None = None,
+        user_id: int | None = None,
     ) -> Dict[str, Any]:
         history = history or []
-        return await self._services.back.current_agent.chat(message, history, stream=False)
+        if (self._services.count == 0):
+            return None
+        return await self._services.back.current_agent.chat(message, history, user_id=user_id, stream=False)
 
     async def chat_streaming(
         self,
         message: str,
         history: List[List[str]] | None = None,
         stream_callback=None,
+        user_id: int | None = None,
     ) -> Dict[str, Any]:
         history = history or []
+        if (self._services.count == 0):
+            return None
         return await self._services.back.current_agent.chat(
             message,
             history,
             stream=True,
             stream_callback=stream_callback,
+            user_id=user_id,
         )
 
     async def _prepare_context(self, message: str, k: int = 15):  

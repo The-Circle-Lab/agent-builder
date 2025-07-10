@@ -3,6 +3,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from models.db_models import DeploymentType
 from typing import Self
+from dataclasses import dataclass
 
 class AgentNode:
     current_agent: object 
@@ -78,3 +79,9 @@ class MessageResponse(BaseModel):
     is_user_message: bool
     sources: Optional[List[str]]
     created_at: datetime 
+
+@dataclass
+class TestCase:
+    id: int
+    parameters: List[Any]
+    expected_output: Any
