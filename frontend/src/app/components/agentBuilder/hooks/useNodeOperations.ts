@@ -11,6 +11,7 @@ const CONNECTION_MAPPINGS: Record<
   Agent: { sourceHandle: "chat-output", targetHandle: "agent-input" },
   Output: { sourceHandle: "output", targetHandle: "result-input" },
   Tests: { sourceHandle: "tests-input", targetHandle: "tests-output" },
+  codeAnalyzer: { sourceHandle: "analyzer-output", targetHandle: "analyzer-input" },
 };
 
 // Define handle positions for different node types and handles
@@ -27,6 +28,12 @@ const HANDLE_POSITIONS: Record<
     "tests-input": { x: 1, y: 0.5 }, // Right-middle of code node
     "chat-output": { x: 0.5, y: 1 }, // Bottom-center for chatbot connection
   },
+  tests: {
+    "analyzer-output": { x: 0.75, y: 0 }, // 75% from left, top of node
+  },
+  codeAnalyzer: {
+    "llm-model": { x: 0.5, y: 0 }, // Center, top of node
+  },
 };
 
 // Standard node dimensions (approximate, including padding)
@@ -36,6 +43,8 @@ const NODE_DIMENSIONS = {
   openAI: { width: 100, height: 80 }, // Similar to googleCloud
   tool: { width: 120, height: 80 }, // Default tool size
   database: { width: 120, height: 80 }, // Default database size
+  tests: { width: 128, height: 80 }, // w-32 = 128px for tests node
+  codeAnalyzer: { width: 128, height: 80 }, // w-32 = 128px for code analyzer node
 };
 
 function calculateNewNodePosition(

@@ -89,6 +89,13 @@ const nodeOptions = [
     icon: "/tests.svg",
     description: "Add a tests node",
   },
+  {
+    category: "analysis",
+    type: "codeAnalyzer",
+    name: "Code Analyzer",
+    icon: "/codeAnalyzer.svg",
+    description: "Add a code analyzer node",
+  },
 ];
 
 // Define which categories to show for each object type
@@ -99,6 +106,7 @@ const objectTypeFilters: Record<string, string[]> = {
   Output: ["output"],
   Starter: ["starter"],
   Tests: ["tests"],
+  codeAnalyzer: ["analysis"], // Add filter for code analyzer nodes
 };
 
 export function SideMenu({

@@ -49,6 +49,14 @@ export const connectionConfig: ConnectionConfig = {
     maxConnections: -1, // Can only connect to one test input
     compatibleWith: ["tests-output"], // Can connect to test output
   },
+  "analyzer-output": {
+    maxConnections: -1, // Can only connect to one test input
+    compatibleWith: ["analyzer-input"], // Can connect to test output
+  },
+  "analyzer-input": {
+    maxConnections: -1, // Can only connect to one test input
+    compatibleWith: ["analyzer-output"], // Can connect to test output
+  },
 };
 
 import { Edge } from "@xyflow/react";

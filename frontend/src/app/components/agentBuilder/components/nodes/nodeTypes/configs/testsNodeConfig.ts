@@ -16,6 +16,14 @@ export class TestsNodeConfig extends BaseNodeConfig {
       rows: 1,
     },
     {
+      key: "description",
+      label: "Description",
+      type: "textarea",
+      defaultValue: "",
+      placeholder: "Enter description",
+      rows: 2,
+    },
+    {
       key: "parameter_count",
       label: "Parameter Count",
       type: "number",

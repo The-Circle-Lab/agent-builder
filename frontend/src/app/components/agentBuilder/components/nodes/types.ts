@@ -41,7 +41,7 @@ export interface PlusButtonProps {
   handleId: string;
   objectType: string;
   nodeId?: string;
-  edges: Edge[];
+  edges?: Edge[]; // Make optional to match actual usage
   onAddNodeClick?: (objectType?: string, sourceNodeId?: string) => void;
   position: {
     bottom?: string;

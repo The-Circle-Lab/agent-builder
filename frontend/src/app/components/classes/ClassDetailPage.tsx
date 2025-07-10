@@ -9,6 +9,7 @@ import ClassDeployments from './ClassDeployments';
 import ClassMembers from './ClassMembers';
 import JoinCodeModal from './JoinCodeModal';
 import StudentConversationsModal from './StudentConversationsModal';
+import StudentSubmissionsModal from './StudentSubmissionsModal';
 import { createWorkflowJSON } from '../agentBuilder/scripts/exportWorkflow';
 import { 
   ArrowLeftIcon, 
@@ -23,13 +24,15 @@ interface ClassDetailPageProps {
   onBack: () => void;
   onEditWorkflow: (workflowId: number) => void;
   onChatWithDeployment: (deploymentId: string, deploymentName: string) => void;
+  onCodeWithDeployment?: (deploymentId: string, deploymentName: string) => void;
 }
 
 export default function ClassDetailPage({ 
   classObj, 
   onBack, 
   onEditWorkflow,
-  onChatWithDeployment 
+  onChatWithDeployment,
+  onCodeWithDeployment
 }: ClassDetailPageProps) {
   const isInstructor = classObj.user_role === 'instructor';
   
@@ -43,6 +46,7 @@ export default function ClassDetailPage({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showStudentChats, setShowStudentChats] = useState<{deploymentId: string; deploymentName: string} | null>(null);
+  const [showStudentSubmissions, setShowStudentSubmissions] = useState<{deploymentId: string; deploymentName: string} | null>(null);
 
   useEffect(() => {
     loadClassData();
@@ -234,6 +238,10 @@ export default function ClassDetailPage({
                     });
                   }
                 }}
+                onViewStudentSubmissions={(deploymentId, deploymentName) => {
+                  setShowStudentSubmissions({ deploymentId, deploymentName });
+                }}
+                onCodeWithDeployment={onCodeWithDeployment}
               />
             )}
             {activeTab === 'members' && (
@@ -258,6 +266,13 @@ export default function ClassDetailPage({
           deploymentId={showStudentChats.deploymentId}
           deploymentName={showStudentChats.deploymentName}
           onClose={() => setShowStudentChats(null)}
+        />
+      )}
+      {showStudentSubmissions && (
+        <StudentSubmissionsModal
+          deploymentId={showStudentSubmissions.deploymentId}
+          deploymentName={showStudentSubmissions.deploymentName}
+          onClose={() => setShowStudentSubmissions(null)}
         />
       )}
     </div>

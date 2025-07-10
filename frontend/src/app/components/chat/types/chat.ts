@@ -2,6 +2,7 @@ export interface ChatInterfaceProps {
   deploymentId: string;
   workflowName: string;
   onBack?: () => void;
+  embedded?: boolean; // For embedded mode in code interface
 }
 
 export interface Message {

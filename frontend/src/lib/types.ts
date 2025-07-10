@@ -100,6 +100,7 @@ export interface Deployment {
     has_rag: boolean;
     mcp_enabled: boolean;
   };
+  type?: 'chat' | 'code';
 }
 
 export interface Conversation {

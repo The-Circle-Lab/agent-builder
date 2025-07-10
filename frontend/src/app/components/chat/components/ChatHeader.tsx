@@ -8,6 +8,7 @@ interface ChatHeaderProps {
   onBack?: () => void;
   onToggleSidebar: () => void;
   onToggleFiles?: () => void;
+  embedded?: boolean; // For embedded mode styling
 }
 
 export const ChatHeader: React.FC<ChatHeaderProps> = ({
@@ -17,13 +18,14 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
   fileCount,
   onBack,
   onToggleSidebar,
-  onToggleFiles
+  onToggleFiles,
+  embedded = false
 }) => {
   return (
-    <div className="bg-white shadow-sm border-b px-6 py-4">
+    <div className={`bg-white shadow-sm border-b ${embedded ? 'px-3 py-2' : 'px-6 py-4'}`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
-          {onBack && (
+          {!embedded && onBack && (
             <button
               onClick={onBack}
               className="text-gray-600 hover:text-gray-900 flex items-center space-x-2"
@@ -37,24 +39,24 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 
           <button
             onClick={onToggleSidebar}
-            className="text-gray-600 hover:text-gray-900 flex items-center space-x-2"
+            className={`text-gray-600 hover:text-gray-900 flex items-center space-x-2 ${embedded ? 'text-xs' : ''}`}
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className={`${embedded ? 'w-4 h-4' : 'w-5 h-5'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
-            <span>Conversations</span>
+            <span className={embedded ? 'text-xs' : ''}>Conversations</span>
           </button>
           
           <div>
-            <h1 className="text-xl font-semibold text-gray-900">{workflowName}</h1>
-            <p className="text-sm text-gray-500">
+            <h1 className={`font-semibold text-gray-900 ${embedded ? 'text-sm' : 'text-xl'}`}>{workflowName}</h1>
+            <p className={`text-gray-500 ${embedded ? 'text-xs' : 'text-sm'}`}>
               {currentConversationId ? `Conversation ${currentConversationId}` : 'Chat Interface'}
             </p>
           </div>
         </div>
 
         <div className="flex items-center space-x-2">
-          {onToggleFiles && (
+          {!embedded && onToggleFiles && (
             <button
               onClick={onToggleFiles}
               className="text-gray-600 hover:text-gray-900 flex items-center space-x-2 px-3 py-1 rounded-lg hover:bg-gray-100 transition-colors relative"
@@ -71,12 +73,14 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
             </button>
           )}
           
-          <div className={`px-3 py-1 rounded-full text-xs font-medium flex items-center space-x-1 ${
+          <div className={`rounded-full font-medium flex items-center space-x-1 ${
+            embedded ? 'px-2 py-1 text-xs' : 'px-3 py-1 text-xs'
+          } ${
             wsConnected 
               ? "bg-green-100 text-green-800" 
               : "bg-gray-100 text-gray-600"
           }`}>
-            <div className={`w-2 h-2 rounded-full ${
+            <div className={`rounded-full ${embedded ? 'w-1.5 h-1.5' : 'w-2 h-2'} ${
               wsConnected ? "bg-green-500" : "bg-gray-400"
             }`}></div>
             <span>{wsConnected ? "Live" : "Chat"}</span>

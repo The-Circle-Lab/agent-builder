@@ -13,7 +13,7 @@ import { ChatInput } from "./components/ChatInput";
 import { StreamingMessageRenderer } from "./components/MessageRenderer";
 import { FilesPanel } from "./components/FilesPanel";
 
-export default function ChatInterface({ deploymentId, workflowName, onBack }: ChatInterfaceProps) {
+export default function ChatInterface({ deploymentId, workflowName, onBack, embedded = false }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -218,7 +218,7 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
   };
 
   return (
-    <div className="h-screen flex bg-gray-50">
+    <div className={`flex bg-gray-50 ${embedded ? 'h-full' : 'h-screen'}`}>
       {/* Sidebar */}
       {showSidebar && (
         <ConversationSidebar
@@ -242,15 +242,16 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
           onBack={onBack}
           onToggleSidebar={() => setShowSidebar(!showSidebar)}
           onToggleFiles={() => setShowFilesPanel(!showFilesPanel)}
+          embedded={embedded}
         />
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+        <div className={`flex-1 overflow-y-auto space-y-4 ${embedded ? 'p-3' : 'p-6'}`}>
           {messages.length === 0 && (
-            <div className="text-center py-12">
+            <div className={`text-center ${embedded ? 'py-6' : 'py-12'}`}>
               <div className="text-gray-400 text-lg mb-2">👋</div>
-              <h3 className="text-lg font-medium text-gray-900 mb-2">Welcome to {workflowName}</h3>
-              <p className="text-gray-600">Start a conversation by typing a message below.</p>
+              <h3 className={`font-medium text-gray-900 mb-2 ${embedded ? 'text-sm' : 'text-lg'}`}>Welcome to {workflowName}</h3>
+              <p className={`text-gray-600 ${embedded ? 'text-xs' : 'text-base'}`}>Start a conversation by typing a message below.</p>
             </div>
           )}
 
@@ -263,7 +264,7 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
                 </time>
               </div>
               
-              <div className={`chat-bubble max-w-xs lg:max-w-md ${
+              <div className={`chat-bubble ${embedded ? 'max-w-xs text-sm' : 'max-w-xs lg:max-w-md'} ${
                 message.isUser ? "chat-bubble-primary" : "bg-gray-100 chat-bubble-assistant"
               }`}>
                 <StreamingMessageRenderer message={message} />
@@ -278,8 +279,8 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
                       {message.sources.map((source, index) => {
                         const filename = source.split('/').pop() || source;
                         return (
-                          <div key={index} className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded flex items-center space-x-1">
-                            <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <div key={index} className={`text-blue-600 bg-blue-50 px-2 py-1 rounded flex items-center space-x-1 ${embedded ? 'text-xs' : 'text-xs'}`}>
+                            <svg className={`flex-shrink-0 ${embedded ? 'w-2.5 h-2.5' : 'w-3 h-3'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                             </svg>
                             <span className="truncate" title={source}>{filename}</span>
@@ -298,7 +299,7 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
               <div className="chat-header text-header">
                 Assistant
               </div>
-              <div className="chat-bubble bg-gray-100 chat-bubble-assistant max-w-xs lg:max-w-md">
+              <div className={`chat-bubble bg-gray-100 chat-bubble-assistant ${embedded ? 'max-w-xs text-sm' : 'max-w-xs lg:max-w-md'}`}>
                 <div className="flex items-center space-x-2">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
                   <span className="text-sm">Thinking...</span>
@@ -319,11 +320,13 @@ export default function ChatInterface({ deploymentId, workflowName, onBack }: Ch
       </div>
 
       {/* Files Panel */}
-      <FilesPanel
-        deploymentId={deploymentId}
-        isOpen={showFilesPanel}
-        onClose={() => setShowFilesPanel(false)}
-      />
+      {!embedded && (
+        <FilesPanel
+          deploymentId={deploymentId}
+          isOpen={showFilesPanel}
+          onClose={() => setShowFilesPanel(false)}
+        />
+      )}
     </div>
   );
 } 

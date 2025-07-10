@@ -12,7 +12,9 @@ export function PlusButton({
 }: PlusButtonProps) {
   // Check if handle has reached max connections
   const handleConfig = connectionConfig[handleId];
-  const currentConnections = edges.filter(
+  // Ensure edges is always an array with robust type checking
+  const edgesArray = Array.isArray(edges) ? edges : [];
+  const currentConnections = edgesArray.filter(
     (edge) => edge.source === nodeId && edge.sourceHandle === handleId
   ).length;
 

@@ -9,6 +9,7 @@ import * as deepSeekNode from "./deepSeekNode";
 import * as metaNode from "./metaNode";
 import * as codeNode from "./codeNode";
 import * as testsNode from "./testsNode";
+import * as codeAnalyzer from "./codeAnalyzerNode"
 import { BaseNode, BaseNodeProps, BaseNodeData } from "./baseNode";
 
 // Base classes and interfaces
@@ -32,6 +33,7 @@ export const NodeTypes = {
   result: outputNode.OutputNode,
   mcp: mcpNode.McpNode,
   tests: testsNode.TestsNode,
+  codeAnalyzer: codeAnalyzer.CodeAnalyzerNode
 };
 
 export const NodeClasses = {
@@ -46,6 +48,7 @@ export const NodeClasses = {
   deepSeek: deepSeekNode.DeepSeekNodeClass,
   meta: metaNode.MetaNodeClass,
   tests: testsNode.TestsNodeClass,
+  codeAnalyzer: codeAnalyzer.CodeAnalyzerNodeClass
 };
 
 export const NodeConfigs = {
@@ -60,6 +63,7 @@ export const NodeConfigs = {
   deepSeek: deepSeekNode.deepSeekNodeConfig,
   meta: metaNode.metaNodeConfig,
   tests: testsNode.testsNodeConfig,
+  codeAnalyzer: codeAnalyzer.codeAnalyzerNodeConfig
 };
 
 export const NodeCreators = {
@@ -74,6 +78,7 @@ export const NodeCreators = {
   deepSeek: deepSeekNode.createDeepSeekNodeType,
   meta: metaNode.createMetaNodeType,
   tests: testsNode.createTestsNodeType,
+  codeAnalyzer: codeAnalyzer.createCodeAnalyzerNodeType
 };
 
 // Registry of available node types (dynamically generated from NodeClasses)

@@ -13,6 +13,7 @@ export interface DeploymentResponse {
     has_rag: boolean;
     collection?: string;
   };
+  type?: 'chat' | 'code';
 }
 
 export interface ChatMessage {
@@ -36,6 +37,7 @@ export interface ActiveDeployment {
     model: string;
     has_rag: boolean;
   };
+  type?: 'chat' | 'code';
 }
 
 export interface DebugAuthResponse {
@@ -65,6 +67,94 @@ export interface MessageResponse {
   is_user_message: boolean;
   sources?: string[];
   created_at: string;
+}
+
+export interface ProblemInfo {
+  function_name: string;
+  description: string;
+  parameter_names: string[];
+}
+
+export interface CodeTestResult {
+  deployment_id: string;
+  passed: boolean;
+  message: string;
+}
+
+export interface TestCaseResult {
+  test_id: number;
+  parameters: unknown[];
+  expected_output: unknown;
+  actual_output: unknown | null;
+  passed: boolean;
+  error: string | null;
+  execution_time: number | null;
+}
+
+export interface DetailedCodeTestResult {
+  deployment_id: string;
+  all_passed: boolean;
+  message: string;
+  total_tests: number;
+  passed_tests: number;
+  failed_tests: number;
+  test_results: TestCaseResult[];
+}
+
+export interface CodeSaveRequest {
+  code: string;
+}
+
+export interface CodeSaveResponse {
+  deployment_id: string;
+  message: string;
+  saved_at: string;
+}
+
+export interface CodeLoadResponse {
+  deployment_id: string;
+  code: string;
+  last_saved: string;
+}
+
+export interface StudentSubmission {
+  id: number;
+  user_id: number;
+  user_email: string;
+  code: string;
+  status: string;
+  execution_time: number | null;
+  error: string | null;
+  submitted_at: string;
+  passed: boolean;
+}
+
+export interface SubmissionSummary {
+  deployment_id: string;
+  deployment_name: string;
+  problem_id: number | null;
+  problem_title: string;
+  problem_description: string;
+  problem_info: ProblemInfo | null;
+  latest_submissions: StudentSubmission[];
+  all_submissions: StudentSubmission[];
+  student_count: number;
+  total_submissions: number;
+  passed_students: number;
+  failed_students: number;
+}
+
+export interface SubmissionTestResults {
+  submission_id: number;
+  deployment_id: string;
+  user_email: string;
+  user_id: number;
+  submitted_at: string;
+  status: string;
+  execution_time: number | null;
+  code: string;
+  analysis: string | null;
+  test_results: DetailedCodeTestResult;
 }
 
 import { apiClient } from '@/lib/apiClient';
@@ -293,6 +383,188 @@ export class DeploymentAPI {
 
     if (!response.data) {
       throw new Error('No response data received');
+    }
+
+    return response.data;
+  }
+
+  // Get deployment type
+  static async getDeploymentType(deploymentId: string): Promise<{ deployment_id: string; type: string }> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    const response = await apiClient.get<{ deployment_id: string; type: string }>(
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/type`
+    );
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.data) {
+      throw new Error('No type data received');
+    }
+
+    return response.data;
+  }
+
+  // Check if deployment contains chat
+  static async containsChat(deploymentId: string): Promise<{ deployment_id: string; contains_chat: boolean }> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    const response = await apiClient.get<{ deployment_id: string; contains_chat: boolean }>(
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/contains-chat`
+    );
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.data) {
+      throw new Error('No contains chat data received');
+    }
+
+    return response.data;
+  }
+
+  // Get problem info for code deployment
+  static async getProblemInfo(deploymentId: string): Promise<{ deployment_id: string; problem_info: ProblemInfo }> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    const response = await apiClient.get<{ deployment_id: string; problem_info: ProblemInfo }>(
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/problem-info`
+    );
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.data) {
+      throw new Error('No problem info received');
+    }
+
+    return response.data;
+  }
+
+  // Run tests for code deployment
+  static async runTests(deploymentId: string, code: string): Promise<DetailedCodeTestResult> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    if (!code?.trim()) {
+      throw new Error('Code is required');
+    }
+
+    const response = await apiClient.post<DetailedCodeTestResult>(
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/run-tests`,
+      { code }
+    );
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.data) {
+      throw new Error('No test result received');
+    }
+
+    return response.data;
+  }
+
+  // Save code for code deployment
+  static async saveCode(deploymentId: string, code: string): Promise<CodeSaveResponse> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    if (!code?.trim()) {
+      throw new Error('Code is required');
+    }
+
+    const response = await apiClient.post<CodeSaveResponse>(
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/save-code`,
+      { code }
+    );
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.data) {
+      throw new Error('No save response received');
+    }
+
+    return response.data;
+  }
+
+  // Load code for code deployment
+  static async loadCode(deploymentId: string): Promise<CodeLoadResponse> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    const response = await apiClient.get<CodeLoadResponse>(
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/load-code`
+    );
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.data) {
+      throw new Error('No load response received');
+    }
+
+    return response.data;
+  }
+
+  // Get student submissions for code deployment (instructors only)
+  static async getStudentSubmissions(deploymentId: string): Promise<SubmissionSummary> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    const response = await apiClient.get<SubmissionSummary>(
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/submissions`
+    );
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.data) {
+      throw new Error('No submissions data received');
+    }
+
+    return response.data;
+  }
+
+  // Get detailed test results for a specific submission (instructors only)
+  static async getSubmissionTestResults(deploymentId: string, submissionId: number): Promise<SubmissionTestResults> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    if (!submissionId || submissionId < 1) {
+      throw new Error('Valid submission ID is required');
+    }
+
+    const response = await apiClient.get<SubmissionTestResults>(
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/submissions/${submissionId}/test-results`
+    );
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.data) {
+      throw new Error('No test results received');
     }
 
     return response.data;

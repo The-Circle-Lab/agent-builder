@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Deployment } from '@/lib/types';
+import { DeploymentAPI } from '../agentBuilder/scripts/deploymentAPI';
 import { 
   ChatBubbleLeftRightIcon, 
   TrashIcon, 
@@ -14,18 +15,42 @@ interface ClassDeploymentsProps {
   deployments: Deployment[];
   isInstructor: boolean;
   onChatWithDeployment: (deploymentId: string, deploymentName: string) => void;
+  onCodeWithDeployment?: (deploymentId: string, deploymentName: string) => void;
   onDeleteDeployment: (deploymentId: string) => Promise<void>;
   onViewStudentChats: (deploymentId: string) => Promise<void>;
+  onViewStudentSubmissions?: (deploymentId: string, deploymentName: string) => void;
 }
 
 export default function ClassDeployments({ 
   deployments, 
   isInstructor,
   onChatWithDeployment,
+  onCodeWithDeployment,
   onDeleteDeployment,
-  onViewStudentChats 
+  onViewStudentChats,
+  onViewStudentSubmissions 
 }: ClassDeploymentsProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deploymentTypes, setDeploymentTypes] = useState<Record<string,string>>({});
+
+  // Determine deployment types on mount / prop change
+  useEffect(() => {
+    const determineTypes = async () => {
+      const types: Record<string,string> = {};
+      const unknown: string[] = [];
+      deployments.forEach(d=>{
+        if (d.type) types[d.deployment_id]=d.type;
+        else unknown.push(d.deployment_id);
+      });
+      if (unknown.length>0){
+        await Promise.all(unknown.map(async id=>{
+          try{ const resp = await DeploymentAPI.getDeploymentType(id); types[id]=resp.type;}catch{types[id]="chat";}
+        }));
+      }
+      setDeploymentTypes(types);
+    };
+    determineTypes();
+  }, [deployments]);
 
   const handleDelete = async (deploymentId: string) => {
     if (!confirm('Are you sure you want to delete this deployment? This action cannot be undone.')) {
@@ -87,9 +112,11 @@ export default function ClassDeployments({
                   </div>
                   
                   <div className="mt-1 text-xs text-gray-500 space-y-1">
-                    <p>Model: {deployment.configuration.model}</p>
+                    { (deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat') === 'chat' && (
+                      <p>Model: {deployment.configuration.model}</p>
+                    )}
                     <p>Provider: {deployment.configuration.provider}</p>
-                    {deployment.configuration.has_rag && (
+                    {(deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat') === 'chat' && deployment.configuration.has_rag && (
                       <p>RAG: Enabled</p>
                     )}
                     <p>Deployed: {new Date(deployment.created_at).toLocaleDateString()}</p>
@@ -97,21 +124,36 @@ export default function ClassDeployments({
                 </div>
 
                 <div className="flex items-center space-x-2 ml-4">
-                  <button
-                    onClick={() => onChatWithDeployment(deployment.deployment_id, deployment.workflow_name)}
-                    className="inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-white bg-blue-600 hover:bg-blue-700"
-                    title="Chat with this deployment"
-                  >
-                    <ChatBubbleLeftRightIcon className="h-3 w-3 mr-1" />
-                    Chat
-                  </button>
+                  {(()=>{ const depType = deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat'; const isCode=depType==='code'; return (
+                    <button
+                      onClick={()=> {
+                        if (isCode && onCodeWithDeployment) {
+                          onCodeWithDeployment(deployment.deployment_id, deployment.workflow_name);
+                        } else {
+                          onChatWithDeployment(deployment.deployment_id, deployment.workflow_name);
+                        }
+                      }}
+                      className={`inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded text-white ${isCode?'bg-purple-600 hover:bg-purple-700':'bg-blue-600 hover:bg-blue-700'}`}
+                      title={isCode? 'Solve this code challenge':'Chat with this deployment'}
+                    >
+                      {isCode? <RocketLaunchIcon className="h-3 w-3 mr-1"/> : <ChatBubbleLeftRightIcon className="h-3 w-3 mr-1"/>}
+                      {isCode? 'Code':'Chat'}
+                    </button>
+                  );})()}
                   
                   {isInstructor && (
                     <>
                       <button
-                        onClick={() => onViewStudentChats(deployment.deployment_id)}
+                        onClick={() => {
+                          const depType = deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat';
+                          if (depType === 'code' && onViewStudentSubmissions) {
+                            onViewStudentSubmissions(deployment.deployment_id, deployment.workflow_name);
+                          } else {
+                            onViewStudentChats(deployment.deployment_id);
+                          }
+                        }}
                         className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50"
-                        title="View student conversations"
+                        title={deploymentTypes[deployment.deployment_id] === 'code' ? 'View student submissions' : 'View student conversations'}
                       >
                         <UsersIcon className="h-3 w-3 mr-1" />
                         Students

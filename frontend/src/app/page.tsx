@@ -7,6 +7,7 @@ import ClassesPage from "./components/classes/ClassesPage";
 import ClassDetailPage from "./components/classes/ClassDetailPage";
 import WorkflowEditorPage from "./components/workflowEditorPage";
 import ChatInterface from "./components/chat/ChatInterface";
+import CodeInterface from "./components/code/CodeInterface";
 import { APP_STATES, type AppState } from "@/lib/constants";
 import { Class } from "@/lib/types";
 
@@ -81,7 +82,18 @@ export default function App() {
     setAppState(APP_STATES.CHAT);
   };
 
+  const handleCodeWithDeployment = (deploymentId: string, deploymentName: string) => {
+    setCurrentDeploymentId(deploymentId);
+    setCurrentDeploymentName(deploymentName);
+    setAppState(APP_STATES.CODE);
+  };
+
   const handleBackFromChat = () => {
+    setCurrentDeploymentId(null);
+    setAppState(APP_STATES.CLASS_DETAIL);
+  };
+
+  const handleBackFromCode = () => {
     setCurrentDeploymentId(null);
     setAppState(APP_STATES.CLASS_DETAIL);
   };
@@ -139,6 +151,7 @@ export default function App() {
         onBack={handleBackToClasses}
         onEditWorkflow={handleEditWorkflow}
         onChatWithDeployment={handleChatWithDeployment}
+        onCodeWithDeployment={handleCodeWithDeployment}
       />
     );
   }
@@ -160,6 +173,17 @@ export default function App() {
         deploymentId={currentDeploymentId}
         workflowName={currentDeploymentName}
         onBack={handleBackFromChat}
+      />
+    );
+  }
+
+  // Code interface
+  if (appState === APP_STATES.CODE && currentDeploymentId) {
+    return (
+      <CodeInterface
+        deploymentId={currentDeploymentId}
+        workflowName={currentDeploymentName}
+        onBack={handleBackFromCode}
       />
     );
   }

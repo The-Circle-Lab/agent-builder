@@ -69,6 +69,7 @@ export const APP_STATES = {
   EDITOR: 'editor',
   DEPLOYMENTS: 'deployments',
   CHAT: 'chat',
+  CODE: 'code',
 } as const;
 
 export type AppState = typeof APP_STATES[keyof typeof APP_STATES]; 
