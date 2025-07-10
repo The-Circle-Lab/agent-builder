@@ -157,6 +157,7 @@ async def get_last_code_submission(
     user_id: Annotated[int, "User ID whose last submission should be fetched"],
 ) -> Dict[str, Any]:
     try:
+        print("Getting last code submission for deployment: ", deployment_id, " and user: ", user_id)
         with Session(engine) as session:
             db_deployment: Optional[Deployment] = session.exec(
                 select(Deployment).where(
@@ -198,9 +199,6 @@ async def get_last_code_submission(
                     "message": "No submissions found for this user and deployment.",
                 }
 
-            # ------------------------------------------------------------------
-            # Re-run tests on the submitted code to gather detailed pass/fail
-            # ------------------------------------------------------------------
             detailed_results: Dict[str, Any] | None = None
             try:
                 # Attempt to build problem_config from stored workflow nodes
@@ -237,10 +235,11 @@ async def get_last_code_submission(
                     else:
                         failed_case_ids.append(tr.get("test_id"))
 
-            return {
+            res = {
                 "deployment_id": deployment_id,
                 "user_id": user_id,
                 "problem_id": linked_problem.id,
+                "code": submission.code,
                 "submission": {
                     "id": submission.id,
                     "code": submission.code,
@@ -255,6 +254,10 @@ async def get_last_code_submission(
                     "failed_test_ids": failed_case_ids,
                 },
             }
+
+            print("Last code submission result: \n", res, "\n\n")
+
+            return res
     except Exception as exc:
         return {"error": f"Failed to retrieve submission: {exc}"}
 

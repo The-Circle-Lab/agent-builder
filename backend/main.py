@@ -104,24 +104,21 @@ if __name__ == "__main__":
     import uvicorn
     import sys
     
-    # Check if running with uvicorn command (don't start server in that case)
-    if "uvicorn" not in sys.modules:
-        # Load configuration for server settings
-        config = load_config()
-        
-        # Get server settings
-        host = config.get("server", {}).get("host", "0.0.0.0")
-        port = config.get("server", {}).get("port", 8000)
-        reload = os.getenv("ENV", "development") == "development"
-        
-        # Run the server with WebSocket support
-        uvicorn.run(
-            "main:app",
-            host=host,
-            port=port,
-            reload=reload,
-            ws_ping_interval=30,  # WebSocket ping interval
-            ws_ping_timeout=10,   # WebSocket ping timeout
-            access_log=True,
-            log_level="info"
-        )
+    # Load configuration for server settings
+    config = load_config()
+    
+    # Get server settings
+    host = config.get("server", {}).get("host", "0.0.0.0")
+    port = config.get("server", {}).get("port", 8000)
+    
+    # Run the server with reload enabled (equivalent to --reload flag)
+    uvicorn.run(
+        "main:app",
+        host=host,
+        port=port,
+        reload=True,
+        ws_ping_interval=30,  # WebSocket ping interval
+        ws_ping_timeout=10,   # WebSocket ping timeout
+        access_log=True,
+        log_level="info"
+    )
