@@ -1,7 +1,20 @@
 'use client';
 
 import React from 'react';
-import DocumentViewer from './DocumentViewer';
+import dynamic from 'next/dynamic';
+
+// Dynamically import DocumentViewer to avoid SSR issues with react-pdf
+const DocumentViewer = dynamic(() => import('./DocumentViewer'), { 
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-64">
+      <div className="flex items-center space-x-2">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <span className="text-gray-600">Loading document viewer...</span>
+      </div>
+    </div>
+  )
+});
 
 interface DocumentViewerModalProps {
   isOpen: boolean;
@@ -9,7 +22,7 @@ interface DocumentViewerModalProps {
   fileUrl: string;
   fileName: string;
   fileType: string;
-  title?: string;
+  initialPage?: number;
 }
 
 const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
@@ -18,7 +31,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   fileUrl,
   fileName,
   fileType,
-  title
+  initialPage
 }) => {
   if (!isOpen) return null;
 
@@ -28,65 +41,40 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
     }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      onClose();
-    }
-  };
-
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm"
+      className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
       onClick={handleBackdropClick}
-      onKeyDown={handleKeyDown}
-      tabIndex={-1}
     >
-      <div className="w-full h-full max-w-7xl max-h-screen m-4 bg-base-100 rounded-lg shadow-2xl overflow-hidden">
-        {/* Modal Header */}
-        <div className="flex items-center justify-between p-4 border-b bg-base-200">
-          <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold">
-              {title || 'Document Viewer'}
+      <div className="bg-white rounded-lg shadow-xl max-w-5xl max-h-[90vh] w-full flex flex-col">
+        {/* Header */}
+        <div className="flex items-center justify-between p-4 border-b border-gray-200">
+          <div className="flex items-center space-x-3">
+            <h2 className="text-lg font-semibold text-gray-900 truncate">
+              {fileName}
             </h2>
-            <div className="badge badge-outline">{fileType.toUpperCase()}</div>
+            <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded uppercase">
+              {fileType}
+            </span>
           </div>
-          
-          <div className="flex items-center gap-2">
-            {/* Download Button */}
-            <button
-              className="btn btn-sm btn-ghost"
-              onClick={() => window.open(fileUrl, '_blank')}
-              title="Download file"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-            </button>
-            
-            {/* Close Button */}
-            <button
-              className="btn btn-sm btn-ghost"
-              onClick={onClose}
-              title="Close (Esc)"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            className="text-gray-400 hover:text-gray-600 transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
         </div>
-        
-        {/* Modal Content */}
-        <div className="h-[calc(100vh-8rem)] overflow-hidden">
+
+        {/* Document Viewer */}
+        <div className="flex-1 overflow-hidden">
           <DocumentViewer
             fileUrl={fileUrl}
             fileName={fileName}
             fileType={fileType}
-            className="h-full shadow-none"
-            onError={(error) => {
-              console.error('Document viewer error:', error);
-              // Could show a toast notification here
-            }}
+            className="h-full"
+            initialPage={initialPage}
           />
         </div>
       </div>

@@ -2,8 +2,21 @@
 
 import React, { useState, useEffect, useCallback } from "react";
 import { Node, Edge } from "@xyflow/react";
-import WorkflowEditor from "./agentBuilder/workflowEditor";
+import dynamic from "next/dynamic";
 import { WorkflowAPI, AutoSave } from "./agentBuilder/scripts/workflowSave";
+
+// Dynamically import WorkflowEditor to avoid SSR issues with ReactFlow
+const WorkflowEditor = dynamic(() => import("./agentBuilder/workflowEditor"), { 
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center h-full">
+      <div className="flex items-center space-x-2">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <span className="text-gray-600">Loading workflow editor...</span>
+      </div>
+    </div>
+  )
+});
 
 interface WorkflowEditorPageProps {
   workflowId: number | null;

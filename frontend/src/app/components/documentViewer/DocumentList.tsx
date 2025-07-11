@@ -196,7 +196,6 @@ const DocumentList: React.FC<DocumentListProps> = ({
           fileUrl={selectedDocument.view_url || ''}
           fileName={selectedDocument.filename}
           fileType={selectedDocument.file_type}
-          title={`Viewing: ${selectedDocument.filename}`}
         />
       )}
     </>

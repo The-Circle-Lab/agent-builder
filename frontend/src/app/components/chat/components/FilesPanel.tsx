@@ -285,7 +285,6 @@ export const FilesPanel: React.FC<FilesPanelProps> = ({
           fileUrl={selectedFile.view_url || ''}
           fileName={selectedFile.filename}
           fileType={selectedFile.file_type}
-          title={`Viewing: ${selectedFile.filename}`}
         />
       )}
     </>

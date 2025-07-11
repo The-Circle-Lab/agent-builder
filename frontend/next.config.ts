@@ -51,6 +51,22 @@ const nextConfig: NextConfig = {
   eslint: {
     ignoreDuringBuilds: false,
   },
+
+  // Webpack configuration for react-pdf and other libraries that use DOM APIs
+  webpack: (config, { isServer }) => {
+    // Handle canvas dependency for react-pdf
+    config.resolve.alias.canvas = false;
+    
+    // Handle node-specific dependencies
+    if (isServer) {
+      config.externals = config.externals || [];
+      config.externals.push({
+        canvas: 'canvas',
+      });
+    }
+
+    return config;
+  },
 };
 
 export default nextConfig;

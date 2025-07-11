@@ -67,16 +67,16 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
     });
   }, [fileUrl, fileType, initialPage]);
 
-  // Handle DOCX files
+  // Handle DOCX files - only on client side
   useEffect(() => {
-    if (fileType.toLowerCase() === 'docx' || fileType.toLowerCase() === 'doc') {
+    if (typeof window !== 'undefined' && (fileType.toLowerCase() === 'docx' || fileType.toLowerCase() === 'doc')) {
       loadDocxContent();
     }
   }, [fileUrl, fileType]);
 
-  // Handle PDF files
+  // Handle PDF files - only on client side
   useEffect(() => {
-    if (fileType.toLowerCase() === 'pdf') {
+    if (typeof window !== 'undefined' && fileType.toLowerCase() === 'pdf') {
       loadPdfContent();
     }
   }, [fileUrl, fileType]);
