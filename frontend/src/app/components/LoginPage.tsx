@@ -12,6 +12,7 @@ interface FormData {
   email: string;
   password: string;
   confirmPassword: string;
+  key: string;
   is_instructor: boolean;
 }
 
@@ -21,6 +22,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
     email: "",
     password: "",
     confirmPassword: "",
+    key: "",
     is_instructor: false,
   });
   const [fieldErrors, setFieldErrors] = useState<Partial<FormData>>({});
@@ -83,6 +85,11 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       if (!passwordMatchValidation.isValid) {
         errors.confirmPassword = passwordMatchValidation.error;
       }
+
+      // Registration key validation
+      if (!formData.key.trim()) {
+        errors.key = "Registration key is required";
+      }
     }
 
     setFieldErrors(errors);
@@ -105,6 +112,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       await handleAuth(false, {
         email: formData.email,
         password: formData.password,
+        key: formData.key,
         is_instructor: formData.is_instructor
       });
     }
@@ -118,6 +126,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       email: "",
       password: "",
       confirmPassword: "",
+      key: "",
       is_instructor: false,
     });
   };
@@ -207,6 +216,33 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
               {fieldErrors.confirmPassword && (
                 <p id="confirm-password-error" className="mt-1 text-sm text-red-600">
                   {fieldErrors.confirmPassword}
+                </p>
+              )}
+            </div>
+          )}
+
+          {!isLogin && (
+            <div>
+              <label htmlFor="key" className="block text-sm font-medium text-gray-700 mb-2">
+                Registration Key
+              </label>
+              <input
+                type="text"
+                id="key"
+                name="key"
+                value={formData.key}
+                onChange={handleInputChange}
+                required
+                className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200  text-black ${
+                  fieldErrors.key ? 'border-red-300' : 'border-gray-300'
+                }`}
+                placeholder="Enter registration key"
+                aria-invalid={!!fieldErrors.key}
+                aria-describedby={fieldErrors.key ? "key-error" : undefined}
+              />
+              {fieldErrors.key && (
+                <p id="key-error" className="mt-1 text-sm text-red-600">
+                  {fieldErrors.key}
                 </p>
               )}
             </div>

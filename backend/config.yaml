@@ -26,6 +26,7 @@ database:
 auth:
   secret_key: "${AUTH_SECRET_KEY}"
   session_lifetime_hours: 24
+  registration_key: "${REGISTRATION_KEY}"
   cookie_settings:
     httponly: true
     secure: false
