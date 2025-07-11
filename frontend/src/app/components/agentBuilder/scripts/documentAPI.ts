@@ -1,3 +1,5 @@
+import { getApiConfig } from "@/lib/config";
+
 export interface DocumentInfo {
   id: number;
   filename: string;
@@ -33,7 +35,7 @@ export interface UploadResponse {
 }
 
 export class DocumentAPI {
-  private static readonly BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  private static readonly BASE_URL = getApiConfig().base_url;
 
   static async uploadDocuments(
     files: FileList | File[], 

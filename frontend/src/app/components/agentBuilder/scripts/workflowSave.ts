@@ -1,4 +1,5 @@
 import { Node, Edge } from "@xyflow/react";
+import { getApiConfig } from "@/lib/config";
 
 export interface WorkflowSaveData {
   nodes: Node[];
@@ -29,7 +30,7 @@ export function createWorkflowSaveData(nodes: Node[], edges: Edge[]): WorkflowSa
 
 // API functions for backend integration
 export class WorkflowAPI {
-  private static readonly BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+  private static readonly BASE_URL = getApiConfig().base_url;
 
   static async saveWorkflow(workflowId: number | null, name: string, description: string, nodes: Node[], edges: Edge[]) {
     const workflowData = createWorkflowSaveData(nodes, edges);

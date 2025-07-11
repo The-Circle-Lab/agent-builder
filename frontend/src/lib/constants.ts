@@ -1,8 +1,11 @@
+import { getApiConfig, getUIConfig, getValidationConfig } from './config';
+
 // Environment and API Configuration
+const apiConfig = getApiConfig();
 export const API_CONFIG = {
-  BASE_URL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
-  TIMEOUT: 30000, // 30 seconds
-  RETRY_ATTEMPTS: 3,
+  BASE_URL: apiConfig.base_url,
+  TIMEOUT: apiConfig.timeout,
+  RETRY_ATTEMPTS: apiConfig.retry_attempts,
 } as const;
 
 // Application Routes
@@ -20,27 +23,29 @@ export const ROUTES = {
 } as const;
 
 // UI Constants
+const uiConfig = getUIConfig();
 export const UI = {
-  DEBOUNCE_DELAY: 300,
-  ANIMATION_DURATION: 200,
-  MAX_FILE_SIZE: 10 * 1024 * 1024, // 10MB
+  DEBOUNCE_DELAY: uiConfig.debounce_delay,
+  ANIMATION_DURATION: uiConfig.animation_duration,
+  MAX_FILE_SIZE: uiConfig.max_file_size,
   SUPPORTED_FILE_TYPES: ['.pdf', '.docx', '.doc'] as const,
 } as const;
 
 // Validation Rules
+const validationConfig = getValidationConfig();
 export const VALIDATION = {
   EMAIL: {
-    MIN_LENGTH: 5,
-    MAX_LENGTH: 254,
+    MIN_LENGTH: validationConfig.email.min_length,
+    MAX_LENGTH: validationConfig.email.max_length,
     PATTERN: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
   },
   PASSWORD: {
-    MIN_LENGTH: 6,
-    MAX_LENGTH: 128,
+    MIN_LENGTH: validationConfig.password.min_length,
+    MAX_LENGTH: validationConfig.password.max_length,
   },
   WORKFLOW_NAME: {
-    MIN_LENGTH: 1,
-    MAX_LENGTH: 100,
+    MIN_LENGTH: validationConfig.workflow_name.min_length,
+    MAX_LENGTH: validationConfig.workflow_name.max_length,
   },
 } as const;
 

@@ -1,0 +1,28 @@
+# Frontend Configuration
+api:
+  base_url: "${NEXT_PUBLIC_API_URL:http://localhost:8000}"
+  timeout: 30000
+  retry_attempts: 3
+
+# UI Configuration
+ui:
+  debounce_delay: 300
+  animation_duration: 200
+  max_file_size: 10485760  # 10MB in bytes
+
+# Validation Rules
+validation:
+  email:
+    min_length: 5
+    max_length: 254
+  password:
+    min_length: 6
+    max_length: 128
+  workflow_name:
+    min_length: 1
+    max_length: 100
+
+# Supported file types
+files:
+  supported_types: [".pdf", ".docx", ".doc"]
+  max_upload_size: 10485760  # 10MB in bytes 
