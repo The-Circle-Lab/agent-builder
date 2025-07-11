@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { Node, Edge } from '@xyflow/react';
 import { Class, Workflow, Deployment } from '@/lib/types';
 import { ClassAPI } from './classAPI';
 import ClassWorkflows from './ClassWorkflows';
@@ -90,8 +89,9 @@ export default function ClassDetailPage({
       if (workflow.workflow_data && workflow.workflow_data.nodes && workflow.workflow_data.edges) {
         try {
           // Convert from saved format to deployment format
-          const nodes = workflow.workflow_data.nodes as Node[];
-          const edges = workflow.workflow_data.edges as Edge[];
+          // Cast to unknown first then to the required type to avoid type conflicts
+          const nodes = workflow.workflow_data.nodes as unknown as Parameters<typeof createWorkflowJSON>[0];
+          const edges = workflow.workflow_data.edges as unknown as Parameters<typeof createWorkflowJSON>[1];
           const workflowJSON = createWorkflowJSON(nodes, edges);
           deploymentData = JSON.parse(workflowJSON);
         } catch (conversionError) {
@@ -103,7 +103,7 @@ export default function ClassDetailPage({
       const deployment = await ClassAPI.deployWorkflow(
         workflow.id, 
         workflow.name, 
-        deploymentData
+        deploymentData || {}
       );
       await loadClassData(); // Reload to get the new deployment
       return deployment;

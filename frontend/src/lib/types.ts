@@ -59,15 +59,24 @@ export interface ErrorProps {
 // Class-related types
 export type ClassRole = 'student' | 'instructor';
 
+export interface User {
+  id: number;
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  created_at: string;
+  student?: boolean;
+}
+
 export interface Class {
   id: number;
-  code: string;
   name: string;
   description?: string;
+  instructor_id: number;
+  join_code: string;
   created_at: string;
-  is_active: boolean;
-  user_role: ClassRole;
-  member_count: number;
+  user_role: 'instructor' | 'student';
+  member_count?: number;
 }
 
 export interface ClassMember {
@@ -82,25 +91,65 @@ export interface Workflow {
   name: string;
   description?: string;
   class_id: number;
+  workflow_data?: {
+    nodes: ReactFlowNode[];
+    edges: ReactFlowEdge[];
+  };
   created_at: string;
   updated_at: string;
-  is_public: boolean;
-  workflow_data: Record<string, unknown>;
 }
 
 export interface Deployment {
   deployment_id: string;
+  workflow_id: number;
   workflow_name: string;
+  is_active: boolean;
   created_at: string;
-  chat_url: string;
-  is_loaded: boolean;
-  configuration: {
+  instructor_id: number;
+  is_chat_enabled: boolean;
+  is_code_enabled: boolean;
+  type?: 'chat' | 'code';
+  is_loaded?: boolean;
+  configuration?: {
     provider: string;
     model: string;
     has_rag: boolean;
     mcp_enabled: boolean;
   };
-  type?: 'chat' | 'code';
+}
+
+// ReactFlow types to avoid importing from @xyflow/react in SSR components
+export interface ReactFlowNode {
+  id: string;
+  position: { x: number; y: number };
+  data: Record<string, unknown>;
+  type?: string;
+  width?: number;
+  height?: number;
+  selected?: boolean;
+  dragging?: boolean;
+  [key: string]: unknown;
+}
+
+export interface ReactFlowEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourceHandle?: string | null;
+  targetHandle?: string | null;
+  type?: string;
+  data?: Record<string, unknown>;
+  style?: React.CSSProperties;
+  animated?: boolean;
+  selected?: boolean;
+  [key: string]: unknown;
+}
+
+export interface ReactFlowConnection {
+  source: string | null;
+  target: string | null;
+  sourceHandle: string | null;
+  targetHandle: string | null;
 }
 
 export interface Conversation {

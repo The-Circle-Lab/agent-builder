@@ -112,11 +112,13 @@ export default function ClassDeployments({
                   </div>
                   
                   <div className="mt-1 text-xs text-gray-500 space-y-1">
-                    { (deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat') === 'chat' && (
+                    { (deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat') === 'chat' && deployment.configuration?.model && (
                       <p>Model: {deployment.configuration.model}</p>
                     )}
-                    <p>Provider: {deployment.configuration.provider}</p>
-                    {(deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat') === 'chat' && deployment.configuration.has_rag && (
+                    {deployment.configuration?.provider && (
+                      <p>Provider: {deployment.configuration.provider}</p>
+                    )}
+                    {(deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat') === 'chat' && deployment.configuration?.has_rag && (
                       <p>RAG: Enabled</p>
                     )}
                     <p>Deployed: {new Date(deployment.created_at).toLocaleDateString()}</p>

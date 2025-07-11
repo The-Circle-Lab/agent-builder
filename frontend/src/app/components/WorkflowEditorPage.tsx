@@ -1,9 +1,9 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
-import { Node, Edge } from "@xyflow/react";
 import dynamic from "next/dynamic";
 import { WorkflowAPI, AutoSave } from "./agentBuilder/scripts/workflowSave";
+import { ReactFlowNode, ReactFlowEdge } from "@/lib/types";
 
 // Dynamically import WorkflowEditor to avoid SSR issues with ReactFlow
 const WorkflowEditor = dynamic(() => import("./agentBuilder/workflowEditor"), { 
@@ -32,11 +32,11 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
   const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved" | "error">("saved");
   
   // Start with an empty canvas for new workflows
-  const [initialNodes] = useState<Node[]>([]);
-  const [initialEdges] = useState<Edge[]>([]);
+  const [initialNodes] = useState<ReactFlowNode[]>([]);
+  const [initialEdges] = useState<ReactFlowEdge[]>([]);
 
-  const [currentNodes, setCurrentNodes] = useState<Node[]>(initialNodes);
-  const [currentEdges, setCurrentEdges] = useState<Edge[]>(initialEdges);
+  const [currentNodes, setCurrentNodes] = useState<ReactFlowNode[]>(initialNodes);
+  const [currentEdges, setCurrentEdges] = useState<ReactFlowEdge[]>(initialEdges);
   const [deploymentSuccess, setDeploymentSuccess] = useState<string>("");
 
   const loadWorkflow = useCallback(async () => {
@@ -70,7 +70,7 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
     }
   }, [workflowId, loadWorkflow]);
 
-  const handleWorkflowChange = useCallback((nodes: Node[], edges: Edge[]) => {
+  const handleWorkflowChange = useCallback((nodes: ReactFlowNode[], edges: ReactFlowEdge[]) => {
     setCurrentNodes(nodes);
     setCurrentEdges(edges);
     setSaveStatus("unsaved");

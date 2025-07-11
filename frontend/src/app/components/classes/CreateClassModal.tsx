@@ -41,7 +41,7 @@ export default function CreateClassModal({ onClose, onCreate }: CreateClassModal
     if (!createdClass) return;
     
     try {
-      await navigator.clipboard.writeText(createdClass.code);
+      await navigator.clipboard.writeText(createdClass.join_code);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
@@ -142,7 +142,7 @@ export default function CreateClassModal({ onClose, onCreate }: CreateClassModal
                 <p className="text-sm text-gray-500 mb-2">Join Code</p>
                 <div className="flex items-center justify-center space-x-3">
                   <span className="text-3xl font-mono font-bold text-blue-600">
-                    {createdClass.code}
+                    {createdClass.join_code}
                   </span>
                   <button
                     onClick={handleCopyCode}
