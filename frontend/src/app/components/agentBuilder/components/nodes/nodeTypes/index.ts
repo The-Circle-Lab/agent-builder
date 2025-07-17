@@ -10,6 +10,8 @@ import * as metaNode from "./metaNode";
 import * as codeNode from "./codeNode";
 import * as testsNode from "./testsNode";
 import * as codeAnalyzer from "./codeAnalyzerNode"
+import * as multipleChoiceNode from "./multipleChoiceNode"
+import * as questionsNode from "./questionsNode"
 import { BaseNode, BaseNodeProps, BaseNodeData } from "./baseNode";
 
 // Base classes and interfaces
@@ -33,7 +35,9 @@ export const NodeTypes = {
   result: outputNode.OutputNode,
   mcp: mcpNode.McpNode,
   tests: testsNode.TestsNode,
-  codeAnalyzer: codeAnalyzer.CodeAnalyzerNode
+  codeAnalyzer: codeAnalyzer.CodeAnalyzerNode,
+  mcq: multipleChoiceNode.MultipleChoiceNode,
+  questions: questionsNode.QuestionsNode
 };
 
 export const NodeClasses = {
@@ -48,7 +52,9 @@ export const NodeClasses = {
   deepSeek: deepSeekNode.DeepSeekNodeClass,
   meta: metaNode.MetaNodeClass,
   tests: testsNode.TestsNodeClass,
-  codeAnalyzer: codeAnalyzer.CodeAnalyzerNodeClass
+  codeAnalyzer: codeAnalyzer.CodeAnalyzerNodeClass,
+  mcq: multipleChoiceNode.MultipleChoiceNodeClass,
+  questions: questionsNode.QuestionsNodeClass
 };
 
 export const NodeConfigs = {
@@ -63,7 +69,9 @@ export const NodeConfigs = {
   deepSeek: deepSeekNode.deepSeekNodeConfig,
   meta: metaNode.metaNodeConfig,
   tests: testsNode.testsNodeConfig,
-  codeAnalyzer: codeAnalyzer.codeAnalyzerNodeConfig
+  codeAnalyzer: codeAnalyzer.codeAnalyzerNodeConfig,
+  mcq: multipleChoiceNode.multipleChoiceNodeConfig,
+  questions: questionsNode.questionsNodeConfig
 };
 
 export const NodeCreators = {
@@ -78,7 +86,9 @@ export const NodeCreators = {
   deepSeek: deepSeekNode.createDeepSeekNodeType,
   meta: metaNode.createMetaNodeType,
   tests: testsNode.createTestsNodeType,
-  codeAnalyzer: codeAnalyzer.createCodeAnalyzerNodeType
+  codeAnalyzer: codeAnalyzer.createCodeAnalyzerNodeType,
+  mcq: multipleChoiceNode.createMultipleChoiceNodeType,
+  questions: questionsNode.createQuestionsNodeType
 };
 
 // Registry of available node types (dynamically generated from NodeClasses)

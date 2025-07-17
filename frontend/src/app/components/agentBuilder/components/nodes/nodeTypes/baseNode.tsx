@@ -13,6 +13,7 @@ type PropertyTypeMap = {
   range: number;
   dynamicTextList: string[];
   testCases: import("../types").TestCase[];
+  multipleChoiceQuestions: import("../types").MultipleChoiceQuestion[];
 };
 
 // Utility type to infer the data interface from a configuration
@@ -93,7 +94,7 @@ export abstract class BaseNode<
       (
         defaultData as unknown as Record<
           string,
-          string | number | boolean | string[] | import("../types").TestCase[]
+          string | number | boolean | string[] | import("../types").TestCase[] | import("../types").MultipleChoiceQuestion[]
         >
       )[property.key] = property.defaultValue;
     });

@@ -57,6 +57,14 @@ export const connectionConfig: ConnectionConfig = {
     maxConnections: -1, // Can only connect to one test input
     compatibleWith: ["analyzer-output"], // Can connect to test output
   },
+  "mcq-input": {
+    maxConnections: 1, // Can only receive one mcq connection
+    compatibleWith: ["mcq-output"], // Can receive from mcq output
+  },
+  "mcq-output": {
+    maxConnections: -1, // Can output to multiple targets
+    compatibleWith: ["mcq-input"], // Can connect to mcq input
+  },
 };
 
 import { Edge } from "@xyflow/react";

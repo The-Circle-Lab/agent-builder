@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Dialog } from '@headlessui/react';
 import { XMarkIcon, DocumentDuplicateIcon, CheckIcon } from '@heroicons/react/24/outline';
 import { Class } from '@/lib/types';
@@ -17,11 +17,7 @@ export default function JoinCodeModal({ classObj, onClose }: JoinCodeModalProps)
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  useEffect(() => {
-    loadJoinCode();
-  }, [classObj.id]);
-
-  const loadJoinCode = async () => {
+  const loadJoinCode = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -32,7 +28,11 @@ export default function JoinCodeModal({ classObj, onClose }: JoinCodeModalProps)
     } finally {
       setLoading(false);
     }
-  };
+  }, [classObj.id]);
+
+  useEffect(() => {
+    loadJoinCode();
+  }, [loadJoinCode]);
 
   const handleCopyCode = async () => {
     if (!joinCode) return;

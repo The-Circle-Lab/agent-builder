@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Dialog } from '@headlessui/react';
-import { XMarkIcon, ChatBubbleLeftRightIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import { XMarkIcon, ChatBubbleLeftRightIcon, ChevronRightIcon, LockClosedIcon, LockOpenIcon } from '@heroicons/react/24/outline';
 import { Conversation, ChatMessage } from '@/lib/types';
 import { ClassAPI } from './classAPI';
+import { API_CONFIG } from '@/lib/constants';
 
 interface StudentConversationsModalProps {
   deploymentId: string;
@@ -23,12 +24,10 @@ export default function StudentConversationsModal({
   const [loading, setLoading] = useState(true);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deploymentOpen, setDeploymentOpen] = useState(true);
+  const [stateChanging, setStateChanging] = useState(false);
 
-  useEffect(() => {
-    loadConversations();
-  }, [deploymentId]);
-
-  const loadConversations = async () => {
+  const loadConversations = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -39,7 +38,11 @@ export default function StudentConversationsModal({
     } finally {
       setLoading(false);
     }
-  };
+  }, [deploymentId]);
+
+  useEffect(() => {
+    loadConversations();
+  }, [loadConversations]);
 
   const loadMessages = async (conversation: Conversation) => {
     try {
@@ -57,6 +60,32 @@ export default function StudentConversationsModal({
     }
   };
 
+  const handleToggleDeploymentState = async () => {
+    try {
+      setStateChanging(true);
+      
+      const endpoint = deploymentOpen ? 'close' : 'open';
+      const response = await fetch(`${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/${endpoint}`, {
+        method: 'POST',
+        credentials: 'include',
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText);
+      }
+
+      const result = await response.json();
+      setDeploymentOpen(result.is_open);
+
+    } catch (err) {
+      console.error('Failed to toggle deployment state:', err);
+      alert(err instanceof Error ? err.message : 'Failed to toggle deployment state');
+    } finally {
+      setStateChanging(false);
+    }
+  };
+
   return (
     <Dialog open={true} onClose={onClose} className="relative z-50">
       <div className="fixed inset-0 bg-black/30" aria-hidden="true" />
@@ -67,12 +96,30 @@ export default function StudentConversationsModal({
             <Dialog.Title className="text-lg font-semibold text-black">
               Student Conversations - {deploymentName}
             </Dialog.Title>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-500"
-            >
-              <XMarkIcon className="h-5 w-5" />
-            </button>
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={handleToggleDeploymentState}
+                disabled={stateChanging}
+                className={`p-2 rounded disabled:opacity-50 ${
+                  deploymentOpen
+                    ? 'text-green-600 hover:text-green-700 hover:bg-green-50' 
+                    : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+                }`}
+                title={deploymentOpen ? 'Close deployment' : 'Open deployment'}
+              >
+                {deploymentOpen ? (
+                  <LockOpenIcon className="h-5 w-5" />
+                ) : (
+                  <LockClosedIcon className="h-5 w-5" />
+                )}
+              </button>
+              <button
+                onClick={onClose}
+                className="text-gray-400 hover:text-gray-500"
+              >
+                <XMarkIcon className="h-5 w-5" />
+              </button>
+            </div>
           </div>
 
           <div className="flex-1 flex overflow-hidden">

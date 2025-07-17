@@ -9,6 +9,7 @@ import ClassMembers from './ClassMembers';
 import JoinCodeModal from './JoinCodeModal';
 import StudentConversationsModal from './StudentConversationsModal';
 import StudentSubmissionsModal from './StudentSubmissionsModal';
+import StudentMCQModal from './StudentMCQModal';
 import { createWorkflowJSON } from '../agentBuilder/scripts/exportWorkflow';
 import { 
   ArrowLeftIcon, 
@@ -24,6 +25,7 @@ interface ClassDetailPageProps {
   onEditWorkflow: (workflowId: number) => void;
   onChatWithDeployment: (deploymentId: string, deploymentName: string) => void;
   onCodeWithDeployment?: (deploymentId: string, deploymentName: string) => void;
+  onMCQWithDeployment?: (deploymentId: string, deploymentName: string) => void;
 }
 
 export default function ClassDetailPage({ 
@@ -31,7 +33,8 @@ export default function ClassDetailPage({
   onBack, 
   onEditWorkflow,
   onChatWithDeployment,
-  onCodeWithDeployment
+  onCodeWithDeployment,
+  onMCQWithDeployment
 }: ClassDetailPageProps) {
   const isInstructor = classObj.user_role === 'instructor';
   
@@ -46,12 +49,9 @@ export default function ClassDetailPage({
   const [error, setError] = useState<string | null>(null);
   const [showStudentChats, setShowStudentChats] = useState<{deploymentId: string; deploymentName: string} | null>(null);
   const [showStudentSubmissions, setShowStudentSubmissions] = useState<{deploymentId: string; deploymentName: string} | null>(null);
+  const [showStudentMCQ, setShowStudentMCQ] = useState<{deploymentId: string; deploymentName: string} | null>(null);
 
-  useEffect(() => {
-    loadClassData();
-  }, [classObj.id]);
-
-  const loadClassData = async () => {
+  const loadClassData = React.useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -68,7 +68,11 @@ export default function ClassDetailPage({
     } finally {
       setLoading(false);
     }
-  };
+  }, [classObj.id]);
+
+  useEffect(() => {
+    loadClassData();
+  }, [loadClassData]);
 
   const handleCreateWorkflow = async (name: string, description?: string) => {
     try {
@@ -241,7 +245,11 @@ export default function ClassDetailPage({
                 onViewStudentSubmissions={(deploymentId, deploymentName) => {
                   setShowStudentSubmissions({ deploymentId, deploymentName });
                 }}
+                onViewStudentMCQ={(deploymentId, deploymentName) => {
+                  setShowStudentMCQ({ deploymentId, deploymentName });
+                }}
                 onCodeWithDeployment={onCodeWithDeployment}
+                onMCQWithDeployment={onMCQWithDeployment}
               />
             )}
             {activeTab === 'members' && (
@@ -273,6 +281,13 @@ export default function ClassDetailPage({
           deploymentId={showStudentSubmissions.deploymentId}
           deploymentName={showStudentSubmissions.deploymentName}
           onClose={() => setShowStudentSubmissions(null)}
+        />
+      )}
+      {showStudentMCQ && (
+        <StudentMCQModal
+          deploymentId={showStudentMCQ.deploymentId}
+          deploymentName={showStudentMCQ.deploymentName}
+          onClose={() => setShowStudentMCQ(null)}
         />
       )}
     </div>

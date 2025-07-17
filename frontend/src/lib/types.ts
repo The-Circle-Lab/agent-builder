@@ -108,8 +108,10 @@ export interface Deployment {
   instructor_id: number;
   is_chat_enabled: boolean;
   is_code_enabled: boolean;
-  type?: 'chat' | 'code';
+  type?: 'chat' | 'code' | 'mcq';
   is_loaded?: boolean;
+  is_open?: boolean;
+  grade?: [number, number] | null;
   configuration?: {
     provider: string;
     model: string;

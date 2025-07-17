@@ -231,14 +231,14 @@ export const useWebSocket = ({
         clearTimeout(timeoutId);
       };
     }
-  }, [enabled]); // Only depend on enabled, not the callbacks
+  }, [enabled, connectWebSocket, disconnectWebSocket]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       disconnectWebSocket();
     };
-  }, []);
+  }, [disconnectWebSocket]);
 
   return {
     connected,

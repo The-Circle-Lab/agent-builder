@@ -7,4 +7,5 @@ export { default as ClassWorkflows } from './ClassWorkflows';
 export { default as ClassDeployments } from './ClassDeployments';
 export { default as ClassMembers } from './ClassMembers';
 export { default as StudentConversationsModal } from './StudentConversationsModal';
+export { default as StudentMCQModal } from './StudentMCQModal';
 export { ClassAPI } from './classAPI'; 

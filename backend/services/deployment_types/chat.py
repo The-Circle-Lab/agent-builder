@@ -256,34 +256,68 @@ class Chat:
         try:
             print(f"[DEBUG] Building code context for deployment_id={self._deployment_id}, user_id={user_id}")
             
-            # Always include problem description
-            problem_info = await self._call_mcp_tool(
-                "get_code_deployment_info",
+            # Get information about all problems in the deployment
+            all_problems_info = await self._call_mcp_tool(
+                "get_all_code_problems_info",
                 {"deployment_id": self._deployment_id},
                 timeout=15.0,
             )
-            print(f"[DEBUG] Problem info response: {problem_info}")
+            print(f"[DEBUG] All problems info response: {all_problems_info}")
             
             context_lines: List[str] = []
-            if problem_info and isinstance(problem_info, dict) and not problem_info.get("error"):
-                p = problem_info.get("problem", {})
-                if p:
-                    context_lines.append("Code Challenge Information:")
-                    if p.get("title"):
-                        context_lines.append(f"Title: {p.get('title')}")
-                    if p.get("description"):
-                        context_lines.append(f"Description: {p.get('description')}")
-                    if p.get("function_name"):
-                        context_lines.append(f"Function: {p.get('function_name')}")
-                    if p.get("parameter_names"):
-                        params = ", ".join(p.get("parameter_names"))
-                        context_lines.append(f"Parameters: {params}")
-                    if p.get("test_cases_count") is not None:
-                        context_lines.append(f"Total Test Cases: {p.get('test_cases_count')}")
-            else:
-                print(f"[DEBUG] Problem info error or empty: {problem_info}")
+            if all_problems_info and isinstance(all_problems_info, dict) and not all_problems_info.get("error"):
+                problems = all_problems_info.get("problems", [])
+                problem_count = all_problems_info.get("problem_count", 0)
                 
-            # User's last submission
+                if problems:
+                    context_lines.append(f"Code Challenges Available ({problem_count} total):")
+                    context_lines.append("")
+                    
+                    for problem in problems:
+                        problem_idx = problem.get("problem_index", 0)
+                        context_lines.append(f"Problem {problem_idx}:")
+                        
+                        if problem.get("title"):
+                            context_lines.append(f"  Title: {problem.get('title')}")
+                        if problem.get("description"):
+                            context_lines.append(f"  Description: {problem.get('description')}")
+                        if problem.get("function_name"):
+                            context_lines.append(f"  Function: {problem.get('function_name')}")
+                        if problem.get("parameter_names"):
+                            params = ", ".join(problem.get("parameter_names"))
+                            context_lines.append(f"  Parameters: {params}")
+                        if problem.get("test_cases_count") is not None:
+                            context_lines.append(f"  Test Cases: {problem.get('test_cases_count')}")
+                        
+                        context_lines.append("")  # Empty line between problems
+                else:
+                    context_lines.append("No code challenges found in this deployment.")
+            else:
+                print(f"[DEBUG] All problems info error or empty: {all_problems_info}")
+                # Fallback to single problem for backward compatibility
+                problem_info = await self._call_mcp_tool(
+                    "get_code_deployment_info",
+                    {"deployment_id": self._deployment_id, "problem_index": 0},
+                    timeout=15.0,
+                )
+                
+                if problem_info and isinstance(problem_info, dict) and not problem_info.get("error"):
+                    p = problem_info.get("problem", {})
+                    if p:
+                        context_lines.append("Code Challenge Information:")
+                        if p.get("title"):
+                            context_lines.append(f"Title: {p.get('title')}")
+                        if p.get("description"):
+                            context_lines.append(f"Description: {p.get('description')}")
+                        if p.get("function_name"):
+                            context_lines.append(f"Function: {p.get('function_name')}")
+                        if p.get("parameter_names"):
+                            params = ", ".join(p.get("parameter_names"))
+                            context_lines.append(f"Parameters: {params}")
+                        if p.get("test_cases_count") is not None:
+                            context_lines.append(f"Total Test Cases: {p.get('test_cases_count')}")
+                
+            # User's last submission (for the first problem by default)
             if user_id is not None:
                 submission_info = await self._call_mcp_tool(
                     "get_last_code_submission",

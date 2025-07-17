@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 from models.db_models import DeploymentType
 from typing import Self
@@ -43,6 +43,7 @@ class DeploymentRequest(BaseModel):
     workflow_id: int
     workflow_data: Dict[str, Any]
     type: DeploymentType = DeploymentType.CHAT
+    grade: Optional[Tuple[int, int]] = None
 
 class DeploymentResponse(BaseModel):
     deployment_id: str
@@ -50,6 +51,7 @@ class DeploymentResponse(BaseModel):
     message: str
     configuration: Dict[str, Any]
     type: DeploymentType = DeploymentType.CHAT
+    grade: Optional[Tuple[int, int]] = None
 
 class ChatRequest(BaseModel):
     message: str

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ClassRole, ClassMember } from '@/lib/types';
 import { ClassAPI } from './classAPI';
 import { AcademicCapIcon, UserIcon } from '@heroicons/react/24/outline';
@@ -15,11 +15,7 @@ export default function ClassMembers({ classId }: ClassMembersProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadMembers();
-  }, [classId]);
-
-  const loadMembers = async () => {
+  const loadMembers = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -30,7 +26,11 @@ export default function ClassMembers({ classId }: ClassMembersProps) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [classId]);
+
+  useEffect(() => {
+    loadMembers();
+  }, [loadMembers]);
 
   // Sort members: instructors first, then students
   const sortedMembers = [...members].sort((a, b) => {

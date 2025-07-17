@@ -83,11 +83,25 @@ const nodeOptions = [
     description: "Add a code node",
   },
   {
+    category: "starter",
+    type: "mcq",
+    name: "Multiple Choice",
+    icon: "/mcq.svg",
+    description: "Add a multiple choice node",
+  },
+  {
     category: "tests",
     type: "tests",
     name: "Tests",
     icon: "/tests.svg",
     description: "Add a tests node",
+  },
+  {
+    category: "questions",
+    type: "questions",
+    name: "Questions",
+    icon: "/questions.svg",
+    description: "Add a questions node",
   },
   {
     category: "analysis",
@@ -106,7 +120,8 @@ const objectTypeFilters: Record<string, string[]> = {
   Output: ["output"],
   Starter: ["starter"],
   Tests: ["tests"],
-  codeAnalyzer: ["analysis"], // Add filter for code analyzer nodes
+  codeAnalyzer: ["analysis"],
+  Questions: ["questions"],
 };
 
 export function SideMenu({

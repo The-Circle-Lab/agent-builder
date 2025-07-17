@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from scripts.config import load_config
 import os
+from services.celery_tasks import celery_app as task_app
+from api.summary_routes import router as summary_router
 
 # Load config
 config = load_config()
@@ -40,6 +42,13 @@ async def lifespan(app: FastAPI):
     # Startup
     init_db()
     logger.info("Database initialized")
+
+    # Verify Celery broker connectivity (non-blocking)
+    try:
+        broker_ping = task_app.control.ping(timeout=2.0)
+        logger.info(f"Celery broker reachable: {bool(broker_ping)} - ping={broker_ping}")
+    except Exception as ping_exc:
+        logger.warning(f"Celery broker not reachable: {ping_exc}")
     
     yield
     # Shutdown
@@ -75,6 +84,7 @@ app.include_router(workflow_router)
 app.include_router(document_router)
 app.include_router(deployment_router)
 app.include_router(file_storage_router)
+app.include_router(summary_router)
 
 @app.get("/")
 def read_root():

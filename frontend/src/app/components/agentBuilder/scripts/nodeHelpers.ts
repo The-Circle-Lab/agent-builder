@@ -183,6 +183,29 @@ export function getNodeAttachments(
     }
     
     return Object.keys(attachments).length > 0 ? attachments : undefined;
+  } else if (node.type === "mcq") {
+    const attachments: Record<string, unknown> = {};
+    
+    // Get questions attachments
+    const questionsNodes = getConnectedNodes(node.id, "mcq-output", edges, nodes);
+    if (questionsNodes.length > 0) {
+      attachments.questions = questionsNodes.map((questionsNode) => {
+        const nodeConfig: NodeConfigWithAttachments = {
+          type: questionsNode.type,
+          config: getNodeConfig(questionsNode),
+        };
+        
+        // Recursively get attachments of the questions node
+        const nestedAttachments = getNodeAttachments(questionsNode, edges, nodes, new Set(visitedNodes));
+        if (nestedAttachments) {
+          nodeConfig.attachments = nestedAttachments;
+        }
+        
+        return nodeConfig;
+      });
+    }
+    
+    return Object.keys(attachments).length > 0 ? attachments : undefined;
   }
 
   return undefined;

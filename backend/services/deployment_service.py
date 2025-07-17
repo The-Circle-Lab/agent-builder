@@ -4,13 +4,15 @@ from models.deployment_models import AgentNode, AgentNodeList
 from services.deployment_types.chat import Chat
 from models.db_models import DeploymentType
 from services.config_service import parse_agent_config
-from services.deployment_types.code import CodeDeployment
+from services.deployment_types.code_executor import CodeDeployment
+from services.deployment_types.mcq import MCQDeployment
 
 class AgentDeployment:
     _services: AgentNodeList
     _deployment_type: DeploymentType
     _contains_chat: bool
     _code_service: "CodeDeployment | None" = None
+    _mcq_service: "MCQDeployment | None" = None
 
     def __init__(
         self,
@@ -30,6 +32,21 @@ class AgentDeployment:
                 problem_config=config['1']
             )
             self._services.append(AgentNode(self._code_service))
+        elif (config['1']['type'] == 'mcq'):
+            self._deployment_type = DeploymentType.MCQ
+            name = config['1']["attachments"]["questions"][0]['config']['title']
+            description = config['1']["attachments"]["questions"][0]['config'].get('description', '')
+            questions = MCQDeployment.from_questions_json(config['1']['attachments']['questions'])
+            question_count = config['1']['config'].get('questionsGiven', -1)
+            randomize = config['1']['config'].get('randomizeQuestions', True)
+            self._mcq_service = MCQDeployment(
+                name=name,
+                description=description,
+                questions=questions,
+                question_count=question_count,
+                randomize=randomize
+            )
+            self._services.append(AgentNode(self._mcq_service))
         else:
             raise ValueError(f"Invalid deployment type: {config['1']['type']}")
         
@@ -62,20 +79,63 @@ class AgentDeployment:
     def get_deployment_type(self) -> DeploymentType:
         return self._deployment_type
 
-    def get_code_problem_info(self) -> Optional[Dict[str, Any]]:
+    def get_code_problem_info(self, problem_index: int = 0) -> Optional[Dict[str, Any]]:
+        """Get problem info for a specific problem by index"""
         if self._deployment_type != DeploymentType.CODE or self._code_service is None:
             return None
-        return self._code_service.get_problem_info()
+        try:
+            return self._code_service.get_problem_info(problem_index)
+        except (ValueError, IndexError):
+            return None
 
-    def run_all_tests(self, code: str, database_session=None, submission_id=None):
+    def get_all_code_problems_info(self) -> Optional[List[Dict[str, Any]]]:
+        """Get info for all problems in this CODE deployment"""
+        if self._deployment_type != DeploymentType.CODE or self._code_service is None:
+            return None
+        return self._code_service.get_all_problems_info()
+
+    def get_code_problem_count(self) -> int:
+        """Get the number of problems in this CODE deployment"""
+        if self._deployment_type != DeploymentType.CODE or self._code_service is None:
+            return 0
+        return self._code_service.get_problem_count()
+
+    def run_all_tests(self, code: str, problem_index: int = 0, database_session=None, submission_id=None):
         if self._deployment_type != DeploymentType.CODE or self._code_service is None:
             return None
 
         try:
-            return self._code_service.run_all_tests(code, database_session=database_session, submission_id=submission_id)
+            return self._code_service.run_all_tests(
+                code, 
+                problem_index=problem_index, 
+                database_session=database_session, 
+                submission_id=submission_id
+            )
         except Exception as exc:
-            print(f"[AgentDeployment] Code test execution failed: {exc}")
+            print(f"[AgentDeployment] Code test execution failed for problem {problem_index}: {exc}")
             raise
+
+    def get_code_problem_info_legacy(self) -> Optional[Dict[str, Any]]:
+        return self.get_code_problem_info(0)
+
+    # MCQ related methods
+    def get_mcq_service(self) -> Optional["MCQDeployment"]:
+        """Get the MCQ service if this is an MCQ deployment"""
+        if self._deployment_type != DeploymentType.MCQ:
+            return None
+        return self._mcq_service
+
+    def get_mcq_question_count(self) -> int:
+        """Get the total number of questions in the MCQ deployment"""
+        if self._deployment_type != DeploymentType.MCQ or self._mcq_service is None:
+            return 0
+        return len(self._mcq_service.questions)
+
+    def create_mcq_question_set(self, question_count: int = -1, randomize: bool = True) -> List[int]:
+        """Create a randomized question set for MCQ"""
+        if self._deployment_type != DeploymentType.MCQ or self._mcq_service is None:
+            return []
+        return self._mcq_service.create_question_set(question_count, randomize)
 
     @staticmethod
     def _convert_value(value: Any) -> Any:

@@ -12,6 +12,7 @@ const CONNECTION_MAPPINGS: Record<
   Output: { sourceHandle: "output", targetHandle: "result-input" },
   Tests: { sourceHandle: "tests-input", targetHandle: "tests-output" },
   codeAnalyzer: { sourceHandle: "analyzer-output", targetHandle: "analyzer-input" },
+  questions: { sourceHandle: "mcq-output", targetHandle: "mcq-input" },
 };
 
 // Define handle positions for different node types and handles

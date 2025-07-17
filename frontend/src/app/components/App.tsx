@@ -2,12 +2,13 @@
 
 import React, { useState, useEffect } from "react";
 import { AuthAPI, User } from "./agentBuilder/scripts/authAPI";
-import LoginPage from "./loginPage";
+import LoginPage from "./LoginPage";
 import ClassesPage from "./classes/ClassesPage";
 import ClassDetailPage from "./classes/ClassDetailPage";
 import WorkflowEditorPage from "./workflowEditorPage";
 import ChatInterface from "./chat/ChatInterface";
 import CodeInterface from "./code/CodeInterface";
+import { MCQInterface } from "./mcq";
 import { APP_STATES, type AppState } from "@/lib/constants";
 import { Class } from "@/lib/types";
 
@@ -88,12 +89,23 @@ export default function App() {
     setAppState(APP_STATES.CODE);
   };
 
+  const handleMCQWithDeployment = (deploymentId: string, deploymentName: string) => {
+    setCurrentDeploymentId(deploymentId);
+    setCurrentDeploymentName(deploymentName);
+    setAppState(APP_STATES.MCQ);
+  };
+
   const handleBackFromChat = () => {
     setCurrentDeploymentId(null);
     setAppState(APP_STATES.CLASS_DETAIL);
   };
 
   const handleBackFromCode = () => {
+    setCurrentDeploymentId(null);
+    setAppState(APP_STATES.CLASS_DETAIL);
+  };
+
+  const handleBackFromMCQ = () => {
     setCurrentDeploymentId(null);
     setAppState(APP_STATES.CLASS_DETAIL);
   };
@@ -152,6 +164,7 @@ export default function App() {
         onEditWorkflow={handleEditWorkflow}
         onChatWithDeployment={handleChatWithDeployment}
         onCodeWithDeployment={handleCodeWithDeployment}
+        onMCQWithDeployment={handleMCQWithDeployment}
       />
     );
   }
@@ -184,6 +197,17 @@ export default function App() {
         deploymentId={currentDeploymentId}
         workflowName={currentDeploymentName}
         onBack={handleBackFromCode}
+      />
+    );
+  }
+
+  // MCQ interface
+  if (appState === APP_STATES.MCQ && currentDeploymentId) {
+    return (
+      <MCQInterface
+        deploymentId={currentDeploymentId}
+        deploymentName={currentDeploymentName}
+        onClose={handleBackFromMCQ}
       />
     );
   }

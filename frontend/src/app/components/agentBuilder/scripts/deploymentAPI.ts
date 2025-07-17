@@ -8,12 +8,13 @@ export interface DeploymentResponse {
   deployment_id: string;
   chat_url: string;
   message: string;
+  grade?: [number, number] | null;
   configuration: {
     model: string;
     has_rag: boolean;
     collection?: string;
   };
-  type?: 'chat' | 'code';
+  type?: 'chat' | 'code' | 'mcq';
 }
 
 export interface ChatMessage {
@@ -33,11 +34,12 @@ export interface ActiveDeployment {
   workflow_name: string;
   created_at: string;
   chat_url: string;
+  grade?: [number, number] | null;
   configuration: {
     model: string;
     has_rag: boolean;
   };
-  type?: 'chat' | 'code';
+  type?: 'chat' | 'code' | 'mcq';
 }
 
 export interface DebugAuthResponse {
@@ -70,9 +72,21 @@ export interface MessageResponse {
 }
 
 export interface ProblemInfo {
+  problem_index?: number;
   function_name: string;
   description: string;
   parameter_names: string[];
+}
+
+export interface AllProblemsInfo {
+  deployment_id: string;
+  problem_count: number;
+  problems: ProblemInfo[];
+}
+
+export interface ProblemCountResponse {
+  deployment_id: string;
+  problem_count: number;
 }
 
 export interface CodeTestResult {
@@ -99,14 +113,19 @@ export interface DetailedCodeTestResult {
   passed_tests: number;
   failed_tests: number;
   test_results: TestCaseResult[];
+  submission_id?: number;
+  analysis?: string | null;
+  analysis_enabled?: boolean;
 }
 
 export interface CodeSaveRequest {
   code: string;
+  problem_index?: number;
 }
 
 export interface CodeSaveResponse {
   deployment_id: string;
+  problem_index?: number;
   message: string;
   saved_at: string;
 }
@@ -155,6 +174,13 @@ export interface SubmissionTestResults {
   code: string;
   analysis: string | null;
   test_results: DetailedCodeTestResult;
+}
+
+// Response for analysis polling
+export interface CodeAnalysisResponse {
+  submission_id: number;
+  deployment_id: string;
+  analysis: string | null;
 }
 
 import { apiClient } from '@/lib/apiClient';
@@ -430,14 +456,14 @@ export class DeploymentAPI {
     return response.data;
   }
 
-  // Get problem info for code deployment
-  static async getProblemInfo(deploymentId: string): Promise<{ deployment_id: string; problem_info: ProblemInfo }> {
+  // Get problem info for specific problem in code deployment
+  static async getProblemInfo(deploymentId: string, problemIndex: number = 0): Promise<{ deployment_id: string; problem_info: ProblemInfo }> {
     if (!deploymentId?.trim()) {
       throw new Error('Deployment ID is required');
     }
 
     const response = await apiClient.get<{ deployment_id: string; problem_info: ProblemInfo }>(
-      `${ROUTES.DEPLOYMENTS}/${deploymentId}/problem-info`
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/problem-info?problem_index=${problemIndex}`
     );
 
     if (response.error) {
@@ -451,8 +477,50 @@ export class DeploymentAPI {
     return response.data;
   }
 
-  // Run tests for code deployment
-  static async runTests(deploymentId: string, code: string): Promise<DetailedCodeTestResult> {
+  // Get all problems info for code deployment
+  static async getAllProblemsInfo(deploymentId: string): Promise<AllProblemsInfo> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    const response = await apiClient.get<AllProblemsInfo>(
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/problems-info`
+    );
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.data) {
+      throw new Error('No problems info received');
+    }
+
+    return response.data;
+  }
+
+  // Get problem count for code deployment
+  static async getProblemCount(deploymentId: string): Promise<ProblemCountResponse> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    const response = await apiClient.get<ProblemCountResponse>(
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/problem-count`
+    );
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.data) {
+      throw new Error('No problem count received');
+    }
+
+    return response.data;
+  }
+
+  // Run tests for specific problem in code deployment
+  static async runTests(deploymentId: string, code: string, problemIndex: number = 0): Promise<DetailedCodeTestResult> {
     if (!deploymentId?.trim()) {
       throw new Error('Deployment ID is required');
     }
@@ -462,7 +530,7 @@ export class DeploymentAPI {
     }
 
     const response = await apiClient.post<DetailedCodeTestResult>(
-      `${ROUTES.DEPLOYMENTS}/${deploymentId}/run-tests`,
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/run-tests?problem_index=${problemIndex}`,
       { code }
     );
 
@@ -477,8 +545,35 @@ export class DeploymentAPI {
     return response.data;
   }
 
-  // Save code for code deployment
-  static async saveCode(deploymentId: string, code: string): Promise<CodeSaveResponse> {
+  // Fetch analysis for a submission (student or instructor)
+  static async getSubmissionAnalysis(
+    deploymentId: string,
+    submissionId: number,
+  ): Promise<CodeAnalysisResponse> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+    if (!submissionId || submissionId < 1) {
+      throw new Error('Valid submission ID is required');
+    }
+
+    const response = await apiClient.get<CodeAnalysisResponse>(
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/submissions/${submissionId}/analysis`
+    );
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.data) {
+      throw new Error('No analysis data received');
+    }
+
+    return response.data;
+  }
+
+  // Save code for specific problem in code deployment
+  static async saveCode(deploymentId: string, code: string, problemIndex: number = 0): Promise<CodeSaveResponse> {
     if (!deploymentId?.trim()) {
       throw new Error('Deployment ID is required');
     }
@@ -489,7 +584,7 @@ export class DeploymentAPI {
 
     const response = await apiClient.post<CodeSaveResponse>(
       `${ROUTES.DEPLOYMENTS}/${deploymentId}/save-code`,
-      { code }
+      { code, problem_index: problemIndex }
     );
 
     if (response.error) {
@@ -503,14 +598,14 @@ export class DeploymentAPI {
     return response.data;
   }
 
-  // Load code for code deployment
-  static async loadCode(deploymentId: string): Promise<CodeLoadResponse> {
+  // Load code for specific problem in code deployment
+  static async loadCode(deploymentId: string, problemIndex: number = 0): Promise<CodeLoadResponse> {
     if (!deploymentId?.trim()) {
       throw new Error('Deployment ID is required');
     }
 
     const response = await apiClient.get<CodeLoadResponse>(
-      `${ROUTES.DEPLOYMENTS}/${deploymentId}/load-code`
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/load-code?problem_index=${problemIndex}`
     );
 
     if (response.error) {
@@ -525,13 +620,13 @@ export class DeploymentAPI {
   }
 
   // Get student submissions for code deployment (instructors only)
-  static async getStudentSubmissions(deploymentId: string): Promise<SubmissionSummary> {
+  static async getStudentSubmissions(deploymentId: string, problemIndex: number = 0): Promise<SubmissionSummary> {
     if (!deploymentId?.trim()) {
       throw new Error('Deployment ID is required');
     }
 
     const response = await apiClient.get<SubmissionSummary>(
-      `${ROUTES.DEPLOYMENTS}/${deploymentId}/submissions`
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/submissions?problem_index=${problemIndex}`
     );
 
     if (response.error) {
@@ -546,7 +641,7 @@ export class DeploymentAPI {
   }
 
   // Get detailed test results for a specific submission (instructors only)
-  static async getSubmissionTestResults(deploymentId: string, submissionId: number): Promise<SubmissionTestResults> {
+  static async getSubmissionTestResults(deploymentId: string, submissionId: number, problemIndex: number = 0): Promise<SubmissionTestResults> {
     if (!deploymentId?.trim()) {
       throw new Error('Deployment ID is required');
     }
@@ -556,7 +651,7 @@ export class DeploymentAPI {
     }
 
     const response = await apiClient.get<SubmissionTestResults>(
-      `${ROUTES.DEPLOYMENTS}/${deploymentId}/submissions/${submissionId}/test-results`
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/submissions/${submissionId}/test-results?problem_index=${problemIndex}`
     );
 
     if (response.error) {

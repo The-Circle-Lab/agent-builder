@@ -10,9 +10,9 @@ export interface PropertyDefinition {
   key: string;
   label: string;
   // Extend supported types with a dynamic list of text inputs
-  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases";
+  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions";
   // Allow arrays for dynamic text list and test cases default values
-  defaultValue: string | number | boolean | string[] | TestCase[];
+  defaultValue: string | number | boolean | string[] | TestCase[] | MultipleChoiceQuestion[];
   placeholder?: string;
   options?: string[]; // For select type
   min?: number; // For number and range types
@@ -41,7 +41,7 @@ export interface PlusButtonProps {
   handleId: string;
   objectType: string;
   nodeId?: string;
-  edges?: Edge[]; // Make optional to match actual usage
+  edges?: Edge[]; 
   onAddNodeClick?: (objectType?: string, sourceNodeId?: string) => void;
   position: {
     bottom?: string;
@@ -61,4 +61,11 @@ export interface NodePropertyConfig {
 export interface TestCase {
   parameters: string[];
   expected: string;
+}
+
+// Multiple choice question representation for quiz nodes
+export interface MultipleChoiceQuestion {
+  text: string;
+  answers: string[];
+  correctAnswer: number; 
 }

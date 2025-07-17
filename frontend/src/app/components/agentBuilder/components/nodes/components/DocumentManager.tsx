@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { DocumentAPI, DocumentInfo } from "../../../scripts/documentAPI";
 
 interface DocumentManagerProps {
@@ -23,17 +23,7 @@ export default function DocumentManager({
   const numericWorkflowId = typeof workflowId === 'number' ? workflowId : 
     (typeof workflowId === 'string' && workflowId !== "default" ? parseInt(workflowId, 10) : null);
 
-  useEffect(() => {
-    loadDocuments();
-  }, [workflowId]);
-
-  useEffect(() => {
-    if (onDocumentsChange) {
-      onDocumentsChange(documents.length);
-    }
-  }, [documents.length, onDocumentsChange]);
-
-  const loadDocuments = async () => {
+  const loadDocuments = useCallback(async () => {
     if (!numericWorkflowId) {
       setDocuments([]);
       return;
@@ -54,7 +44,17 @@ export default function DocumentManager({
     } finally {
       setLoading(false);
     }
-  };
+  }, [numericWorkflowId]);
+
+  useEffect(() => {
+    loadDocuments();
+  }, [loadDocuments]);
+
+  useEffect(() => {
+    if (onDocumentsChange) {
+      onDocumentsChange(documents.length);
+    }
+  }, [documents.length, onDocumentsChange]);
 
   const handleFileUpload = async (files: FileList | File[]) => {
     if (!files || files.length === 0) return;

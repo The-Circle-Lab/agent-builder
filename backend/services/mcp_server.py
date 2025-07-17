@@ -12,7 +12,7 @@ from qdrant_client import QdrantClient
 from database.database import engine
 from models.db_models import Deployment, DeploymentProblemLink, Problem, Submission, SubmissionStatus, DeploymentType
 from fastmcp import FastMCP
-from services.deployment_types.code import CodeDeployment
+from services.deployment_types.code_executor import CodeDeployment
 
 # server
 mcp = FastMCP("agent-server")
@@ -92,6 +92,7 @@ async def search_documents(
 @mcp.tool()
 async def get_code_deployment_info(
     deployment_id: Annotated[str, "Deployment UUID for the CODE deployment"],
+    problem_index: Annotated[int, "Index of the problem to get info for (default: 0)"] = 0,
 ) -> Dict[str, Any]:
     try:
         with Session(engine) as session:
@@ -116,9 +117,10 @@ async def get_code_deployment_info(
                     node1 = workflow_nodes.get("1", {})
                     attachments = node1.get("attachments", {})
                     tests_list = attachments.get("tests", [])
-                    if tests_list:
-                        problem_config = tests_list[0].get("config", {})
+                    if tests_list and problem_index < len(tests_list):
+                        problem_config = tests_list[problem_index].get("config", {})
                         problem_info = {
+                            "problem_index": problem_index,
                             "function_name": problem_config.get("function_name"),
                             "description": problem_config.get("description"),
                             "parameter_names": problem_config.get("parameter_names"),
@@ -127,28 +129,142 @@ async def get_code_deployment_info(
             except Exception:
                 problem_info = None
 
-            # Fallback: look for linked Problem entity
+            # Fallback: look for linked Problem entities
             if problem_info is None:
-                linked_problem: Optional[Problem] = session.exec(
+                linked_problems = session.exec(
                     select(Problem)
                     .join(DeploymentProblemLink, Problem.id == DeploymentProblemLink.problem_id)
                     .where(DeploymentProblemLink.deployment_id == db_deployment.id)
-                ).first()
+                    .order_by(Problem.id)
+                ).all()
 
-                if linked_problem:
+                if linked_problems and problem_index < len(linked_problems):
+                    linked_problem = linked_problems[problem_index]
                     problem_info = {
+                        "problem_index": problem_index,
                         "problem_id": linked_problem.id,
                         "title": linked_problem.title,
                         "description": linked_problem.description,
                     }
 
-            return {
-                "deployment_id": deployment_id,
-                "workflow_name": db_deployment.workflow_name,
-                "problem": problem_info,
-            }
+            return {"problem": problem_info} if problem_info else {"error": f"Problem {problem_index} not found"}
+
     except Exception as exc:
-        return {"error": f"Failed to retrieve deployment info: {exc}"}
+        return {"error": f"Failed to get deployment info: {exc}"}
+
+
+@mcp.tool()
+async def get_all_code_problems_info(
+    deployment_id: Annotated[str, "Deployment UUID for the CODE deployment"],
+) -> Dict[str, Any]:
+    try:
+        with Session(engine) as session:
+            db_deployment: Optional[Deployment] = session.exec(
+                select(Deployment).where(
+                    Deployment.deployment_id == deployment_id,
+                    Deployment.is_active == True,
+                )
+            ).first()
+
+            if not db_deployment:
+                return {"error": f"Deployment '{deployment_id}' not found"}
+
+            if db_deployment.type != DeploymentType.CODE:
+                return {"error": f"Deployment '{deployment_id}' is not of CODE type"}
+
+            # Attempt to extract all problems from stored workflow nodes
+            all_problems_info = []
+            try:
+                if isinstance(db_deployment.config, dict):
+                    workflow_nodes = db_deployment.config.get("__workflow_nodes__", {})
+                    node1 = workflow_nodes.get("1", {})
+                    attachments = node1.get("attachments", {})
+                    tests_list = attachments.get("tests", [])
+                    
+                    for problem_idx, test_attachment in enumerate(tests_list):
+                        problem_config = test_attachment.get("config", {})
+                        problem_info = {
+                            "problem_index": problem_idx,
+                            "function_name": problem_config.get("function_name"),
+                            "description": problem_config.get("description"),
+                            "parameter_names": problem_config.get("parameter_names"),
+                            "test_cases_count": len(problem_config.get("test_cases", [])),
+                        }
+                        all_problems_info.append(problem_info)
+            except Exception:
+                all_problems_info = []
+
+            # Fallback: look for linked Problem entities
+            if not all_problems_info:
+                linked_problems = session.exec(
+                    select(Problem)
+                    .join(DeploymentProblemLink, Problem.id == DeploymentProblemLink.problem_id)
+                    .where(DeploymentProblemLink.deployment_id == db_deployment.id)
+                    .order_by(Problem.id)
+                ).all()
+
+                for problem_idx, linked_problem in enumerate(linked_problems):
+                    problem_info = {
+                        "problem_index": problem_idx,
+                        "problem_id": linked_problem.id,
+                        "title": linked_problem.title,
+                        "description": linked_problem.description,
+                    }
+                    all_problems_info.append(problem_info)
+
+            return {
+                "problems": all_problems_info,
+                "problem_count": len(all_problems_info)
+            }
+
+    except Exception as exc:
+        return {"error": f"Failed to get all problems info: {exc}"}
+
+
+@mcp.tool()
+async def get_code_problem_count(
+    deployment_id: Annotated[str, "Deployment UUID for the CODE deployment"],
+) -> Dict[str, Any]:
+    try:
+        with Session(engine) as session:
+            db_deployment: Optional[Deployment] = session.exec(
+                select(Deployment).where(
+                    Deployment.deployment_id == deployment_id,
+                    Deployment.is_active == True,
+                )
+            ).first()
+
+            if not db_deployment:
+                return {"error": f"Deployment '{deployment_id}' not found"}
+
+            if db_deployment.type != DeploymentType.CODE:
+                return {"error": f"Deployment '{deployment_id}' is not of CODE type"}
+
+            # Count problems from workflow nodes
+            problem_count = 0
+            try:
+                if isinstance(db_deployment.config, dict):
+                    workflow_nodes = db_deployment.config.get("__workflow_nodes__", {})
+                    node1 = workflow_nodes.get("1", {})
+                    attachments = node1.get("attachments", {})
+                    tests_list = attachments.get("tests", [])
+                    problem_count = len(tests_list)
+            except Exception:
+                problem_count = 0
+
+            # Fallback: count linked Problem entities
+            if problem_count == 0:
+                linked_problems_count = session.exec(
+                    select(Problem.id)
+                    .join(DeploymentProblemLink, Problem.id == DeploymentProblemLink.problem_id)
+                    .where(DeploymentProblemLink.deployment_id == db_deployment.id)
+                ).all()
+                problem_count = len(linked_problems_count)
+
+            return {"problem_count": problem_count}
+
+    except Exception as exc:
+        return {"error": f"Failed to get problem count: {exc}"}
 
 
 @mcp.tool()

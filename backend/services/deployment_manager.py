@@ -15,7 +15,8 @@ async def load_deployment_on_demand(deployment_id: str, user_id: int, db: DBSess
         db_deployment = db.exec(
             select(Deployment).where(
                 Deployment.deployment_id == deployment_id,
-                Deployment.is_active == True
+                Deployment.is_active == True,
+                Deployment.is_open == True
             )
         ).first()
         

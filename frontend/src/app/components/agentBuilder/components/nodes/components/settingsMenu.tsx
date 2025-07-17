@@ -365,6 +365,142 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
         );
       }
 
+      case "multipleChoiceQuestions": {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const questions: any[] = Array.isArray(value) ? value : [];
+
+        const updateQuestion = (index: number, field: string, val: string | number, answerIdx?: number) => {
+          const newQuestions = questions.map((q, i) => {
+            if (i !== index) return q;
+            
+            if (field === "text") {
+              return { ...q, text: val };
+            } else if (field === "correctAnswer") {
+              return { ...q, correctAnswer: val };
+            } else if (field === "answer" && typeof answerIdx === "number") {
+              const newAnswers = Array.isArray(q.answers) ? [...q.answers] : [];
+              newAnswers[answerIdx] = val;
+              return { ...q, answers: newAnswers };
+            }
+            return q;
+          });
+          handleInputChange(key, newQuestions);
+        };
+
+        const addAnswer = (questionIdx: number) => {
+          const newQuestions = questions.map((q, i) => {
+            if (i !== questionIdx) return q;
+            const newAnswers = Array.isArray(q.answers) ? [...q.answers, ""] : [""];
+            return { ...q, answers: newAnswers };
+          });
+          handleInputChange(key, newQuestions);
+        };
+
+        const removeAnswer = (questionIdx: number, answerIdx: number) => {
+          const newQuestions = questions.map((q, i) => {
+            if (i !== questionIdx) return q;
+            const newAnswers = Array.isArray(q.answers) ? q.answers.filter((_: unknown, idx: number) => idx !== answerIdx) : [];
+            // Adjust correctAnswer if it was pointing to a removed answer
+            let newCorrectAnswer = q.correctAnswer;
+            if (newCorrectAnswer >= answerIdx && newCorrectAnswer > 0) {
+              newCorrectAnswer = Math.max(0, newCorrectAnswer - 1);
+            }
+            return { ...q, answers: newAnswers, correctAnswer: newCorrectAnswer };
+          });
+          handleInputChange(key, newQuestions);
+        };
+
+        const addQuestion = () => {
+          const newQuestions = [...questions, { text: "", answers: ["", ""], correctAnswer: 0 }];
+          handleInputChange(key, newQuestions);
+        };
+
+        const deleteQuestion = (idx: number) => {
+          const newQuestions = questions.filter((_q, i) => i !== idx);
+          handleInputChange(key, newQuestions);
+        };
+
+        return (
+          <div key={key} className="space-y-4">
+            <label className="block text-sm font-medium text-gray-200 mb-2">
+              {label}
+            </label>
+            {questions.map((question, qIdx) => (
+              <div key={`${key}-question-${qIdx}`} className="space-y-3 border border-gray-600 p-4 rounded-md">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-300 text-sm">Question #{qIdx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => deleteQuestion(qIdx)}
+                    className="text-red-400 hover:text-red-500"
+                  >
+                    ×
+                  </button>
+                </div>
+                
+                {/* Question Text */}
+                <textarea
+                  value={question.text ?? ""}
+                  onChange={(e) => updateQuestion(qIdx, "text", e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter question text"
+                  rows={2}
+                />
+
+                {/* Answers */}
+                <div className="space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-gray-300">Answers:</span>
+                    <button
+                      type="button"
+                      onClick={() => addAnswer(qIdx)}
+                      className="px-2 py-1 bg-blue-600 text-white text-xs rounded-md hover:bg-blue-700"
+                    >
+                      Add Answer
+                    </button>
+                  </div>
+                  
+                  {(question.answers || []).map((answer: string, aIdx: number) => (
+                    <div key={`answer-${aIdx}`} className="flex items-center space-x-2">
+                      <input
+                        type="radio"
+                        name={`correct-${qIdx}`}
+                        checked={question.correctAnswer === aIdx}
+                        onChange={() => updateQuestion(qIdx, "correctAnswer", aIdx)}
+                        className="text-green-600 bg-gray-700 border-gray-600 focus:ring-green-500"
+                      />
+                      <input
+                        type="text"
+                        value={answer}
+                        onChange={(e) => updateQuestion(qIdx, "answer", e.target.value, aIdx)}
+                        className="flex-1 px-3 py-1 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder={`Answer ${aIdx + 1}`}
+                      />
+                      {(question.answers || []).length > 2 && (
+                        <button
+                          type="button"
+                          onClick={() => removeAnswer(qIdx, aIdx)}
+                          className="text-red-400 hover:text-red-500 px-2"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addQuestion}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+            >
+              Add Question
+            </button>
+          </div>
+        );
+      }
+
       default:
         return null;
     }

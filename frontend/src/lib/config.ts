@@ -1,7 +1,3 @@
-import fs from 'fs';
-import path from 'path';
-import yaml from 'js-yaml';
-
 interface Config {
   api: {
     base_url: string;
@@ -35,45 +31,6 @@ interface Config {
 
 let cachedConfig: Config | null = null;
 
-// Function to substitute environment variables in config values
-function substituteEnvVars(value: any): any {
-  if (typeof value === 'string') {
-    // Handle ${VAR_NAME:default_value} pattern
-    return value.replace(/\$\{([^:}]+)(?::([^}]*))?\}/g, (_, varName, defaultValue) => {
-      const envValue = process.env[varName];
-      return envValue !== undefined ? envValue : (defaultValue || '');
-    });
-  } else if (Array.isArray(value)) {
-    return value.map(substituteEnvVars);
-  } else if (typeof value === 'object' && value !== null) {
-    const result: any = {};
-    for (const [key, val] of Object.entries(value)) {
-      result[key] = substituteEnvVars(val);
-    }
-    return result;
-  }
-  return value;
-}
-
-// Load and parse the config file
-function loadConfigFromFile(): Config {
-  try {
-    const configPath = path.join(process.cwd(), 'config.yaml');
-    const configContent = fs.readFileSync(configPath, 'utf8');
-    const rawConfig = yaml.load(configContent) as any;
-    
-    // Substitute environment variables
-    const processedConfig = substituteEnvVars(rawConfig);
-    
-    return processedConfig as Config;
-  } catch (error) {
-    console.warn('Failed to load config.yaml, using defaults:', error);
-    // Return default config if file doesn't exist
-    return getDefaultConfig();
-  }
-}
-
-// Default configuration fallback
 function getDefaultConfig(): Config {
   return {
     api: {
@@ -107,21 +64,17 @@ function getDefaultConfig(): Config {
   };
 }
 
-// Main config loader function
 export function loadConfig(): Config {
   if (cachedConfig === null) {
-    // In browser environment, we can't read files, so use defaults with env vars
     if (typeof window !== 'undefined') {
       cachedConfig = getDefaultConfig();
     } else {
-      // In Node.js environment (build time), we can read the file
-      cachedConfig = loadConfigFromFile();
+      cachedConfig = getDefaultConfig();
     }
   }
   return cachedConfig;
 }
 
-// Convenience functions for accessing specific config sections
 export const getApiConfig = () => loadConfig().api;
 export const getUIConfig = () => loadConfig().ui;
 export const getValidationConfig = () => loadConfig().validation;

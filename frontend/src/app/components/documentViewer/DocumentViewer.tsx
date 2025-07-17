@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Document, Page, pdfjs } from 'react-pdf';
 import mammoth from 'mammoth';
 
@@ -90,7 +90,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
     };
   }, [state.pdfBlobUrl]);
 
-  const loadDocxContent = async () => {
+  const loadDocxContent = useCallback(async () => {
     try {
       updateState({ loading: true, error: null });
       
@@ -125,9 +125,9 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
       });
       onError?.(errorMessage);
     }
-  };
+  }, [fileUrl, onLoad, onError]);
 
-  const loadPdfContent = async () => {
+  const loadPdfContent = useCallback(async () => {
     try {
       updateState({ loading: true, error: null });
       
@@ -157,7 +157,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
       });
       onError?.(errorMessage);
     }
-  };
+  }, [fileUrl, onError]);
 
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     // Ensure currentPage is within valid range
