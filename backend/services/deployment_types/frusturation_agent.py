@@ -58,10 +58,6 @@ class FrustrationAnalyzer:
             self.is_mock = True
     
     def analyze_frustration(self, text: str) -> Dict[str, Union[str, float, bool]]:
-        """
-        Analyze if a text message shows frustration.
-        Returns the probability and classification.
-        """
         if self.is_mock:
             # Return mock results for development
             return {
@@ -105,9 +101,6 @@ class FrustrationAnalyzer:
             raise
     
     def get_frustration_score(self, text: str) -> float:
-        """
-        Get just the frustration probability score (0-1).
-        """
         try:
             result = self.analyze_frustration(text)
             return result["frustration_probability"] or 0.0
@@ -116,9 +109,6 @@ class FrustrationAnalyzer:
             raise
 
     def is_frustrated(self, text: str, threshold: float = 0.5) -> bool:
-        """
-        Simple boolean check if text shows frustration above threshold.
-        """
         try:
             score = self.get_frustration_score(text)
             return score > threshold

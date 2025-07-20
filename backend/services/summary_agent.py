@@ -9,21 +9,6 @@ class SummaryAgent:
         self.db = db
 
     def standardize_problem_submissions(self, problem_id: int) -> List[Dict[str, Any]]:
-        """
-        Return a list of standardized submission dictionaries for the given problem.
-
-        Each object follows this template:
-            {
-                "student_id": int,
-                "attempt_num": int,
-                "verdict": "pass" | "fail",
-                "error_type": str | None,  # "failed_tests", "runtime_error", or other explanatory tag
-                "cause": str | None,        # Human-readable description of failure (None if pass)
-                "analysis": str | None,
-                "total_tests": int | None,
-                "tests_passed": int | None,
-            }
-        """
         problem: Problem | None = self.db.get(Problem, problem_id)
         if not problem:
             raise ValueError(f"Problem {problem_id} not found")

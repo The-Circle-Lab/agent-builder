@@ -89,21 +89,6 @@ async def get_deployment_and_check_access(
     db: DBSession,
     require_instructor: bool = False
 ) -> Deployment:
-    """
-    Get deployment and check user access permissions.
-    
-    Args:
-        deployment_id: The deployment ID to look up
-        current_user: The current authenticated user
-        db: Database session
-        require_instructor: If True, requires instructor role in class
-        
-    Returns:
-        The deployment object if found and accessible
-        
-    Raises:
-        HTTPException: If deployment not found or access denied
-    """
     db_deployment = db.exec(
         select(Deployment).where(
             Deployment.deployment_id == deployment_id,
@@ -133,20 +118,6 @@ async def get_deployment_and_check_access(
     return db_deployment
 
 async def ensure_deployment_loaded(deployment_id: str, user_id: int, db: DBSession) -> Dict[str, Any]:
-    """
-    Ensure deployment is loaded in memory and return it.
-    
-    Args:
-        deployment_id: The deployment ID
-        user_id: The user ID requesting the deployment
-        db: Database session
-        
-    Returns:
-        The active deployment from memory
-        
-    Raises:
-        HTTPException: If deployment cannot be loaded
-    """
     if not await load_deployment_on_demand(deployment_id, user_id, db):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -156,16 +127,6 @@ async def ensure_deployment_loaded(deployment_id: str, user_id: int, db: DBSessi
     return get_active_deployment(deployment_id)
 
 def validate_deployment_type(deployment: Deployment, expected_type: DeploymentType):
-    """
-    Validate that a deployment is of the expected type.
-    
-    Args:
-        deployment: The deployment to check
-        expected_type: The expected deployment type
-        
-    Raises:
-        HTTPException: If deployment type doesn't match
-    """
     if deployment.type != expected_type:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -173,15 +134,6 @@ def validate_deployment_type(deployment: Deployment, expected_type: DeploymentTy
         )
 
 def check_deployment_open(deployment: Deployment):
-    """
-    Check if deployment is open for student access.
-    
-    Args:
-        deployment: The deployment to check
-        
-    Raises:
-        HTTPException: If deployment is closed
-    """
     if not deployment.is_open:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

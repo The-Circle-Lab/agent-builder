@@ -12,12 +12,9 @@ celery_app = Celery("agent_tasks", broker=broker_url, backend=result_backend)
 
 @celery_app.task(name="embed_analyses_to_qdrant")
 def embed_analyses_to_qdrant_task(problem_id: int):
-    """Background task: embed all AI analyses for a problem into Qdrant."""
     try:
         with get_session() as db:
             agent = SummaryAgent(db)
             agent.embed_analyses_to_qdrant(problem_id)
-            # Optionally also regenerate cohort summary later
     except Exception as exc:
-        # Log but swallow exception so Celery records FAILURE without crashing worker
         print(f"[Celery] embed_analyses_to_qdrant_task failed for problem {problem_id}: {exc}") 

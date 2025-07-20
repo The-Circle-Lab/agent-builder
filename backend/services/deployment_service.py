@@ -120,19 +120,16 @@ class AgentDeployment:
 
     # MCQ related methods
     def get_mcq_service(self) -> Optional["MCQDeployment"]:
-        """Get the MCQ service if this is an MCQ deployment"""
         if self._deployment_type != DeploymentType.MCQ:
             return None
         return self._mcq_service
 
     def get_mcq_question_count(self) -> int:
-        """Get the total number of questions in the MCQ deployment"""
         if self._deployment_type != DeploymentType.MCQ or self._mcq_service is None:
             return 0
         return len(self._mcq_service.questions)
 
     def create_mcq_question_set(self, question_count: int = -1, randomize: bool = True) -> List[int]:
-        """Create a randomized question set for MCQ"""
         if self._deployment_type != DeploymentType.MCQ or self._mcq_service is None:
             return []
         return self._mcq_service.create_question_set(question_count, randomize)
