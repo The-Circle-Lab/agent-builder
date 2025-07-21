@@ -1,7 +1,7 @@
 import datetime as dt
 from sqlmodel import SQLModel, Field, Relationship, UniqueConstraint
 from typing import List, Optional
-from .enums import ClassRole
+from ..enums import ClassRole
 
 
 class Class(SQLModel, table=True):
