@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import Image from "next/image";
+import { SideMenuInfo } from "./nodes/nodeTypes/baseNode";
 
 export * from "../hooks/useSideMenu";
 
@@ -10,107 +11,19 @@ interface SideMenuProps {
   objectType?: string;
 }
 
-// Define the node options for the side menu
-const nodeOptions = [
-  {
-    category: "llm",
-    type: "googleCloud",
-    name: "Google AI Models",
-    icon: "/google.svg",
-    description: "Add Google AI language models",
-  },
-  {
-    category: "llm",
-    type: "openAI",
-    name: "OpenAI Models",
-    icon: "/openai.svg",
-    description: "Add OpenAI language models",
-  },
-  {
-    category: "llm",
-    type: "anthropic",
-    name: "Anthropic Models",
-    icon: "/anthropic.svg",
-    description: "Add Anthropic language models",
-  },
-  {
-    category: "llm",
-    type: "deepSeek",
-    name: "DeepSeek Models",
-    icon: "/deepseek.svg",
-    description: "Add DeepSeek language models",
-  },
-  {
-    category: "llm",
-    type: "meta",
-    name: "Meta Models",
-    icon: "/meta.svg",
-    description: "Add Meta language models",
-  },
-  {
-    category: "output",
-    type: "agent",
-    name: "AI Agent",
-    icon: "/agent.svg",
-    description: "Add a new AI agent",
-  },
-  {
-    category: "tools",
-    type: "mcp",
-    name: "MCP Tool",
-    icon: "/tool.svg",
-    description: "Add a custom MCP tool",
-  },
-  {
-    category: "output",
-    type: "result",
-    name: "Output",
-    icon: "/output.svg",
-    description: "Add an output node",
-  },
-  {
-    category: "starter",
-    type: "chat",
-    name: "Chat",
-    icon: "/chat.svg",
-    description: "Add a chat node",
-  },
-  {
-    category: "starter",
-    type: "code",
-    name: "Code",
-    icon: "/code.svg",
-    description: "Add a code node",
-  },
-  {
-    category: "starter",
-    type: "mcq",
-    name: "Multiple Choice",
-    icon: "/mcq.svg",
-    description: "Add a multiple choice node",
-  },
-  {
-    category: "tests",
-    type: "tests",
-    name: "Tests",
-    icon: "/tests.svg",
-    description: "Add a tests node",
-  },
-  {
-    category: "questions",
-    type: "questions",
-    name: "Questions",
-    icon: "/questions.svg",
-    description: "Add a questions node",
-  },
-  {
-    category: "analysis",
-    type: "codeAnalyzer",
-    name: "Code Analyzer",
-    icon: "/codeAnalyzer.svg",
-    description: "Add a code analyzer node",
-  },
-];
+// Interface for node options
+interface NodeOption {
+  category: string;
+  type: string;
+  name: string;
+  icon: string;
+  description: string;
+}
+
+// Type for node class with static methods
+type NodeClassWithStatics = {
+  getSideMenuInfo?: () => SideMenuInfo | null;
+};
 
 // Define which categories to show for each object type
 const objectTypeFilters: Record<string, string[]> = {
@@ -130,11 +43,43 @@ export function SideMenu({
   onAddNode,
   objectType,
 }: SideMenuProps) {
-  // State to preserve filtered options during transition
-  const [displayedOptions, setDisplayedOptions] = useState(nodeOptions);
+  const [nodeOptions, setNodeOptions] = useState<NodeOption[]>([]);
+  const [displayedOptions, setDisplayedOptions] = useState<NodeOption[]>([]);
   const [displayedHeaderTitle, setDisplayedHeaderTitle] = useState("Add Node");
 
-  // Update displayed options only when menu is open and objectType changes
+  // Load node options on component mount
+  useEffect(() => {
+    const loadNodeOptions = async () => {
+      try {
+        const { NodeClasses } = await import('./nodes/nodeTypes');
+        const options: NodeOption[] = [];
+        
+        Object.entries(NodeClasses).forEach(([nodeKey, NodeClass]) => {
+          const NodeClassTyped = NodeClass as unknown as NodeClassWithStatics;
+          if (NodeClassTyped && typeof NodeClassTyped.getSideMenuInfo === 'function') {
+            const sideMenuInfo = NodeClassTyped.getSideMenuInfo();
+            if (sideMenuInfo) {
+              options.push({
+                category: sideMenuInfo.category,
+                type: nodeKey,
+                name: sideMenuInfo.name,
+                icon: sideMenuInfo.icon,
+                description: sideMenuInfo.description,
+              });
+            }
+          }
+        });
+        
+        setNodeOptions(options);
+      } catch (error) {
+        console.warn("Failed to load NodeClasses for side menu:", error);
+      }
+    };
+
+    loadNodeOptions();
+  }, []);
+
+  // Update displayed options when menu is open, objectType changes, or nodeOptions are loaded
   useEffect(() => {
     if (isOpen) {
       const filteredOptions =
@@ -149,7 +94,7 @@ export function SideMenu({
       setDisplayedOptions(filteredOptions);
       setDisplayedHeaderTitle(headerTitle);
     }
-  }, [isOpen, objectType]);
+  }, [isOpen, objectType, nodeOptions]);
 
   const handleBackdropClick = (e: React.MouseEvent) => {
     if (e.target === e.currentTarget) {

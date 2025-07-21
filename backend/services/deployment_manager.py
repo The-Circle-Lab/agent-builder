@@ -1,6 +1,6 @@
 from typing import Dict, Any
 from sqlmodel import Session as DBSession, select
-from models.db_models import Deployment
+from models.database.db_models import Deployment
 from services.deployment_service import AgentDeployment
 from datetime import datetime, timezone
 
@@ -27,7 +27,7 @@ async def load_deployment_on_demand(deployment_id: str, user_id: int, db: DBSess
         workflow_data = db_deployment.config.get("__workflow_nodes__") if isinstance(db_deployment.config, dict) else None
 
         if workflow_data is None:
-            from models.db_models import Workflow 
+            from models.database.db_models import Workflow 
 
             workflow_record: "Workflow" | None = db.get(Workflow, db_deployment.workflow_id)
 

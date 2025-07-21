@@ -15,7 +15,7 @@ import {
 } from "./components/nodes/components/settingsMenu";
 
 import { createWorkflowJSON } from "./scripts/exportWorkflow";
-import { DeploymentAPI } from "./scripts/deploymentAPI";
+import { BaseDeploymentAPI } from "../../../lib/deploymentAPI";
 
 import "@xyflow/react/dist/style.css";
 
@@ -156,7 +156,7 @@ export default function WorkflowEditor({
       // First test authentication
       console.log("Testing authentication before deployment...");
       try {
-        const authResult = await DeploymentAPI.debugAuth();
+        const authResult = await BaseDeploymentAPI.debugAuth();
         console.log("Authentication successful:", authResult);
       } catch (authError) {
         console.error("Authentication failed:", authError);
@@ -171,7 +171,7 @@ export default function WorkflowEditor({
 
       // Deploy workflow
       console.log("Deploying workflow...");
-      const response = await DeploymentAPI.deployWorkflow(workflowName, numericWorkflowId, workflowData);
+              const response = await BaseDeploymentAPI.deployWorkflow(workflowName, numericWorkflowId, workflowData);
       console.log("Deployment successful:", response);
       
       if (onDeploySuccess) {

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { User } from '@/app/components/agentBuilder/scripts/authAPI';
+import { User } from '@/lib/authAPI';
 import { Class } from '@/lib/types';
 import { ClassAPI } from './classAPI';
 import CreateClassModal from './CreateClassModal';

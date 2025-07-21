@@ -1,14 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { AuthAPI, User } from "./agentBuilder/scripts/authAPI";
-import LoginPage from "./LoginPage";
+import { AuthAPI, User } from "../../lib/authAPI";
+import LoginPage from "./loginPage";
 import ClassesPage from "./classes/ClassesPage";
 import ClassDetailPage from "./classes/ClassDetailPage";
 import WorkflowEditorPage from "./workflowEditorPage";
-import ChatInterface from "./chat/ChatInterface";
-import CodeInterface from "./code/CodeInterface";
-import { MCQInterface } from "./mcq";
+import ChatInterface from "./deployments/chat/chatInterface";
+import CodeInterface from "./deployments/code/codeInterface";
+import { MCQInterface } from "./deployments/mcq";
 import { APP_STATES, type AppState } from "@/lib/constants";
 import { Class } from "@/lib/types";
 

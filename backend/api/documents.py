@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, s
 from fastapi.responses import JSONResponse
 from sqlmodel import Session as DBSession, select
 from api.auth import get_current_user
-from models.db_models import User, Document, Workflow, ClassRole
+from models.database.db_models import User, Document, Workflow, ClassRole
 from database.database import get_session
 from scripts.utils import create_qdrant_client, get_user_collection_name
 from scripts.permission_helpers import (

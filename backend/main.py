@@ -9,7 +9,7 @@ from api.deployment_routes import router as deployment_router
 from api.classes import router as class_router
 from api.file_storage import router as file_storage_router
 from services.deployment_manager import cleanup_all_deployments
-from models.db_models import User
+from models.database.db_models import User
 from contextlib import asynccontextmanager
 import logging
 from datetime import datetime

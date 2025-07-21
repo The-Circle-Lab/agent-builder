@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlmodel import Session as DBSession, select
 from api.auth import get_current_user
-from models.db_models import User, Document, Workflow
+from models.database.db_models import User, Document, Workflow
 from database.database import get_session
 from scripts.permission_helpers import user_can_access_workflow
 import sys

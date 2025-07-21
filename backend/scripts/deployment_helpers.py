@@ -7,7 +7,7 @@ from fastapi import HTTPException, WebSocket, status
 from fastapi.websockets import WebSocketDisconnect
 from sqlmodel import Session as DBSession, select
 
-from models.db_models import (
+from models.database.db_models import (
     AuthSession,
     ChatConversation,
     ChatMessage,

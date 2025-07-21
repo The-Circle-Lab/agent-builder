@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { DocumentAPI, DocumentInfo } from "../../../scripts/documentAPI";
+import { DocumentAPI, DocumentInfo } from "../../../../../../lib/documentAPI";
 
 interface DocumentManagerProps {
   workflowId?: string | number;

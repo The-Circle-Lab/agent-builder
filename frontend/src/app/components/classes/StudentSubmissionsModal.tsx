@@ -13,7 +13,7 @@ import {
   LockClosedIcon,
   LockOpenIcon
 } from '@heroicons/react/24/outline';
-import { DeploymentAPI, StudentSubmission, SubmissionSummary, SubmissionTestResults, AllProblemsInfo, ProblemInfo } from '../agentBuilder/scripts/deploymentAPI';
+import { CodeDeploymentAPI, StudentSubmission, SubmissionSummary, SubmissionTestResults, AllProblemsInfo, ProblemInfo } from '../../../lib/codeDeploymentAPI';
 import { API_CONFIG } from '@/lib/constants';
 
 interface StudentGrade {
@@ -61,7 +61,7 @@ export default function StudentSubmissionsModal({
   const loadProblemsInfo = useCallback(async () => {
     try {
       setProblemsLoading(true);
-      const problemsInfo = await DeploymentAPI.getAllProblemsInfo(deploymentId);
+      const problemsInfo = await CodeDeploymentAPI.getAllProblemsInfo(deploymentId);
       setAllProblemsInfo(problemsInfo);
       setSelectedProblemIndex(0); // Start with first problem
     } catch (err) {
@@ -78,7 +78,7 @@ export default function StudentSubmissionsModal({
       setLoading(true);
       setError(null);
       console.log('Loading submissions for deployment:', deploymentId, 'problem:', selectedProblemIndex);
-      const summary = await DeploymentAPI.getStudentSubmissions(deploymentId, selectedProblemIndex);
+      const summary = await CodeDeploymentAPI.getStudentSubmissions(deploymentId, selectedProblemIndex);
       console.log('Received submission summary:', summary);
       setSubmissionSummary(summary);
     } catch (err) {
@@ -154,7 +154,7 @@ export default function StudentSubmissionsModal({
     try {
       setTestResultsLoading(true);
       setSelectedSubmission(submission);
-      const results = await DeploymentAPI.getSubmissionTestResults(deploymentId, submission.id, selectedProblemIndex);
+      const results = await CodeDeploymentAPI.getSubmissionTestResults(deploymentId, submission.id, selectedProblemIndex);
       setTestResults(results);
     } catch (err) {
       console.error('Failed to load test results:', err);

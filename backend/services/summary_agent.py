@@ -1,7 +1,7 @@
 from typing import List, Dict, Any
 from sqlmodel import Session as DBSession, select
 
-from models.db_models import Problem, Submission, SubmissionStatus, TestCase
+from models.database.db_models import Problem, Submission, SubmissionStatus, TestCase
 
 
 class SummaryAgent:
@@ -69,8 +69,8 @@ class SummaryAgent:
         return standardized
 
     def update_deployment_metrics(self, deployment_id: str) -> None:
-        from models.db_models import Deployment, Problem, DeploymentProblemLink, Submission
-        from models.db_models import DeploymentType
+        from models.database.db_models import Deployment, Problem, DeploymentProblemLink, Submission
+        from models.database.db_models import DeploymentType
 
         db = self.db
 
@@ -136,7 +136,7 @@ class SummaryAgent:
 
     def compute_median_attempts(self, problem_id: int) -> float:
         from statistics import median
-        from models.db_models import Submission
+        from models.database.db_models import Submission
 
         submissions = self.db.exec(
             select(Submission).where(Submission.problem_id == problem_id).order_by(Submission.submitted_at.asc())
@@ -166,7 +166,7 @@ class SummaryAgent:
         from uuid import uuid4
 
         from scripts.config import load_config
-        from models.db_models import Submission
+        from models.database.db_models import Submission
 
         cfg = load_config()
         qdrant_url = cfg.get("qdrant", {}).get("url", "http://localhost:6333")

@@ -1,95 +1,104 @@
-import * as agentNode from "./agentNode";
-import * as googleCloudNode from "./googleCloudNode";
-import * as openAINode from "./openAINode";
-import * as anthropicNode from "./anthropicNode";
-import * as chatNode from "./chatNode";
-import * as outputNode from "./outputNode";
-import * as mcpNode from "./mcpNode";
-import * as deepSeekNode from "./deepSeekNode";
-import * as metaNode from "./metaNode";
-import * as codeNode from "./codeNode";
-import * as testsNode from "./testsNode";
-import * as codeAnalyzer from "./codeAnalyzerNode"
-import * as multipleChoiceNode from "./multipleChoiceNode"
-import * as questionsNode from "./questionsNode"
+import React from "react";
+import * as agentNode from "./agenticNodes/agentNode";
+import * as googleCloudNode from "./llmNodes/googleCloudNode";
+import * as openAINode from "./llmNodes/openAINode";
+import * as anthropicNode from "./llmNodes/anthropicNode";
+import * as chatNode from "./deploymentTypeNodes/chatNode";
+import * as outputNode from "./placeHolderNodes/outputNode";
+import * as mcpNode from "./toolNodes/mcpNode";
+import * as deepSeekNode from "./llmNodes/deepSeekNode";
+import * as metaNode from "./llmNodes/metaNode";
+import * as codeNode from "./deploymentTypeNodes/codeNode";
+import * as testsNode from "./contentNodes/testsNode";
+import * as codeAnalyzer from "./agenticNodes/codeAnalyzerNode"
+import * as multipleChoiceNode from "./deploymentTypeNodes/multipleChoiceNode"
+import * as questionsNode from "./contentNodes/questionsNode"
 import { BaseNode, BaseNodeProps, BaseNodeData } from "./baseNode";
 
 // Base classes and interfaces
 export { BaseNode } from "./baseNode";
 
 // Type for node class constructors
-type NodeClassConstructor = new (props: BaseNodeProps) => BaseNode<
-  BaseNodeProps,
-  BaseNodeData
->;
-
-export const NodeTypes = {
-  agent: agentNode.AgentNode,
-  googleCloud: googleCloudNode.GoogleCloudNode,
-  openAI: openAINode.OpenAINode,
-  anthropic: anthropicNode.AnthropicNode,
-  deepseek: deepSeekNode.DeepSeekNode,
-  meta: metaNode.MetaNode,
-  chat: chatNode.ChatNode,
-  code: codeNode.CodeNode,
-  result: outputNode.OutputNode,
-  mcp: mcpNode.McpNode,
-  tests: testsNode.TestsNode,
-  codeAnalyzer: codeAnalyzer.CodeAnalyzerNode,
-  mcq: multipleChoiceNode.MultipleChoiceNode,
-  questions: questionsNode.QuestionsNode
+type NodeClassConstructor = {
+  new (props: BaseNodeProps): BaseNode<BaseNodeProps, BaseNodeData>;
+  nodeType?: "base" | "start" | "end";
+  canAddNode?: boolean;
+  defaultHandlerID?: string | null;
+  handleConfigs?: Record<string, unknown>;
+  sideMenuInfo?: unknown;
+  getHandleConfigs?: () => Record<string, unknown>;
+  getSideMenuInfo?: () => unknown;
 };
 
-export const NodeClasses = {
-  agent: agentNode.AgentNodeClass,
-  googleCloud: googleCloudNode.GoogleCloudNodeClass,
-  openAI: openAINode.OpenAINodeClass,
-  anthropic: anthropicNode.AnthropicNodeClass,
-  chat: chatNode.ChatNodeClass,
-  code: codeNode.CodeNodeClass,
-  result: outputNode.OutputNodeClass,
-  mcp: mcpNode.McpNodeClass,
-  deepSeek: deepSeekNode.DeepSeekNodeClass,
-  meta: metaNode.MetaNodeClass,
-  tests: testsNode.TestsNodeClass,
-  codeAnalyzer: codeAnalyzer.CodeAnalyzerNodeClass,
-  mcq: multipleChoiceNode.MultipleChoiceNodeClass,
-  questions: questionsNode.QuestionsNodeClass
-};
+// Type definitions for node module exports
+type NodeComponent = React.ComponentType<BaseNodeProps>;
+type NodeClass = NodeClassConstructor;
+type NodeConfig = Record<string, unknown>;
+type NodeCreator = (...args: unknown[]) => unknown;
 
-export const NodeConfigs = {
-  agent: agentNode.agentNodeConfig,
-  googleCloud: googleCloudNode.googleCloudNodeConfig,
-  openAI: openAINode.openAINodeConfig,
-  anthropic: anthropicNode.anthropicNodeConfig,
-  chat: chatNode.chatNodeConfig,
-  code: codeNode.codeNodeConfig,
-  result: outputNode.outputNodeConfig,
-  mcp: mcpNode.mcpNodeConfig,
-  deepSeek: deepSeekNode.deepSeekNodeConfig,
-  meta: metaNode.metaNodeConfig,
-  tests: testsNode.testsNodeConfig,
-  codeAnalyzer: codeAnalyzer.codeAnalyzerNodeConfig,
-  mcq: multipleChoiceNode.multipleChoiceNodeConfig,
-  questions: questionsNode.questionsNodeConfig
-};
+// Registry of all node modules with their corresponding keys
+const NODE_MODULES = {
+  agent: agentNode,
+  googleCloud: googleCloudNode,
+  openAI: openAINode,
+  anthropic: anthropicNode,
+  chat: chatNode,
+  result: outputNode, // Special case: outputNode -> result
+  mcp: mcpNode,
+  deepSeek: deepSeekNode,
+  meta: metaNode,
+  code: codeNode,
+  tests: testsNode,
+  codeAnalyzer: codeAnalyzer,
+  mcq: multipleChoiceNode, // Special case: multipleChoiceNode -> mcq
+  questions: questionsNode
+} as const;
 
-export const NodeCreators = {
-  agent: agentNode.createAgentNodeType,
-  googleCloud: googleCloudNode.createGoogleCloudNodeType,
-  openAI: openAINode.createOpenAINodeType,
-  anthropic: anthropicNode.createAnthropicNodeType,
-  chat: chatNode.createChatNodeType,
-  code: codeNode.createCodeNodeType,
-  result: outputNode.createOutputNodeType,
-  mcp: mcpNode.createMcpNodeType,
-  deepSeek: deepSeekNode.createDeepSeekNodeType,
-  meta: metaNode.createMetaNodeType,
-  tests: testsNode.createTestsNodeType,
-  codeAnalyzer: codeAnalyzer.createCodeAnalyzerNodeType,
-  mcq: multipleChoiceNode.createMultipleChoiceNodeType,
-  questions: questionsNode.createQuestionsNodeType
-};
+// Dynamically generate NodeTypes
+export const NodeTypes = Object.entries(NODE_MODULES).reduce((acc, [key, module]) => {
+  const nodeName = Object.keys(module).find(exportName => 
+    exportName.endsWith('Node') && !exportName.endsWith('NodeClass') && !exportName.endsWith('NodeConfig')
+  );
+  if (nodeName && module[nodeName as keyof typeof module]) {
+    acc[key] = module[nodeName as keyof typeof module];
+  }
+  return acc;
+}, {} as Record<string, NodeComponent>);
+
+// Dynamically generate NodeClasses
+export const NodeClasses = Object.entries(NODE_MODULES).reduce((acc, [key, module]) => {
+  const nodeClassName = Object.keys(module).find(exportName => exportName.endsWith('NodeClass'));
+  if (nodeClassName && module[nodeClassName as keyof typeof module]) {
+    acc[key] = module[nodeClassName as keyof typeof module];
+  }
+  return acc;
+}, {} as Record<string, NodeClass>);
+
+// Dynamically generate NodeConfigs
+export const NodeConfigs = Object.entries(NODE_MODULES).reduce((acc, [key, module]) => {
+  const configName = Object.keys(module).find(exportName => exportName.endsWith('NodeConfig'));
+  if (configName && module[configName as keyof typeof module]) {
+    acc[key] = module[configName as keyof typeof module];
+  }
+  return acc;
+}, {} as Record<string, NodeConfig>);
+
+// Dynamically generate NodeCreators
+export const NodeCreators = Object.entries(NODE_MODULES).reduce((acc, [key, module]) => {
+  const creatorName = Object.keys(module).find(exportName => exportName.startsWith('create') && exportName.endsWith('NodeType'));
+  if (creatorName && module[creatorName as keyof typeof module]) {
+    acc[key] = module[creatorName as keyof typeof module];
+  }
+  return acc;
+}, {} as Record<string, NodeCreator>);
+
+// Register NodeClasses with the connection config system to resolve circular dependency
+if (typeof window !== 'undefined') {
+  // Only run on client side
+  import('../../../config/connectionConfig').then(({ registerNodeClasses }) => {
+    registerNodeClasses(() => NodeClasses);
+  });
+}
 
 // Registry of available node types (dynamically generated from NodeClasses)
 export const AVAILABLE_NODE_TYPES = Object.values(NodeClasses).map(

@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timezone
 
 # Database and models
-from models.db_models import (
+from models.database.db_models import (
     User, Document, Workflow, ChatConversation, ChatMessage, Deployment, 
     AuthSession, ClassRole, DeploymentType, MCQSession, MCQAnswer,
     Problem, TestCase, Submission, SubmissionStatus, UserProblemState,
@@ -23,7 +23,7 @@ from scripts.permission_helpers import (
 )
 
 # Deployment models
-from models.deployment_models import (
+from models.object_types import (
     DeploymentRequest, DeploymentResponse, ChatRequest, ChatResponse,
     ConversationCreateRequest, ConversationResponse, MessageResponse
 )

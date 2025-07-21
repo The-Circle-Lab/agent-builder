@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { AuthAPI, LoginRequest, RegisterRequest } from "./agentBuilder/scripts/authAPI";
+import { AuthAPI, LoginRequest, RegisterRequest } from "../../lib/authAPI";
 import { validateEmail, validatePassword, validatePasswordMatch } from "@/lib/utils";
 
 interface LoginPageProps {

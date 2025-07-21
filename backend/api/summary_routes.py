@@ -3,7 +3,7 @@ from sqlmodel import Session as DBSession
 
 from database.database import get_session
 from api.auth import get_current_user
-from models.db_models import User, Problem, ClassRole
+from models.database.db_models import User, Problem, ClassRole
 from services.summary_agent import SummaryAgent
 from scripts.permission_helpers import user_has_role_in_class
 

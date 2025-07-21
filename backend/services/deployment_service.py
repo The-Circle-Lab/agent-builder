@@ -1,8 +1,8 @@
 from typing import Dict, Any, List, Optional
 import ast
-from models.deployment_models import AgentNode, AgentNodeList
+from models.object_types import AgentNode, AgentNodeList
 from services.deployment_types.chat import Chat
-from models.db_models import DeploymentType
+from models.database.db_models import DeploymentType
 from services.config_service import parse_agent_config
 from services.deployment_types.code_executor import CodeDeployment
 from services.deployment_types.mcq import MCQDeployment
@@ -190,7 +190,7 @@ def get_deployment_files_info(
 ) -> Dict[str, Any]:
     try:
         from sqlmodel import select
-        from models.db_models import Document
+        from models.database.db_models import Document
         
         rag_document_ids: list[int] = db_deployment.rag_document_ids or []
         if not rag_document_ids:

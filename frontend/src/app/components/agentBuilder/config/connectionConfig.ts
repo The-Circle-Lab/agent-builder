@@ -1,73 +1,91 @@
-export interface HandleConfig {
+import { Edge } from "@xyflow/react";
+import { HandleConfig } from "../components/nodes/nodeTypes/baseNode";
+
+export interface HandleConfigInterface {
   maxConnections: number; // -1 for unlimited
   compatibleWith: string[]; // Array of handle IDs this handle can connect to
 }
 
 export interface ConnectionConfig {
-  [handleId: string]: HandleConfig;
+  [handleId: string]: HandleConfigInterface;
 }
 
-export const connectionConfig: ConnectionConfig = {
-  // Agent Node Handles
-  "llm-model": {
-    maxConnections: 1, // Can only connect to one LLM model
-    compatibleWith: ["llm-input"], // Can connect to GoogleCloud input
-  },
-  "tools": {
-    maxConnections: -1, // Unlimited connections to tools
-    compatibleWith: ["mcp-input"], // Can connect to various tool inputs
-  },
-  "agent-input": {
-    maxConnections: -1, // Can only connect to one agent input
-    compatibleWith: ["output", "chat-output"], // Can connect to agent output
-  },
-  "chat-output": {
-    maxConnections: 1, // Can only connect to one chat input
-    compatibleWith: ["agent-input"], // Can connect to chat output
-  },
-  "input": {
-    maxConnections: 1, // Can only receive one input
-    compatibleWith: ["output", "llm-model", "tools"], // Can receive from various sources
-  },
-  "output": {
-    maxConnections: -1, // Can output to multiple targets
-    compatibleWith: ["input", "agent-input"], // Can connect to inputs
-  },
-  "llm-input": {
-    maxConnections: 1, // Can only receive one LLM model connection
-    compatibleWith: ["llm-model"], // Can receive from llm-model handle
-  },
-  "mcp-input": {
-    maxConnections: 1, // Can only receive one MCP input
-    compatibleWith: ["tools"], // Can receive from tools handle
-  },
-  "tests-output": {
-    maxConnections: -1, // Can only connect to one test input
-    compatibleWith: ["tests-input"], // Can connect to test output
-  },
-  "tests-input": {
-    maxConnections: -1, // Can only connect to one test input
-    compatibleWith: ["tests-output"], // Can connect to test output
-  },
-  "analyzer-output": {
-    maxConnections: -1, // Can only connect to one test input
-    compatibleWith: ["analyzer-input"], // Can connect to test output
-  },
-  "analyzer-input": {
-    maxConnections: -1, // Can only connect to one test input
-    compatibleWith: ["analyzer-output"], // Can connect to test output
-  },
-  "mcq-input": {
-    maxConnections: 1, // Can only receive one mcq connection
-    compatibleWith: ["mcq-output"], // Can receive from mcq output
-  },
-  "mcq-output": {
-    maxConnections: -1, // Can output to multiple targets
-    compatibleWith: ["mcq-input"], // Can connect to mcq input
-  },
+// Type for node class with static methods
+type NodeClassWithStatics = {
+  getHandleConfigs?: () => Record<string, HandleConfig>;
 };
 
-import { Edge } from "@xyflow/react";
+// Cache for the connection config
+let connectionConfigCache: ConnectionConfig | null = null;
+let nodeClassesCallback: (() => Record<string, unknown>) | null = null;
+
+// Register NodeClasses callback from the node types index
+export function registerNodeClasses(getNodeClasses: () => Record<string, unknown>) {
+  nodeClassesCallback = getNodeClasses;
+  // Clear cache when NodeClasses are registered
+  connectionConfigCache = null;
+}
+
+// Dynamically build connection config from node class definitions
+function buildConnectionConfig(): ConnectionConfig {
+  // Use cache if available
+  if (connectionConfigCache) {
+    return connectionConfigCache;
+  }
+  
+  const config: ConnectionConfig = {};
+  
+  // Use the registered NodeClasses callback
+  if (!nodeClassesCallback) {
+    console.warn("NodeClasses not yet registered, returning empty config");
+    return config;
+  }
+  
+  try {
+    const NodeClasses = nodeClassesCallback();
+    
+    // Iterate through all node classes and collect their handle configurations
+    Object.values(NodeClasses).forEach((NodeClass) => {
+      const NodeClassTyped = NodeClass as unknown as NodeClassWithStatics;
+      if (NodeClassTyped && typeof NodeClassTyped.getHandleConfigs === 'function') {
+        const handleConfigs = NodeClassTyped.getHandleConfigs();
+        Object.entries(handleConfigs).forEach(([handleId, handleConfig]) => {
+          config[handleId] = {
+            maxConnections: handleConfig.maxConnections,
+            compatibleWith: handleConfig.compatibleWith,
+          };
+        });
+      }
+    });
+  } catch (error) {
+    console.warn("Failed to load NodeClasses for connection config:", error);
+  }
+  
+  // Cache the result
+  connectionConfigCache = config;
+  return config;
+}
+
+// Get the connection config (builds it if not cached)
+export function getConnectionConfig(): ConnectionConfig {
+  return buildConnectionConfig();
+}
+
+// Legacy export for backwards compatibility - now lazy-loaded
+export const connectionConfig = new Proxy({} as ConnectionConfig, {
+  get(target, prop) {
+    const config = getConnectionConfig();
+    return config[prop as string];
+  },
+  ownKeys() {
+    const config = getConnectionConfig();
+    return Object.keys(config);
+  },
+  has(target, prop) {
+    const config = getConnectionConfig();
+    return prop in config;
+  }
+});
 
 export function canConnect(
   sourceHandle: string,
@@ -76,8 +94,10 @@ export function canConnect(
   sourceNodeId: string,
   targetNodeId: string
 ): boolean {
-  const sourceConfig = connectionConfig[sourceHandle];
-  const targetConfig = connectionConfig[targetHandle];
+  const config = getConnectionConfig();
+  const sourceConfig = config[sourceHandle];
+  const targetConfig = config[targetHandle];
+  
   // Check if handles exist in config
   if (!sourceConfig || !targetConfig) {
     console.warn(

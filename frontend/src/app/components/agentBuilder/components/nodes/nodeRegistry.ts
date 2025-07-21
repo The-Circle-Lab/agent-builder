@@ -20,7 +20,7 @@ export interface NodeTypeHandlers {
 export function getNodeConfig(
   nodeType: string
 ): NodePropertyConfig | undefined {
-  return NodeConfigs[nodeType as keyof typeof NodeConfigs];
+  return NodeConfigs[nodeType as keyof typeof NodeConfigs] as unknown as NodePropertyConfig | undefined;
 }
 
 // Registry mapping node type keys to their factory functions
@@ -36,9 +36,9 @@ const NODE_FACTORY_MAP: Record<
         onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void,
         workflowId?: string | number
       ) => React.ComponentType<NodeProps>;
-      return creator(handlers.onDelete, handlers.onSettings, handlers.workflowId);
+      return creator(handlers.onDelete, handlers.onSettings, handlers.workflowId) as React.ComponentType<NodeProps>;
     } else if (NodeClasses[nodeType as keyof typeof NodeClasses].canAddNode) {
-      // Agent node gets special handler mapping
+      // Nodes that can add nodes get special handler mapping
       return (
         NodeCreators[
           nodeType as keyof typeof NodeCreators
@@ -48,14 +48,14 @@ const NODE_FACTORY_MAP: Record<
         handlers.edges || [],
         handlers.onDelete,
         handlers.onSettings
-      );
+      ) as React.ComponentType<NodeProps>;
     } else {
       // All other nodes get default handler mapping
       const creator = NodeCreators[nodeType as keyof typeof NodeCreators] as (
         onDelete?: (nodeId: string) => void,
         onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void
       ) => React.ComponentType<NodeProps>;
-      return creator(handlers.onDelete, handlers.onSettings);
+      return creator(handlers.onDelete, handlers.onSettings) as React.ComponentType<NodeProps>;
     }
   };
   return map;

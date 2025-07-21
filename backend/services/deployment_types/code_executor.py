@@ -393,7 +393,7 @@ except Exception as exc:
             from langchain_openai import ChatOpenAI
             from langchain.schema import HumanMessage, SystemMessage
             from sqlmodel import select
-            from models.db_models import Submission
+            from models.database.db_models import Submission
             
             chat = ChatOpenAI(
                 model=problem.llm_model,

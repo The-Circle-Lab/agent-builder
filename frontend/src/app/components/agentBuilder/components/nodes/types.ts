@@ -9,9 +9,7 @@ export type NodeData = BaseNodeData;
 export interface PropertyDefinition {
   key: string;
   label: string;
-  // Extend supported types with a dynamic list of text inputs
   type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions";
-  // Allow arrays for dynamic text list and test cases default values
   defaultValue: string | number | boolean | string[] | TestCase[] | MultipleChoiceQuestion[];
   placeholder?: string;
   options?: string[]; // For select type
@@ -19,10 +17,6 @@ export interface PropertyDefinition {
   max?: number; // For number and range types
   step?: number; // For range type
   rows?: number; // For textarea type
-  /**
-   * When `type` is `dynamicTextList`, the value of the property referenced by
-   * `countKey` determines how many text boxes should be displayed.
-   */
   countKey?: string; // For dynamicTextList and testCases: key of the numeric property controlling the count
 }
 

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import DocumentViewerModal from './DocumentViewerModal';
+import DocumentViewerModal from './documentViewerModal';
 
 interface DocumentItem {
   id: number;

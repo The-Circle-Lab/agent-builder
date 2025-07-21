@@ -10,7 +10,7 @@ from langchain_community.vectorstores import Qdrant
 from langchain_community.embeddings import FastEmbedEmbeddings
 from qdrant_client import QdrantClient
 from database.database import engine
-from models.db_models import Deployment, DeploymentProblemLink, Problem, Submission, SubmissionStatus, DeploymentType
+from models.database.db_models import Deployment, DeploymentProblemLink, Problem, Submission, SubmissionStatus, DeploymentType
 from fastmcp import FastMCP
 from services.deployment_types.code_executor import CodeDeployment
 

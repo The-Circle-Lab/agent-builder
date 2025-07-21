@@ -1,11 +1,17 @@
 import { Node, Edge } from "@xyflow/react";
 import { NodeClasses, NodeConfigs } from "../components/nodes/nodeTypes";
+import { PropertyDefinition } from "../components/nodes/types";
 
 // Type for node configuration with optional nested attachments
 interface NodeConfigWithAttachments {
   type: string | undefined;
   config: Record<string, unknown>;
   attachments?: Record<string, unknown>;
+}
+
+// Interface for node config structure
+interface NodeConfigStructure {
+  properties: PropertyDefinition[];
 }
 
 // Finds the 'starting' node
@@ -42,14 +48,14 @@ export function getConnectedNodes(
 
 // Helper function to get node configuration with data
 export function getNodeConfig(node: Node) {
-  const nodeConfig = NodeConfigs[node.type as keyof typeof NodeConfigs];
+  const nodeConfig = NodeConfigs[node.type as keyof typeof NodeConfigs] as unknown as NodeConfigStructure;
   if (!nodeConfig) return {};
 
   // Merge the node's data with default values from config
   const config: Record<string, unknown> = {};
 
   // Add all properties from the node config with their values
-  nodeConfig.properties.forEach((property) => {
+  nodeConfig.properties.forEach((property: PropertyDefinition) => {
     const value =
       node.data?.[property.key] !== undefined
         ? node.data[property.key]

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select, Session as DBSession
-from models.db_models import User, Class, ClassMembership, ClassRole
+from models.database.db_models import User, Class, ClassMembership, ClassRole
 from database.database import get_session
 from api.auth import get_current_user
 from scripts.permission_helpers import (

@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Deployment } from '@/lib/types';
-import { DeploymentAPI } from '../agentBuilder/scripts/deploymentAPI';
+import { BaseDeploymentAPI } from '../../../lib/deploymentAPI';
 import { 
   ChatBubbleLeftRightIcon, 
   TrashIcon, 
@@ -78,7 +78,7 @@ export default function ClassDeployments({
       });
       if (unknown.length>0){
         await Promise.all(unknown.map(async id=>{
-          try{ const resp = await DeploymentAPI.getDeploymentType(id); types[id]=resp.type;}catch{types[id]="chat";}
+          try{ const resp = await BaseDeploymentAPI.getDeploymentType(id); types[id]=resp.type;}catch{types[id]="chat";}
         }));
       }
       setDeploymentTypes(types);

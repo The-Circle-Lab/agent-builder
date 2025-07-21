@@ -4,7 +4,7 @@ import React from 'react';
 import dynamic from 'next/dynamic';
 
 // Dynamically import DocumentViewer to avoid SSR issues with react-pdf
-const DocumentViewer = dynamic(() => import('./DocumentViewer'), { 
+const DocumentViewer = dynamic(() => import('./documentViewer'), { 
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center h-64">

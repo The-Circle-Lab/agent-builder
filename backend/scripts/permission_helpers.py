@@ -1,5 +1,5 @@
 from sqlmodel import Session as DBSession, select
-from models.db_models import User, Class, ClassMembership, Workflow, Deployment, ClassRole
+from models.database.db_models import User, Class, ClassMembership, Workflow, Deployment, ClassRole
 from typing import List, Optional
 
 # Check if user has specific role in a given class

@@ -16,6 +16,20 @@ type PropertyTypeMap = {
   multipleChoiceQuestions: import("../types").MultipleChoiceQuestion[];
 };
 
+// Handle configuration interface
+export interface HandleConfig {
+  maxConnections: number; // -1 for unlimited
+  compatibleWith: string[]; // Array of handle IDs this handle can connect to
+}
+
+// Side menu information interface
+export interface SideMenuInfo {
+  category: string;
+  name: string;
+  icon: string;
+  description: string;
+}
+
 // Utility type to infer the data interface from a configuration
 export type InferNodeDataFromConfig<T extends readonly PropertyDefinition[]> = {
   [K in T[number]["key"]]?: T[number] extends {
@@ -57,9 +71,24 @@ export abstract class BaseNode<
   public static nodeType: "base" | "start" | "end" = "base";
   public static canAddNode = false;
   public static defaultHandlerID: string | null = null;
+  
+  // Static properties for handle configurations and side menu info that nodes can override
+  public static handleConfigs: Record<string, HandleConfig> = {};
+  public static sideMenuInfo: SideMenuInfo | null = null;
+  
   public abstract getNodeType(): string;
   protected abstract renderNodeContent(): React.ReactNode;
   protected abstract getConfig(): NodePropertyConfig;
+
+  // Static method to get handle configurations for this node type
+  public static getHandleConfigs(): Record<string, HandleConfig> {
+    return this.handleConfigs;
+  }
+
+  // Static method to get side menu information for this node type
+  public static getSideMenuInfo(): SideMenuInfo | null {
+    return this.sideMenuInfo;
+  }
 
   // Static method to create node type factory
   static createNodeType<T extends BaseNodeProps>(

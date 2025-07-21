@@ -1,3 +1,3 @@
-export { default as DocumentViewer } from './DocumentViewer';
-export { default as DocumentViewerModal } from './DocumentViewerModal';
-export { default as DocumentList } from './DocumentList'; 
+export { default as DocumentViewer } from './documentViewer';
+export { default as DocumentViewerModal } from './documentViewerModal';
+export { default as DocumentList } from './documentList'; 

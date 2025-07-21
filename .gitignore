@@ -78,3 +78,7 @@ coverage.xml
 node_modules/
 
 backend/uploads/
+
+cookies.txt
+student_cookies.txt
+test_cookies.txt
