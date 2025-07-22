@@ -10,7 +10,9 @@ import {
 export function createWorkflowJSON(nodes: Node[], edges: Edge[]) {
   // Check if the workflow is valid for deployment
   if (!checkWorkflowValidity(nodes, edges)) {
-    throw new Error("Invalid workflow: Make sure your workflow has a chat node connected to other nodes and ends with an output node.");
+    throw new Error(
+      "Invalid workflow: Make sure your workflow has a chat node connected to other nodes and ends with an output node."
+    );
   }
 
   const workflow: Record<
@@ -57,7 +59,7 @@ export function createWorkflowJSON(nodes: Node[], edges: Edge[]) {
     const nodeClass = NodeClasses[currentNode.type as keyof typeof NodeClasses];
     if (nodeClass) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tempInstance: any = new nodeClass({ id: currentNode.id, edges });
+      const tempInstance: any = new nodeClass({ id: currentNode.id });
       currentNode = tempInstance.getNextNode(nodes);
     } else {
       break;
@@ -103,7 +105,6 @@ export function checkWorkflowValidity(nodes: Node[], edges: Edge[]): boolean {
 
     currentNode = tempInstance.getNextNode(nodes);
   }
-
 
   return false;
 }
