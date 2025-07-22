@@ -23,7 +23,7 @@ jobs:
           ssh -o StrictHostKeyChecking=no ${{ secrets.DO_USER }}@${{ secrets.DO_HOST }} << 'EOF'
             set -e  # Exit if any command fails
 
-            cd /root/agent-builder
+            sudo cd /root/agent-builder
             git pull origin production
 
             source venv/bin/activate
