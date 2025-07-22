@@ -6,7 +6,7 @@ import { WorkflowAPI, AutoSave } from "./agentBuilder/scripts/workflowSave";
 import { ReactFlowNode, ReactFlowEdge } from "@/lib/types";
 
 // Dynamically import WorkflowEditor to avoid SSR issues with ReactFlow
-const WorkflowEditor = dynamic(() => import("./agentBuilder/workflowEditor"), { 
+const WorkflowEditor = dynamic(() => import("./agentBuilder/WorkflowEditor"), {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center h-full">
@@ -15,7 +15,7 @@ const WorkflowEditor = dynamic(() => import("./agentBuilder/workflowEditor"), {
         <span className="text-gray-600">Loading workflow editor...</span>
       </div>
     </div>
-  )
+  ),
 });
 
 interface WorkflowEditorPageProps {
@@ -23,33 +23,46 @@ interface WorkflowEditorPageProps {
   onBack: () => void;
 }
 
-export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEditorPageProps) {
+export default function WorkflowEditorPage({
+  workflowId,
+  onBack,
+}: WorkflowEditorPageProps) {
   const [workflowName, setWorkflowName] = useState("Untitled Workflow");
   const [workflowDescription, setWorkflowDescription] = useState("");
-  const [currentWorkflowId, setCurrentWorkflowId] = useState<number | null>(workflowId);
+  const [currentWorkflowId, setCurrentWorkflowId] = useState<number | null>(
+    workflowId
+  );
   const [loading, setLoading] = useState(!!workflowId);
   const [error, setError] = useState("");
-  const [saveStatus, setSaveStatus] = useState<"saved" | "saving" | "unsaved" | "error">("saved");
-  
+  const [saveStatus, setSaveStatus] = useState<
+    "saved" | "saving" | "unsaved" | "error"
+  >("saved");
+
   // Start with an empty canvas for new workflows
   const [initialNodes] = useState<ReactFlowNode[]>([]);
   const [initialEdges] = useState<ReactFlowEdge[]>([]);
 
-  const [currentNodes, setCurrentNodes] = useState<ReactFlowNode[]>(initialNodes);
-  const [currentEdges, setCurrentEdges] = useState<ReactFlowEdge[]>(initialEdges);
+  const [currentNodes, setCurrentNodes] =
+    useState<ReactFlowNode[]>(initialNodes);
+  const [currentEdges, setCurrentEdges] =
+    useState<ReactFlowEdge[]>(initialEdges);
   const [deploymentSuccess, setDeploymentSuccess] = useState<string>("");
 
   const loadWorkflow = useCallback(async () => {
     if (!workflowId) return;
-    
+
     try {
       setLoading(true);
       const workflow = await WorkflowAPI.loadWorkflow(workflowId);
       setWorkflowName(workflow.name);
       setWorkflowDescription(workflow.description || "");
-      
+
       // Load workflow data if it exists and has nodes
-      if (workflow.workflow_data && workflow.workflow_data.nodes && workflow.workflow_data.nodes.length > 0) {
+      if (
+        workflow.workflow_data &&
+        workflow.workflow_data.nodes &&
+        workflow.workflow_data.nodes.length > 0
+      ) {
         setCurrentNodes(workflow.workflow_data.nodes);
         setCurrentEdges(workflow.workflow_data.edges || []);
       } else {
@@ -58,7 +71,9 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
         setCurrentEdges(initialEdges);
       }
     } catch (error) {
-      setError(error instanceof Error ? error.message : "Failed to load workflow");
+      setError(
+        error instanceof Error ? error.message : "Failed to load workflow"
+      );
     } finally {
       setLoading(false);
     }
@@ -70,32 +85,35 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
     }
   }, [workflowId, loadWorkflow]);
 
-  const handleWorkflowChange = useCallback((nodes: ReactFlowNode[], edges: ReactFlowEdge[]) => {
-    setCurrentNodes(nodes);
-    setCurrentEdges(edges);
-    setSaveStatus("unsaved");
+  const handleWorkflowChange = useCallback(
+    (nodes: ReactFlowNode[], edges: ReactFlowEdge[]) => {
+      setCurrentNodes(nodes);
+      setCurrentEdges(edges);
+      setSaveStatus("unsaved");
 
-    // Auto-save after 2 seconds of inactivity
-    AutoSave.scheduleAutoSave(
-      currentWorkflowId,
-      workflowName,
-      workflowDescription,
-      nodes,
-      edges,
-      (result: unknown) => {
-        // If this is a new workflow, update the ID
-        const resultObj = result as { id?: number };
-        if (!currentWorkflowId && resultObj.id) {
-          setCurrentWorkflowId(resultObj.id);
+      // Auto-save after 2 seconds of inactivity
+      AutoSave.scheduleAutoSave(
+        currentWorkflowId,
+        workflowName,
+        workflowDescription,
+        nodes,
+        edges,
+        (result: unknown) => {
+          // If this is a new workflow, update the ID
+          const resultObj = result as { id?: number };
+          if (!currentWorkflowId && resultObj.id) {
+            setCurrentWorkflowId(resultObj.id);
+          }
+          setSaveStatus("saved");
+        },
+        (error) => {
+          setSaveStatus("error");
+          console.error("Auto-save error:", error);
         }
-        setSaveStatus("saved");
-      },
-      (error) => {
-        setSaveStatus("error");
-        console.error("Auto-save error:", error);
-      }
-    );
-  }, [currentWorkflowId, workflowName, workflowDescription]);
+      );
+    },
+    [currentWorkflowId, workflowName, workflowDescription]
+  );
 
   const handleManualSave = async () => {
     try {
@@ -107,16 +125,18 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
         currentNodes,
         currentEdges
       );
-      
+
       // If this is a new workflow, update the ID
       if (!currentWorkflowId && result.id) {
         setCurrentWorkflowId(result.id);
       }
-      
+
       setSaveStatus("saved");
     } catch (error) {
       setSaveStatus("error");
-      setError(error instanceof Error ? error.message : "Failed to save workflow");
+      setError(
+        error instanceof Error ? error.message : "Failed to save workflow"
+      );
     }
   };
 
@@ -156,19 +176,27 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
 
   const getSaveStatusColor = () => {
     switch (saveStatus) {
-      case "saved": return "text-green-600";
-      case "saving": return "text-blue-600";
-      case "unsaved": return "text-yellow-600";
-      case "error": return "text-red-600";
+      case "saved":
+        return "text-green-600";
+      case "saving":
+        return "text-blue-600";
+      case "unsaved":
+        return "text-yellow-600";
+      case "error":
+        return "text-red-600";
     }
   };
 
   const getSaveStatusText = () => {
     switch (saveStatus) {
-      case "saved": return "All changes saved";
-      case "saving": return "Saving...";
-      case "unsaved": return "Unsaved changes";
-      case "error": return "Save failed";
+      case "saved":
+        return "All changes saved";
+      case "saving":
+        return "Saving...";
+      case "unsaved":
+        return "Unsaved changes";
+      case "error":
+        return "Save failed";
     }
   };
 
@@ -182,12 +210,22 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
               onClick={onBack}
               className="text-gray-600 hover:text-gray-900 flex items-center space-x-2"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 19l-7-7 7-7"
+                />
               </svg>
               <span>Back to Workflows</span>
             </button>
-            
+
             <div className="border-l border-gray-300 pl-4">
               <input
                 type="text"
@@ -207,13 +245,15 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
           </div>
 
           <div className="flex items-center space-x-4">
-            <div className={`text-sm ${getSaveStatusColor()} flex items-center space-x-1`}>
+            <div
+              className={`text-sm ${getSaveStatusColor()} flex items-center space-x-1`}
+            >
               {saveStatus === "saving" && (
                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
               )}
               <span>{getSaveStatusText()}</span>
             </div>
-            
+
             <button
               onClick={handleManualSave}
               disabled={saveStatus === "saving" || saveStatus === "saved"}
@@ -262,4 +302,4 @@ export default function WorkflowEditorPage({ workflowId, onBack }: WorkflowEdito
       </div>
     </div>
   );
-} 
+}

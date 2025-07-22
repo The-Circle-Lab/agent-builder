@@ -34,7 +34,8 @@ let cachedConfig: Config | null = null;
 function getDefaultConfig(): Config {
   return {
     api: {
-      base_url: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000',
+      base_url:
+        process.env.NEXT_PUBLIC_API_URL || "http://score.encorelab.org/api/",
       timeout: 30000,
       retry_attempts: 3,
     },
@@ -58,7 +59,7 @@ function getDefaultConfig(): Config {
       },
     },
     files: {
-      supported_types: ['.pdf', '.docx', '.doc'],
+      supported_types: [".pdf", ".docx", ".doc"],
       max_upload_size: 10 * 1024 * 1024, // 10MB
     },
   };
@@ -66,7 +67,7 @@ function getDefaultConfig(): Config {
 
 export function loadConfig(): Config {
   if (cachedConfig === null) {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== "undefined") {
       cachedConfig = getDefaultConfig();
     } else {
       cachedConfig = getDefaultConfig();
@@ -78,4 +79,4 @@ export function loadConfig(): Config {
 export const getApiConfig = () => loadConfig().api;
 export const getUIConfig = () => loadConfig().ui;
 export const getValidationConfig = () => loadConfig().validation;
-export const getFilesConfig = () => loadConfig().files; 
+export const getFilesConfig = () => loadConfig().files;
