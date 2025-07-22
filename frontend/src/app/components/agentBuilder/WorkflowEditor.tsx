@@ -192,7 +192,11 @@ export default function WorkflowEditor({
 
       // Deploy workflow
       console.log("Deploying workflow...");
+<<<<<<< Updated upstream
       const response = await BaseDeploymentAPI.deployWorkflow(
+=======
+      const response = await DeploymentAPI.deployWorkflow(
+>>>>>>> Stashed changes
         workflowName,
         numericWorkflowId,
         workflowData
