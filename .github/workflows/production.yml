@@ -27,8 +27,7 @@ jobs:
             git pull origin production
 
             cd backend
-            source venv/bin/activate
-            pip install -r requirements.txt
+            ./venv/bin/pip install -r requirements.txt
 
             # Restart backend
             pm2 restart backend-api
