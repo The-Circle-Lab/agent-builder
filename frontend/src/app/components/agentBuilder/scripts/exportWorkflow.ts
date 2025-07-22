@@ -56,10 +56,12 @@ export function createWorkflowJSON(nodes: Node[], edges: Edge[]) {
     nodeIndex++;
 
     // Get the next node in the workflow
-    const nodeClass = NodeClasses[currentNode.type as keyof typeof NodeClasses];
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const nodeClass: any =
+      NodeClasses[currentNode.type as keyof typeof NodeClasses];
     if (nodeClass) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const tempInstance: any = new nodeClass({ id: currentNode.id });
+      const tempInstance: any = new nodeClass({ id: currentNode.id, edges });
       currentNode = tempInstance.getNextNode(nodes);
     } else {
       break;
