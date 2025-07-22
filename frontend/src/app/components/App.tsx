@@ -5,18 +5,10 @@ import { AuthAPI, User } from "../../lib/authAPI";
 import LoginPage from "./LoginPage";
 import ClassesPage from "./classes/ClassesPage";
 import ClassDetailPage from "./classes/ClassDetailPage";
-<<<<<<< Updated upstream
-
 import ChatInterface from "./deployments/chat/chatInterface";
 import CodeInterface from "./deployments/code/codeInterface";
 import { MCQInterface } from "./deployments/mcq";
 import WorkflowEditorPage from "./WorkflowEditorPage";
-=======
-import WorkflowEditorPage from "./WorkflowEditorPage";
-import ChatInterface from "./chat/ChatInterface";
-import CodeInterface from "./code/CodeInterface";
-import { MCQInterface } from "./mcq";
->>>>>>> Stashed changes
 import { APP_STATES, type AppState } from "@/lib/constants";
 import { Class } from "@/lib/types";
 

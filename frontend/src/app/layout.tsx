@@ -15,20 +15,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-<<<<<<< Updated upstream
   title: "Agent Builder - Create Intelligent Workflows",
   description:
     "Build and deploy intelligent AI workflows with ease using our visual workflow builder.",
   keywords: ["AI", "workflow", "automation", "agent", "builder"],
   authors: [{ name: "Agent Builder Team" }],
   robots: "index, follow",
-=======
-  title: 'Agent Builder - Create Intelligent Workflows',
-  description: 'Build and deploy intelligent AI workflows with ease using our visual workflow builder.',
-  keywords: ['AI', 'workflow', 'automation', 'agent', 'builder'],
-  authors: [{ name: 'Agent Builder Team' }],
-  robots: 'index, follow',
->>>>>>> Stashed changes
+
   other: {
     "X-Content-Type-Options": "nosniff",
   },
