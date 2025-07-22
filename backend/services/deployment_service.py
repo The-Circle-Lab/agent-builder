@@ -24,31 +24,33 @@ class AgentDeployment:
         self.deployment_id = deployment_id
         self._services = AgentNodeList() 
         
-        if (config['1']['type'] == 'chat'):
-            self._deployment_type = DeploymentType.CHAT
-        elif (config['1']['type'] == 'code'):
-            self._deployment_type = DeploymentType.CODE
-            self._code_service = CodeDeployment(
-                problem_config=config['1']
-            )
-            self._services.append(AgentNode(self._code_service))
-        elif (config['1']['type'] == 'mcq'):
-            self._deployment_type = DeploymentType.MCQ
-            name = config['1']["attachments"]["questions"][0]['config']['title']
-            description = config['1']["attachments"]["questions"][0]['config'].get('description', '')
-            questions = MCQDeployment.from_questions_json(config['1']['attachments']['questions'])
-            question_count = config['1']['config'].get('questionsGiven', -1)
-            randomize = config['1']['config'].get('randomizeQuestions', True)
-            self._mcq_service = MCQDeployment(
-                name=name,
-                description=description,
-                questions=questions,
-                question_count=question_count,
-                randomize=randomize
-            )
-            self._services.append(AgentNode(self._mcq_service))
-        else:
-            raise ValueError(f"Invalid deployment type: {config['1']['type']}")
+        # Starting node configuration
+        match config['1']['type']:
+            case 'chat':
+                self._deployment_type = DeploymentType.CHAT
+            case 'code':
+                self._deployment_type = DeploymentType.CODE
+                self._code_service = CodeDeployment(
+                    problem_config=config['1']
+                )
+                self._services.append(AgentNode(self._code_service))
+            case 'mcq':
+                self._deployment_type = DeploymentType.MCQ
+                name = config['1']["attachments"]["questions"][0]['config']['title']
+                description = config['1']["attachments"]["questions"][0]['config'].get('description', '')
+                questions = MCQDeployment.from_questions_json(config['1']['attachments']['questions'])
+                question_count = config['1']['config'].get('questionsGiven', -1)
+                randomize = config['1']['config'].get('randomizeQuestions', True)
+                self._mcq_service = MCQDeployment(
+                    name=name,
+                    description=description,
+                    questions=questions,
+                    question_count=question_count,
+                    randomize=randomize
+                )
+                self._services.append(AgentNode(self._mcq_service))
+            case _:
+                raise ValueError(f"Invalid deployment type: {config['1']['type']}")
         
         i = 2
         while (str(i) in config):

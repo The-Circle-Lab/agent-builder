@@ -1,6 +1,6 @@
 import React from 'react';
 import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/outline';
-import { MCQQuestion, MCQAnswer } from '@/lib/mcqDeploymentAPI';
+import { MCQQuestion, MCQAnswer } from '@/lib/deploymentAPIs/mcqDeploymentAPI';
 
 interface QuestionNavigationSidebarProps {
   questions: MCQQuestion[];

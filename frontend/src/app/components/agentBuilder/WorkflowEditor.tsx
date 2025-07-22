@@ -15,7 +15,7 @@ import {
 } from "./components/nodes/components/settingsMenu";
 
 import { createWorkflowJSON } from "./scripts/exportWorkflow";
-import { BaseDeploymentAPI } from "../../../lib/deploymentAPI";
+import { BaseDeploymentAPI } from "../../../lib/deploymentAPIs/deploymentAPI";
 
 import "@xyflow/react/dist/style.css";
 

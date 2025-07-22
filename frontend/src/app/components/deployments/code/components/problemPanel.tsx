@@ -1,4 +1,4 @@
-import { ProblemInfo, DetailedCodeTestResult } from "../../../../../lib/codeDeploymentAPI";
+import { ProblemInfo, DetailedCodeTestResult } from "../../../../../lib/deploymentAPIs/codeDeploymentAPI";
 import TestResultDisplay from "./testResultDisplay";
 import ErrorDisplay from "./errorDisplay";
 
