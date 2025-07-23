@@ -501,6 +501,102 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
         );
       }
 
+      case "submissionPrompts": {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const prompts: any[] = Array.isArray(value) ? value : [];
+
+        const updatePrompt = (index: number, field: string, val: string) => {
+          const newPrompts = prompts.map((p, i) => {
+            if (i !== index) return p;
+            
+            if (field === "prompt") {
+              return { ...p, prompt: val };
+            } else if (field === "mediaType") {
+              return { ...p, mediaType: val };
+            }
+            return p;
+          });
+          handleInputChange(key, newPrompts);
+        };
+
+        const addPrompt = () => {
+          const newPrompts = [...prompts, { prompt: "", mediaType: "textarea" }];
+          handleInputChange(key, newPrompts);
+        };
+
+        const deletePrompt = (idx: number) => {
+          const newPrompts = prompts.filter((_p, i) => i !== idx);
+          handleInputChange(key, newPrompts);
+        };
+
+        return (
+          <div key={key} className="space-y-4">
+            <label className="block text-sm font-medium text-gray-200 mb-2">
+              {label}
+            </label>
+            {prompts.map((prompt, pIdx) => (
+              <div key={`${key}-prompt-${pIdx}`} className="space-y-3 border border-gray-600 p-4 rounded-md">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-300 text-sm">Submission #{pIdx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => deletePrompt(pIdx)}
+                    className="text-red-400 hover:text-red-500"
+                  >
+                    ×
+                  </button>
+                </div>
+                
+                {/* Prompt Text */}
+                <textarea
+                  value={prompt.prompt ?? ""}
+                  onChange={(e) => updatePrompt(pIdx, "prompt", e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Enter submission prompt"
+                  rows={3}
+                />
+
+                {/* Media Type Selection */}
+                <div className="space-y-2">
+                  <span className="text-sm text-gray-300">Expected submission type:</span>
+                  <div className="flex space-x-4">
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="radio"
+                        name={`mediaType-${pIdx}`}
+                        value="textarea"
+                        checked={prompt.mediaType === "textarea"}
+                        onChange={(e) => updatePrompt(pIdx, "mediaType", e.target.value)}
+                        className="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-300">Text Response</span>
+                    </label>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="radio"
+                        name={`mediaType-${pIdx}`}
+                        value="hyperlink"
+                        checked={prompt.mediaType === "hyperlink"}
+                        onChange={(e) => updatePrompt(pIdx, "mediaType", e.target.value)}
+                        className="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-300">Hyperlink</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addPrompt}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+            >
+              Add Submission Prompt
+            </button>
+          </div>
+        );
+      }
+
       default:
         return null;
     }

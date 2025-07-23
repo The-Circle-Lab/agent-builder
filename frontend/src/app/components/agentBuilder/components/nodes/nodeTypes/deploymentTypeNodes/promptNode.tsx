@@ -76,7 +76,7 @@ export class PromptNodeClass extends BaseNode<PromptNodeProps, PromptNodeData> {
 
         <PlusButton
           handleId="prompt-output"
-          objectType="User Input"
+          objectType="Submission"
           nodeId={id}
           edges={edges}
           onAddNodeClick={onAddNodeClick}
@@ -97,7 +97,7 @@ export class PromptNodeClass extends BaseNode<PromptNodeProps, PromptNodeData> {
 
     // Find the edge connected to the mcq-output handle
     const outputEdge = edges.find(
-      (edge) => edge.source === id && edge.sourceHandle === "mcq-output"
+      (edge) => edge.source === id && edge.sourceHandle === "prompt-output"
     );
 
     if (!outputEdge) return null;

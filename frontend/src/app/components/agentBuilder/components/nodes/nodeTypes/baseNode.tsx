@@ -14,6 +14,7 @@ type PropertyTypeMap = {
   dynamicTextList: string[];
   testCases: import("../types").TestCase[];
   multipleChoiceQuestions: import("../types").MultipleChoiceQuestion[];
+  submissionPrompts: import("../types").SubmissionPrompt[];
 };
 
 // Handle configuration interface
@@ -123,7 +124,7 @@ export abstract class BaseNode<
       (
         defaultData as unknown as Record<
           string,
-          string | number | boolean | string[] | import("../types").TestCase[] | import("../types").MultipleChoiceQuestion[]
+          string | number | boolean | string[] | import("../types").TestCase[] | import("../types").MultipleChoiceQuestion[] | import("../types").SubmissionPrompt[]
         >
       )[property.key] = property.defaultValue;
     });

@@ -6,6 +6,7 @@ from .deployment_models import Deployment, DeploymentProblemLink
 from .code_models import Problem, TestCase, UserProblemState, Submission
 from .chat_models import ChatConversation, ChatMessage
 from .mcq_models import MCQSession, MCQAnswer
+from .prompt_models import PromptSession, PromptSubmission
 from .grading_models import StudentDeploymentGrade
 
 # Export all models for backward compatibility
@@ -30,6 +31,8 @@ __all__ = [
     "StudentDeploymentGrade",
     "MCQSession",
     "MCQAnswer",
+    "PromptSession",
+    "PromptSubmission",
 ]
 
 

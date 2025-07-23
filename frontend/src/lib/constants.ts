@@ -76,6 +76,7 @@ export const APP_STATES = {
   CHAT: 'chat',
   CODE: 'code',
   MCQ: 'mcq',
+  PROMPT: 'prompt',
 } as const;
 
 export type AppState = typeof APP_STATES[keyof typeof APP_STATES]; 

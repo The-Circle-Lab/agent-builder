@@ -3,7 +3,8 @@ from enum import Enum
 class DeploymentType(str, Enum):
     CHAT = "chat"
     CODE = "code"
-    MCQ = "mcq" 
+    MCQ = "mcq"
+    PROMPT = "prompt" 
 
 class ClassRole(str, Enum):
     STUDENT = "student"

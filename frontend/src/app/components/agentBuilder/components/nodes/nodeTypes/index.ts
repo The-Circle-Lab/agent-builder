@@ -14,6 +14,7 @@ import * as codeAnalyzer from "./agenticNodes/codeAnalyzerNode"
 import * as multipleChoiceNode from "./deploymentTypeNodes/multipleChoiceNode"
 import * as questionsNode from "./contentNodes/questionsNode"
 import * as promptNode from "./deploymentTypeNodes/promptNode"
+import * as submissionNode from "./contentNodes/submissionNode"
 import { BaseNode, BaseNodeProps, BaseNodeData } from "./baseNode";
 
 // Base classes and interfaces
@@ -54,6 +55,7 @@ const NODE_MODULES = {
   mcq: multipleChoiceNode, // Special case: multipleChoiceNode -> mcq
   questions: questionsNode,
   prompt: promptNode,
+  submission: submissionNode,
 } as const;
 
 // Dynamically generate NodeTypes
