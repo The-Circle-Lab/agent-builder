@@ -112,12 +112,24 @@ export interface Deployment {
   is_loaded?: boolean;
   is_open?: boolean;
   grade?: [number, number] | null;
-  configuration?: {
-    provider: string;
-    model: string;
-    has_rag: boolean;
-    mcp_enabled: boolean;
-  };
+  configuration?: 
+    | {
+        // Chat deployment configuration
+        provider: string;
+        model: string;
+        has_rag: boolean;
+        mcp_enabled: boolean;
+      }
+    | {
+        // Code deployment configuration  
+        question_count?: number;
+        [key: string]: unknown; // Allow other properties
+      }
+    | {
+        // MCQ deployment configuration
+        question_count?: number;
+        [key: string]: unknown; // Allow other properties
+      };
 }
 
 // ReactFlow types to avoid importing from @xyflow/react in SSR components

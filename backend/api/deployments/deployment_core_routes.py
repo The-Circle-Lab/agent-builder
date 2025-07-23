@@ -317,6 +317,45 @@ async def list_active_deployments(
                 ).all()
                 file_count = len(active_docs)
             
+            # Build configuration object based on deployment type
+            configuration = {
+                "provider": deployment.config.get("llm_config", {}).get("provider", "vertexai"),
+                "model": deployment.config.get("llm_config", {}).get("model", ""),
+                "has_rag": deployment.config.get("has_mcp", False),
+                "mcp_enabled": deployment.config.get("has_mcp", False)
+            }
+            
+            # Add question count for CODE deployments
+            if deployment.type == DeploymentType.CODE:
+                question_count = 0
+                try:
+                    if isinstance(deployment.config, dict):
+                        workflow_nodes = deployment.config.get("__workflow_nodes__", {})
+                        node1 = workflow_nodes.get("1", {})
+                        attachments = node1.get("attachments", {})
+                        tests_list = attachments.get("tests", [])
+                        question_count = len(tests_list)
+                except Exception:
+                    question_count = 0
+                configuration["question_count"] = question_count
+            
+            # Add question count for MCQ deployments
+            if deployment.type == DeploymentType.MCQ:
+                question_count = 0
+                try:
+                    if isinstance(deployment.config, dict):
+                        workflow_nodes = deployment.config.get("__workflow_nodes__", {})
+                        node1 = workflow_nodes.get("1", {})
+                        attachments = node1.get("attachments", {})
+                        questions_list = attachments.get("questions", [])
+                        if questions_list and len(questions_list) > 0:
+                            questions_config = questions_list[0].get("config", {})
+                            questions_data = questions_config.get("questions", [])
+                            question_count = len(questions_data)
+                except Exception:
+                    question_count = 0
+                configuration["question_count"] = question_count
+            
             # Just list the deployment info without loading it into memory
             user_deployments.append({
                 "deployment_id": deployment.deployment_id,
@@ -330,12 +369,7 @@ async def list_active_deployments(
                 "has_files": file_count > 0,
                 "type": deployment.type.value,
                 "grade": deployment.grade,
-                "configuration": {
-                    "provider": deployment.config.get("llm_config", {}).get("provider", "vertexai"),
-                    "model": deployment.config.get("llm_config", {}).get("model", ""),
-                    "has_rag": deployment.config.get("has_mcp", False),
-                    "mcp_enabled": deployment.config.get("has_mcp", False)
-                }
+                "configuration": configuration
             })
         
         return {"deployments": user_deployments}

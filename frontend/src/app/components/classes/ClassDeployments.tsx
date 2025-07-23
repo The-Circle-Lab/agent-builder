@@ -153,6 +153,39 @@ const getDeploymentTypeConfig = (deploymentType: string): DeploymentTypeConfig =
 
 const getGradingMethods = () => ['problem_correct', 'test_cases_correct'];
 
+// Helper function to check if configuration is a chat deployment configuration
+const isChatConfiguration = (config: unknown): config is { provider: string; model: string; has_rag: boolean; mcp_enabled: boolean } => {
+  return config !== null && typeof config === 'object' && 
+         'provider' in config && typeof (config as Record<string, unknown>).provider === 'string' && 
+         'model' in config && typeof (config as Record<string, unknown>).model === 'string';
+};
+
+// Helper function to extract question count for code deployments
+const getCodeDeploymentQuestionCount = (deployment: Deployment): number => {
+  if (!deployment.configuration) return 0;
+  
+  // Check if configuration has question_count property (code deployment)
+  const config = deployment.configuration as Record<string, unknown>;
+  if (typeof config.question_count === 'number') {
+    return config.question_count;
+  }
+  
+  return 0;
+};
+
+// Helper function to extract question count for MCQ deployments
+const getMCQDeploymentQuestionCount = (deployment: Deployment): number => {
+  if (!deployment.configuration) return 0;
+  
+  // Check if configuration has question_count property (MCQ deployment)
+  const config = deployment.configuration as Record<string, unknown>;
+  if (typeof config.question_count === 'number') {
+    return config.question_count;
+  }
+  
+  return 0;
+};
+
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
@@ -173,6 +206,11 @@ export default function ClassDeployments({
   const [togglingStates, setTogglingStates] = useState<Record<string, boolean>>({});
   const [individualGrades, setIndividualGrades] = useState<Record<string, IndividualGradesData>>({});
   const [loadingGrades, setLoadingGrades] = useState<Record<string, boolean>>({});
+
+  // Sort deployments by most recent first
+  const sortedDeployments = [...deployments].sort((a, b) => 
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
 
   // Determine deployment types on mount / prop change
   useEffect(() => {
@@ -396,7 +434,7 @@ export default function ClassDeployments({
       </div>
 
       {/* Deployments List */}
-      {deployments.length === 0 ? (
+      {sortedDeployments.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
           <RocketLaunchIcon className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-semibold text-gray-900">No active deployments</h3>
@@ -408,7 +446,7 @@ export default function ClassDeployments({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
-          {deployments.map(deployment => {
+          {sortedDeployments.map(deployment => {
             const isOpen = deploymentStates[deployment.deployment_id] ?? true;
             const isDisabled = !isOpen;
             const deploymentType = deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat';
@@ -446,15 +484,15 @@ export default function ClassDeployments({
                   
                     <div className="mt-1 text-xs text-gray-500 space-y-1">
                       <div className={isDisabled ? 'opacity-60' : ''}>
-                        {deploymentType === 'chat' && deployment.configuration?.model && (
-                          <p>Model: {deployment.configuration.model}</p>
+                        {deploymentType === 'chat' && deployment.configuration && isChatConfiguration(deployment.configuration) && (
+                          <>
+                            <p>Model: {deployment.configuration.model}</p>
+                            <p>Provider: {deployment.configuration.provider}</p>
+                            <p>RAG: {deployment.configuration.has_rag ? 'Enabled' : 'Disabled'}</p>
+                          </>
                         )}
-                        {deployment.configuration?.provider && (
-                          <p>Provider: {deployment.configuration.provider}</p>
-                        )}
-                        {deploymentType === 'chat' && deployment.configuration?.has_rag && (
-                          <p>RAG: Enabled</p>
-                        )}
+                        {deploymentType === 'code' && (<p>Questions: {getCodeDeploymentQuestionCount(deployment)}</p>)}
+                        {deploymentType === 'mcq' && (<p>Questions: {getMCQDeploymentQuestionCount(deployment)}</p>)}
                         <p>Deployed: {new Date(deployment.created_at).toLocaleDateString()}</p>
                       </div>
                       {renderGradeDisplay(deployment)}

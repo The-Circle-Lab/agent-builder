@@ -27,6 +27,11 @@ export default function ClassWorkflows({
   const [deployingId, setDeployingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
+  // Sort workflows by most recent first
+  const sortedWorkflows = [...workflows].sort((a, b) => 
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -162,7 +167,7 @@ export default function ClassWorkflows({
       )}
 
       {/* Workflows List */}
-      {workflows.length === 0 ? (
+      {sortedWorkflows.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
           <BeakerIcon className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-semibold text-gray-900">No workflows yet</h3>
@@ -172,7 +177,7 @@ export default function ClassWorkflows({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-6">
-          {workflows.map(workflow => (
+          {sortedWorkflows.map(workflow => (
             <div
               key={workflow.id}
               className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow"
