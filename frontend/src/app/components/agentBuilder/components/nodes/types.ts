@@ -9,8 +9,8 @@ export type NodeData = BaseNodeData;
 export interface PropertyDefinition {
   key: string;
   label: string;
-  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions";
-  defaultValue: string | number | boolean | string[] | TestCase[] | MultipleChoiceQuestion[];
+  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions" | "submissionPrompts";
+  defaultValue: string | number | boolean | string[] | TestCase[] | MultipleChoiceQuestion[] | SubmissionPrompt[];
   placeholder?: string;
   options?: string[]; // For select type
   min?: number; // For number and range types
@@ -62,4 +62,10 @@ export interface MultipleChoiceQuestion {
   text: string;
   answers: string[];
   correctAnswer: number; 
+}
+
+// Submission prompt representation for submission nodes
+export interface SubmissionPrompt {
+  prompt: string;
+  mediaType: "textarea" | "hyperlink";
 }

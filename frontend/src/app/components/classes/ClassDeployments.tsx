@@ -12,7 +12,8 @@ import {
   AcademicCapIcon,
   LockClosedIcon,
   LockOpenIcon,
-  ClipboardDocumentCheckIcon
+  ClipboardDocumentCheckIcon,
+  PencilSquareIcon
 } from '@heroicons/react/24/outline';
 import { API_CONFIG } from '@/lib/constants';
 
@@ -71,6 +72,25 @@ const DEPLOYMENT_TYPES = {
     handleStudentViewAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
       if (props.onViewStudentMCQ) {
         props.onViewStudentMCQ(deployment.deployment_id, deployment.workflow_name);
+      }
+    }
+  },
+  prompt: {
+    name: 'prompt',
+    displayName: 'Prompt Response',
+    buttonText: 'Respond',
+    buttonColor: 'bg-orange-600 hover:bg-orange-700',
+    icon: PencilSquareIcon,
+    hasGrading: false,
+    studentViewLabel: 'View student responses',
+    handleDeploymentAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      if (props.onPromptWithDeployment) {
+        props.onPromptWithDeployment(deployment.deployment_id, deployment.workflow_name);
+      }
+    },
+    handleStudentViewAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      if (props.onViewStudentPrompts) {
+        props.onViewStudentPrompts(deployment.deployment_id, deployment.workflow_name);
       }
     }
   }
@@ -137,10 +157,12 @@ interface ClassDeploymentsProps {
   onChatWithDeployment: (deploymentId: string, deploymentName: string) => void;
   onCodeWithDeployment?: (deploymentId: string, deploymentName: string) => void;
   onMCQWithDeployment?: (deploymentId: string, deploymentName: string) => void;
+  onPromptWithDeployment?: (deploymentId: string, deploymentName: string) => void;
   onDeleteDeployment: (deploymentId: string) => Promise<void>;
   onViewStudentChats: (deploymentId: string) => Promise<void>;
   onViewStudentSubmissions?: (deploymentId: string, deploymentName: string) => void;
   onViewStudentMCQ?: (deploymentId: string, deploymentName: string) => void;
+  onViewStudentPrompts?: (deploymentId: string, deploymentName: string) => void;
   // Add new deployment handler props here as needed
 }
 
@@ -195,10 +217,12 @@ export default function ClassDeployments({
   onChatWithDeployment,
   onCodeWithDeployment,
   onMCQWithDeployment,
+  onPromptWithDeployment,
   onDeleteDeployment,
   onViewStudentChats,
   onViewStudentSubmissions,
-  onViewStudentMCQ 
+  onViewStudentMCQ,
+  onViewStudentPrompts
 }: ClassDeploymentsProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deploymentTypes, setDeploymentTypes] = useState<Record<string,string>>({});
@@ -509,10 +533,12 @@ export default function ClassDeployments({
                             onChatWithDeployment,
                             onCodeWithDeployment,
                             onMCQWithDeployment,
+                            onPromptWithDeployment,
                             onDeleteDeployment,
                             onViewStudentChats,
                             onViewStudentSubmissions,
                             onViewStudentMCQ,
+                            onViewStudentPrompts,
                             deployments,
                             isInstructor
                           }, deployment);
@@ -538,10 +564,12 @@ export default function ClassDeployments({
                             onChatWithDeployment,
                             onCodeWithDeployment,
                             onMCQWithDeployment,
+                            onPromptWithDeployment,
                             onDeleteDeployment,
                             onViewStudentChats,
                             onViewStudentSubmissions,
                             onViewStudentMCQ,
+                            onViewStudentPrompts,
                             deployments,
                             isInstructor
                           }, deployment)}
