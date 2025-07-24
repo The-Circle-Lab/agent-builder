@@ -35,6 +35,7 @@ from services.deployment_manager import (
     remove_active_deployment, is_deployment_active
 )
 from services.deployment_service import AgentDeployment
+from services.page_service import PageDeployment
 from services.config_service import parse_agent_config
 
 # Helper utilities
@@ -69,7 +70,7 @@ __all__ = [
     
     # Deployment services
     "load_deployment_on_demand", "get_active_deployment", "add_active_deployment",
-    "remove_active_deployment", "is_deployment_active", "AgentDeployment", "parse_agent_config",
+    "remove_active_deployment", "is_deployment_active", "AgentDeployment", "PageDeployment", "parse_agent_config",
     
     # Helper utilities (including private functions)
     "_extract_sid_from_websocket", "_send_error_and_close", "_authenticate_websocket_user",

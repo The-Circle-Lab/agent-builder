@@ -7,6 +7,7 @@ from .deployments.deployment_code_routes import router as code_router
 from .deployments.deployment_mcq_routes import router as mcq_router
 from .deployments.deployment_prompt_routes import router as prompt_router
 from .deployments.deployment_grade_routes import router as grade_router
+from .deployments.deployment_page_routes import router as page_router
 
 router = APIRouter(prefix="/api/deploy", tags=["deployment"])
 
@@ -17,3 +18,4 @@ router.include_router(code_router)
 router.include_router(mcq_router)
 router.include_router(prompt_router)
 router.include_router(grade_router)
+router.include_router(page_router)

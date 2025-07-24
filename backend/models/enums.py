@@ -4,7 +4,8 @@ class DeploymentType(str, Enum):
     CHAT = "chat"
     CODE = "code"
     MCQ = "mcq"
-    PROMPT = "prompt" 
+    PROMPT = "prompt"
+    PAGE = "page" 
 
 class ClassRole(str, Enum):
     STUDENT = "student"

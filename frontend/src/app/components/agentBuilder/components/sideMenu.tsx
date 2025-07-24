@@ -31,7 +31,7 @@ const objectTypeFilters: Record<string, string[]> = {
   tools: ["tools"],
   Agent: ["output"],
   Output: ["output"],
-  Starter: ["starter"],
+  Starter: ["starter", "Structure"],
   Tests: ["tests"],
   codeAnalyzer: ["analysis"],
   Questions: ["questions"],
@@ -160,7 +160,7 @@ export function SideMenu({
               >
                 <div className="flex-shrink-0 w-12 h-12 bg-gray-600 rounded-lg flex items-center justify-center group-hover:bg-gray-500 transition-colors duration-200">
                   <Image
-                    src={option.icon}
+                    src="agent.svg"
                     alt={option.name}
                     width={24}
                     height={24}

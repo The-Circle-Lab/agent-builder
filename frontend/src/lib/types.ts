@@ -108,10 +108,13 @@ export interface Deployment {
   instructor_id: number;
   is_chat_enabled: boolean;
   is_code_enabled: boolean;
-  type?: 'chat' | 'code' | 'mcq';
+  type?: 'chat' | 'code' | 'mcq' | 'prompt' | 'page';
   is_loaded?: boolean;
   is_open?: boolean;
   grade?: [number, number] | null;
+  is_page_based?: boolean;
+  total_pages?: number;
+  pages_url?: string;
   configuration?: 
     | {
         // Chat deployment configuration

@@ -87,14 +87,44 @@ export function useNodeOperations(
   setEdges: React.Dispatch<React.SetStateAction<Edge[]>>,
   sourceNodeId: string | undefined,
   sideMenuObjectType: string | undefined,
-  nodes: Node[] // Add nodes array to find source node
+  nodes: Node[], // Add nodes array to find source node
+  addNodeToPage?: (nodeId: string, pageId: string) => void,
+  pageId?: string, // Optional page ID for when adding nodes to a page
+  pageRelationships?: Record<string, string[]> // Page relationships to detect if source node is in a page
 ) {
   const handleAddNode = useCallback(
     (nodeType: string) => {
+      // Find which page the source node belongs to (if any)
+      let targetPageId = pageId; // Explicit page ID takes precedence
+      
+      if (!targetPageId && sourceNodeId && pageRelationships) {
+        // Check if source node is in any page
+        for (const [pageIdKey, nodeIds] of Object.entries(pageRelationships)) {
+          if (nodeIds.includes(sourceNodeId)) {
+            targetPageId = pageIdKey;
+            break;
+          }
+        }
+      }
+
       // Calculate position based on source node and handle
       let position = { x: Math.random() * 400, y: Math.random() * 400 }; // fallback
 
-      if (
+      // If adding to a page, calculate position within the page
+      if (targetPageId) {
+        const pageNode = nodes.find((node) => node.id === targetPageId && node.type === "page");
+        if (pageNode) {
+          // Position node within the page bounds - use actual node dimensions if available
+          const pageWidth = pageNode.width || pageNode.data?.width || 300;
+          const pageHeight = pageNode.height || pageNode.data?.height || 200;
+          const margin = 50; // Keep nodes away from page edges
+          
+          position = {
+            x: pageNode.position.x + margin + Math.random() * (Number(pageWidth) - 2 * margin - 100),
+            y: pageNode.position.y + 50 + Math.random() * (Number(pageHeight) - 100 - margin), // Account for page header
+          };
+        }
+      } else if (
         sourceNodeId &&
         sideMenuObjectType &&
         CONNECTION_MAPPINGS[sideMenuObjectType]
@@ -106,14 +136,43 @@ export function useNodeOperations(
         }
       }
 
+      // Create node data based on type
+      let nodeData: Record<string, unknown> = { label: `New ${nodeType}` };
+      
+      // Special handling for page nodes to assign page numbers
+      if (nodeType === "page") {
+        // Find the highest page number among existing pages
+        const existingPageNumbers = nodes
+          .filter(n => n.type === 'page')
+          .map(n => n.data?.pageNumber || 1)
+          .filter(num => typeof num === 'number');
+        
+        const nextPageNumber = existingPageNumbers.length > 0 
+          ? Math.max(...existingPageNumbers) + 1 
+          : 1;
+
+        nodeData = {
+          pageNumber: nextPageNumber,
+          backgroundColor: '#3B82F6',
+          opacity: 0.15,
+          width: 300,
+          height: 200
+        };
+      }
+
       const newNode: Node = {
         id: `node-${Date.now()}`,
         position,
-        data: { label: `New ${nodeType}` },
+        data: nodeData,
         type: nodeType,
       };
 
       setNodes((nds: Node[]) => [...nds, newNode]);
+
+      // Add node to page if we determined a target page
+      if (targetPageId && addNodeToPage) {
+        addNodeToPage(newNode.id, targetPageId);
+      }
 
       let mapping = undefined as | { sourceHandle: string; targetHandle: string } | undefined;
       if (sideMenuObjectType) {
@@ -134,7 +193,7 @@ export function useNodeOperations(
         setEdges((eds: Edge[]) => [...eds, newEdge]);
       }
     },
-    [setNodes, setEdges, sourceNodeId, sideMenuObjectType, nodes]
+    [setNodes, setEdges, sourceNodeId, sideMenuObjectType, nodes, pageId, addNodeToPage, pageRelationships]
   );
 
   return {

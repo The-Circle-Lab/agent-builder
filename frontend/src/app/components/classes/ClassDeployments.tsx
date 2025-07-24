@@ -13,7 +13,8 @@ import {
   LockClosedIcon,
   LockOpenIcon,
   ClipboardDocumentCheckIcon,
-  PencilSquareIcon
+  PencilSquareIcon,
+  DocumentIcon
 } from '@heroicons/react/24/outline';
 import { API_CONFIG } from '@/lib/constants';
 
@@ -93,6 +94,25 @@ const DEPLOYMENT_TYPES = {
         props.onViewStudentPrompts(deployment.deployment_id, deployment.workflow_name);
       }
     }
+  },
+  page: {
+    name: 'page',
+    displayName: 'Multi-Page Workflow',
+    buttonText: 'Enter',
+    buttonColor: 'bg-indigo-600 hover:bg-indigo-700',
+    icon: DocumentIcon,
+    hasGrading: true, // Pages can contain different types including graded ones
+    studentViewLabel: 'View student page interactions',
+    handleDeploymentAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      if (props.onPageWithDeployment) {
+        props.onPageWithDeployment(deployment.deployment_id, deployment.workflow_name);
+      }
+    },
+    handleStudentViewAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      if (props.onViewStudentPages) {
+        props.onViewStudentPages(deployment.deployment_id, deployment.workflow_name);
+      }
+    }
   }
   // Add new deployment types here following the same pattern
   // Example:
@@ -158,11 +178,13 @@ interface ClassDeploymentsProps {
   onCodeWithDeployment?: (deploymentId: string, deploymentName: string) => void;
   onMCQWithDeployment?: (deploymentId: string, deploymentName: string) => void;
   onPromptWithDeployment?: (deploymentId: string, deploymentName: string) => void;
+  onPageWithDeployment?: (deploymentId: string, deploymentName: string) => void;
   onDeleteDeployment: (deploymentId: string) => Promise<void>;
   onViewStudentChats: (deploymentId: string) => Promise<void>;
   onViewStudentSubmissions?: (deploymentId: string, deploymentName: string) => void;
   onViewStudentMCQ?: (deploymentId: string, deploymentName: string) => void;
   onViewStudentPrompts?: (deploymentId: string, deploymentName: string) => void;
+  onViewStudentPages?: (deploymentId: string, deploymentName: string) => void;
   // Add new deployment handler props here as needed
 }
 
@@ -208,6 +230,39 @@ const getMCQDeploymentQuestionCount = (deployment: Deployment): number => {
   return 0;
 };
 
+// Helper function to get page count for page deployments
+const getPageCount = (deployment: Deployment): string => {
+  if (deployment.total_pages && typeof deployment.total_pages === 'number') {
+    return String(deployment.total_pages);
+  }
+  
+  // Fallback to configuration if total_pages is not available
+  if (deployment.configuration) {
+    const config = deployment.configuration as Record<string, unknown>;
+    if (typeof config.page_count === 'number') {
+      return String(config.page_count);
+    }
+  }
+  
+  return 'Multiple';
+};
+
+// Helper function to check if deployment is page-based
+const isPageBasedDeployment = (deployment: Deployment, deploymentType: string): boolean => {
+  if (deploymentType === 'page') return true;
+  
+  // Check the is_page_based field directly
+  if (deployment.is_page_based === true) return true;
+  
+  // Fallback to configuration
+  if (deployment.configuration && typeof deployment.configuration === 'object') {
+    const config = deployment.configuration as Record<string, unknown>;
+    return Boolean(config.is_page_based);
+  }
+  
+  return false;
+};
+
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
@@ -218,11 +273,13 @@ export default function ClassDeployments({
   onCodeWithDeployment,
   onMCQWithDeployment,
   onPromptWithDeployment,
+  onPageWithDeployment,
   onDeleteDeployment,
   onViewStudentChats,
   onViewStudentSubmissions,
   onViewStudentMCQ,
-  onViewStudentPrompts
+  onViewStudentPrompts,
+  onViewStudentPages
 }: ClassDeploymentsProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deploymentTypes, setDeploymentTypes] = useState<Record<string,string>>({});
@@ -243,7 +300,10 @@ export default function ClassDeployments({
       const unknown: string[] = [];
       
       deployments.forEach(d => {
-        if (d.type) {
+        // Check if this is a page-based deployment first
+        if (d.is_page_based === true) {
+          types[d.deployment_id] = "page";
+        } else if (d.type) {
           types[d.deployment_id] = d.type;
         } else {
           unknown.push(d.deployment_id);
@@ -517,6 +577,12 @@ export default function ClassDeployments({
                         )}
                         {deploymentType === 'code' && (<p>Questions: {getCodeDeploymentQuestionCount(deployment)}</p>)}
                         {deploymentType === 'mcq' && (<p>Questions: {getMCQDeploymentQuestionCount(deployment)}</p>)}
+                        {isPageBasedDeployment(deployment, deploymentType) && (
+                          <>
+                            <p>Pages: {getPageCount(deployment)}</p>
+                            <p>Type: Multi-Page Workflow</p>
+                          </>
+                        )}
                         <p>Deployed: {new Date(deployment.created_at).toLocaleDateString()}</p>
                       </div>
                       {renderGradeDisplay(deployment)}
@@ -534,11 +600,13 @@ export default function ClassDeployments({
                             onCodeWithDeployment,
                             onMCQWithDeployment,
                             onPromptWithDeployment,
+                            onPageWithDeployment,
                             onDeleteDeployment,
                             onViewStudentChats,
                             onViewStudentSubmissions,
                             onViewStudentMCQ,
                             onViewStudentPrompts,
+                            onViewStudentPages,
                             deployments,
                             isInstructor
                           }, deployment);
@@ -565,11 +633,13 @@ export default function ClassDeployments({
                             onCodeWithDeployment,
                             onMCQWithDeployment,
                             onPromptWithDeployment,
+                            onPageWithDeployment,
                             onDeleteDeployment,
                             onViewStudentChats,
                             onViewStudentSubmissions,
                             onViewStudentMCQ,
                             onViewStudentPrompts,
+                            onViewStudentPages,
                             deployments,
                             isInstructor
                           }, deployment)}

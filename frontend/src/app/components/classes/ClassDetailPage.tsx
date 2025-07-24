@@ -28,6 +28,7 @@ interface ClassDetailPageProps {
   onCodeWithDeployment?: (deploymentId: string, deploymentName: string) => void;
   onMCQWithDeployment?: (deploymentId: string, deploymentName: string) => void;
   onPromptWithDeployment?: (deploymentId: string, deploymentName: string) => void;
+  onPageWithDeployment?: (deploymentId: string, deploymentName: string) => void;
 }
 
 export default function ClassDetailPage({ 
@@ -37,7 +38,8 @@ export default function ClassDetailPage({
   onChatWithDeployment,
   onCodeWithDeployment,
   onMCQWithDeployment,
-  onPromptWithDeployment
+  onPromptWithDeployment,
+  onPageWithDeployment
 }: ClassDetailPageProps) {
   const isInstructor = classObj.user_role === 'instructor';
   
@@ -100,8 +102,9 @@ export default function ClassDetailPage({
           // Cast to unknown first then to the required type to avoid type conflicts
           const nodes = workflow.workflow_data.nodes as unknown as Parameters<typeof createWorkflowJSON>[0];
           const edges = workflow.workflow_data.edges as unknown as Parameters<typeof createWorkflowJSON>[1];
-          const workflowJSON = createWorkflowJSON(nodes, edges);
-          deploymentData = JSON.parse(workflowJSON);
+          const pageRelationships = (workflow.workflow_data as { pageRelationships?: Record<string, string[]> }).pageRelationships || {};
+          const workflowJSON = createWorkflowJSON(nodes, edges, pageRelationships);
+          deploymentData = JSON.parse(workflowJSON || '{}');
         } catch (conversionError) {
           console.error('Failed to convert workflow data format:', conversionError);
           throw new Error('Failed to prepare workflow for deployment. Please try editing and saving the workflow first.');
@@ -258,6 +261,7 @@ export default function ClassDetailPage({
                 onCodeWithDeployment={onCodeWithDeployment}
                 onMCQWithDeployment={onMCQWithDeployment}
                 onPromptWithDeployment={onPromptWithDeployment}
+                onPageWithDeployment={onPageWithDeployment}
               />
             )}
             {activeTab === 'members' && (

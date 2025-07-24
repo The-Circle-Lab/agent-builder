@@ -21,11 +21,18 @@ class AgentDeployment:
         deployment_id: str,
         config: Dict[str, Any],
         collection_name: Optional[str] = None,
+        coming_from_page: bool = False,
     ) -> None:
         self._contains_chat = True
         self.deployment_id = deployment_id
         self._services = AgentNodeList() 
-        
+
+        if not coming_from_page:
+            if config['pagesExist']:
+                raise ValueError("Pages are not supported in this workflow")
+
+        config = config['nodes']
+
         # Starting node configuration
         match config['1']['type']:
             case 'chat':
@@ -59,6 +66,7 @@ class AgentDeployment:
                 raise ValueError(f"Invalid deployment type: {config['1']['type']}")
         
         i = 2
+        print(config)
         while (str(i) in config):
             if (config[str(i)]['type'] == "result"):
                 break
