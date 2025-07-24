@@ -398,9 +398,9 @@ async def get_all_prompt_sessions_for_instructor(
     session_views = []
     for session, user_email in sessions:
         # Count submitted responses
-        submitted_count = db.exec(
+        submitted_count = len(db.exec(
             select(PromptSubmission).where(PromptSubmission.session_id == session.id)
-        ).count()
+        ).all())
         
         total_submissions = len(session.submission_requirements)
         progress_percentage = (submitted_count / total_submissions * 100) if total_submissions > 0 else 0

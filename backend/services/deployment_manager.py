@@ -2,6 +2,7 @@ from typing import Dict, Any
 from sqlmodel import Session as DBSession, select
 from models.database.db_models import Deployment
 from services.deployment_service import AgentDeployment
+from services.page_service import PageDeployment
 from datetime import datetime, timezone
 
 # Store active deployments with MCP sessions
@@ -38,21 +39,58 @@ async def load_deployment_on_demand(deployment_id: str, user_id: int, db: DBSess
         if workflow_data is None:
             workflow_data = db_deployment.config
 
-        mcp_deployment = AgentDeployment(
-            db_deployment.deployment_id,
-            workflow_data,
-            db_deployment.collection_name,
-        )
-        
-        ACTIVE_DEPLOYMENTS[deployment_id] = {
-            "user_id": db_deployment.user_id,
-            "workflow_name": db_deployment.workflow_name,
-            "config": db_deployment.config,
-            "mcp_deployment": mcp_deployment,
-            "created_at": db_deployment.created_at.isoformat(),
-            "chat_history": [],
-            "type": db_deployment.type
-        }
+        # Check if this is a page-based deployment
+        if db_deployment.is_page_based and db_deployment.parent_deployment_id is None:
+            # This is a main page deployment, create PageDeployment
+            mcp_deployment = PageDeployment(
+                db_deployment.deployment_id,
+                workflow_data,
+                db_deployment.collection_name,
+            )
+            
+            ACTIVE_DEPLOYMENTS[deployment_id] = {
+                "user_id": db_deployment.user_id,
+                "workflow_name": db_deployment.workflow_name,
+                "config": db_deployment.config,
+                "mcp_deployment": mcp_deployment,
+                "created_at": db_deployment.created_at.isoformat(),
+                "chat_history": [],
+                "type": db_deployment.type,
+                "is_page_based": True,
+                "page_count": mcp_deployment.get_page_count()
+            }
+            
+            # Also load individual page deployments
+            for page_idx, page_deploy in enumerate(mcp_deployment.get_deployment_list()):
+                add_active_deployment(page_deploy.deployment_id, {
+                    "user_id": db_deployment.user_id,
+                    "workflow_name": f"{db_deployment.workflow_name} - Page {page_idx + 1}",
+                    "config": db_deployment.config,
+                    "mcp_deployment": page_deploy,
+                    "created_at": db_deployment.created_at.isoformat(),
+                    "chat_history": [],
+                    "type": page_deploy.get_deployment_type(),
+                    "is_page_based": True,
+                    "parent_deployment_id": db_deployment.deployment_id,
+                    "page_number": page_idx + 1
+                })
+        else:
+            # Regular deployment
+            mcp_deployment = AgentDeployment(
+                db_deployment.deployment_id,
+                workflow_data,
+                db_deployment.collection_name,
+            )
+            
+            ACTIVE_DEPLOYMENTS[deployment_id] = {
+                "user_id": db_deployment.user_id,
+                "workflow_name": db_deployment.workflow_name,
+                "config": db_deployment.config,
+                "mcp_deployment": mcp_deployment,
+                "created_at": db_deployment.created_at.isoformat(),
+                "chat_history": [],
+                "type": db_deployment.type
+            }
         
         print(f"Loaded deployment {deployment_id} on-demand for user {user_id}")
         return True

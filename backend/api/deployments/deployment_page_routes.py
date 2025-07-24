@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 
 from .deployment_shared import *
+from services.deployment_manager import load_deployment_on_demand
 
 router = APIRouter()
 
@@ -34,13 +35,16 @@ async def get_deployment_pages(
             detail="This deployment is not page-based"
         )
     
-    # Get the deployment from memory
+    # Get the deployment from memory, try to load on-demand if not found
     deployment_info = get_active_deployment(deployment_id)
     if not deployment_info:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Deployment not active in memory"
-        )
+        # Try to load the deployment on-demand
+        if not await load_deployment_on_demand(deployment_id, current_user.id, db):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Deployment not found or failed to load"
+            )
+        deployment_info = get_active_deployment(deployment_id)
     
     if not deployment_info.get("is_page_based", False):
         raise HTTPException(
@@ -138,13 +142,16 @@ async def chat_with_page(
             detail="This deployment is not page-based"
         )
     
-    # Get the deployment from memory
+    # Get the deployment from memory, try to load on-demand if not found
     deployment_info = get_active_deployment(deployment_id)
     if not deployment_info:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Deployment not active in memory"
-        )
+        # Try to load the deployment on-demand
+        if not await load_deployment_on_demand(deployment_id, current_user.id, db):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Deployment not found or failed to load"
+            )
+        deployment_info = get_active_deployment(deployment_id)
     
     page_deployment = deployment_info["mcp_deployment"]
     
