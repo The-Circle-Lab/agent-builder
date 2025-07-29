@@ -131,7 +131,6 @@ async def chat_with_page(
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session)
 ):
-    """Send a chat message to a specific page in a page-based deployment"""
     
     # Validate deployment access
     db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db)
