@@ -680,6 +680,98 @@ function GenericSettingsForm({
         );
       }
 
+      case "variablesList": {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const variables: any[] = Array.isArray(value) ? value : [];
+
+        const updateVariable = (index: number, field: string, val: string) => {
+          const newVariables = variables.map((v, i) => {
+            if (i !== index) return v;
+            
+            if (field === "name") {
+              return { ...v, name: val };
+            } else if (field === "type") {
+              return { ...v, type: val };
+            }
+            return v;
+          });
+          handleInputChange(key, newVariables);
+        };
+
+        const addVariable = () => {
+          const newVariable = {
+            id: `var-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+            name: "",
+            type: "text"
+          };
+          const newVariables = [...variables, newVariable];
+          handleInputChange(key, newVariables);
+        };
+
+        const deleteVariable = (idx: number) => {
+          const newVariables = variables.filter((_v, i) => i !== idx);
+          handleInputChange(key, newVariables);
+        };
+
+        return (
+          <div key={key} className="space-y-4">
+            <label className="block text-sm font-medium text-gray-200 mb-2">
+              {label}
+            </label>
+            {variables.map((variable, vIdx) => (
+              <div key={`${key}-variable-${vIdx}`} className="space-y-3 border border-gray-600 p-4 rounded-md">
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-300 text-sm">Variable #{vIdx + 1}</span>
+                  <button
+                    type="button"
+                    onClick={() => deleteVariable(vIdx)}
+                    className="text-red-400 hover:text-red-500"
+                  >
+                    ×
+                  </button>
+                </div>
+                
+                {/* Variable Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Variable Name
+                  </label>
+                  <input
+                    type="text"
+                    value={variable.name ?? ""}
+                    onChange={(e) => updateVariable(vIdx, "name", e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="Enter variable name"
+                  />
+                </div>
+
+                {/* Variable Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-300 mb-1">
+                    Variable Type
+                  </label>
+                  <select
+                    value={variable.type ?? "text"}
+                    onChange={(e) => updateVariable(vIdx, "type", e.target.value)}
+                    className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="text">Text</option>
+                    <option value="group">Group</option>
+                  </select>
+                </div>
+              </div>
+            ))}
+            <button
+              type="button"
+              onClick={addVariable}
+              className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700"
+            >
+              Add Variable
+            </button>
+          </div>
+        );
+      }
+
       default:
         return null;
     }

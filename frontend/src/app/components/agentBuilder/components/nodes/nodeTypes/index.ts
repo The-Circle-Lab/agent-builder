@@ -16,6 +16,9 @@ import * as questionsNode from "./contentNodes/questionsNode"
 import * as promptNode from "./deploymentTypeNodes/promptNode"
 import * as submissionNode from "./contentNodes/submissionNode"
 import * as pageNode from "./pageNodes/pageNode"
+import * as behaviourNode from "./pageNodes/behaviourNode"
+import * as globalVariablesNode from "./pageNodes/globalVariablesNode"
+import * as groupNode from "./behaviourNodes/groupNode"
 import { BaseNode, BaseNodeProps, BaseNodeData } from "./baseNode";
 
 // Base classes and interfaces
@@ -58,6 +61,9 @@ const NODE_MODULES = {
   prompt: promptNode,
   submission: submissionNode,
   page: pageNode,
+  behaviour: behaviourNode,
+  globalVariables: globalVariablesNode,
+  group: groupNode,
 } as const;
 
 // Dynamically generate NodeTypes

@@ -25,7 +25,11 @@ export class PromptNodeClass extends BaseNode<PromptNodeProps, PromptNodeData> {
   public static handleConfigs: Record<string, HandleConfig> = {
     "prompt-output": {
       maxConnections: -1,
-      compatibleWith: ["prompt-input"],
+      compatibleWith: ["prompt-input", "input"],
+    },
+    "output-page": {
+      maxConnections: 1,
+      compatibleWith: ["output"],
     },
   };
 
@@ -71,7 +75,7 @@ export class PromptNodeClass extends BaseNode<PromptNodeProps, PromptNodeData> {
           style={{ top: "50%", right: "-1.25%", transform: "translateY(-50%)" }}
         />
         <div className="absolute bottom-[70%] left-[105%] text-xs text-white font-medium">
-          User Input
+          Input
         </div>
 
         <PlusButton
@@ -85,6 +89,14 @@ export class PromptNodeClass extends BaseNode<PromptNodeProps, PromptNodeData> {
             right: "-15%",
             transform: "translateX(50%)",
           }}
+        />
+
+        {/* Page Output Handle - Down */}
+        <Handle
+          type="target"
+          position={Position.Bottom}
+          id="output-page"
+          style={{ top: "100%", left: "50%", transform: "translateX(-50%)" }}
         />
       </div>
     );

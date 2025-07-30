@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrash, faGears } from "@fortawesome/free-solid-svg-icons";
 import { BaseNode, BaseNodeProps, BaseNodeData } from "../baseNode";
 
-export interface PageNodeData extends BaseNodeData {
+export interface BehaviourNodeData extends BaseNodeData {
   label?: string;
   pageNumber?: number;
   backgroundColor?: string;
@@ -14,16 +14,16 @@ export interface PageNodeData extends BaseNodeData {
   [key: string]: unknown; // Add index signature for compatibility
 }
 
-interface PageNodeInternalProps extends NodeProps {
-  data: PageNodeData;
+interface BehaviourNodeInternalProps extends NodeProps {
+  data: BehaviourNodeData;
   onAddNodeClick?: (objectType?: string, sourceNodeId?: string, pageId?: string) => void;
   onDelete?: (nodeId: string) => void;
-  onSettings?: (nodeId: string, nodeType: string, data: PageNodeData) => void;
+  onSettings?: (nodeId: string, nodeType: string, data: BehaviourNodeData) => void;
   pageRelationships?: Record<string, string[]>;
   allNodes?: { id: string; type: string }[]; // Add nodes array to verify existence
 }
 
-function PageNodeComponent({
+function BehaviourNodeComponent({
   id,
   data,
   selected,
@@ -33,19 +33,19 @@ function PageNodeComponent({
   pageRelationships,
   allNodes,
   ...props
-}: PageNodeInternalProps) {
+}: BehaviourNodeInternalProps) {
 
 
-  const backgroundColor = data.backgroundColor || '#3B82F6';
+  const backgroundColor = data.backgroundColor || '#8B5CF6';
   const opacity = data.opacity || 0.15;
   const pageNumber = data.pageNumber || 1;
-  const label = data.label || `Page ${pageNumber}`;
+  const label = data.label || `Behaviour ${pageNumber}`;
   
   // Use actual node dimensions from ReactFlow instead of data properties
   const nodeWidth = props.width || data.width || 300;
   const nodeHeight = props.height || data.height || 200;
   
-  // Check if page has any nodes that actually still exist
+  // Check if behaviour has any nodes that actually still exist
   const hasNodesInPage = (() => {
     if (!pageRelationships || !pageRelationships[id]) {
       return false;
@@ -69,11 +69,11 @@ function PageNodeComponent({
   }, [id, onDelete]);
 
   const handleSettings = useCallback(() => {
-    if (onSettings) onSettings(id, 'page', data);
+    if (onSettings) onSettings(id, 'behaviour', data);
   }, [id, onSettings, data]);
 
   const handleAddNode = useCallback(() => {
-    if (onAddNodeClick) onAddNodeClick("Starter", undefined, id);
+    if (onAddNodeClick) onAddNodeClick("Behaviour", undefined, id);
   }, [onAddNodeClick, id]);
 
   // Handle resize to update dimensions (without opening settings)
@@ -99,7 +99,7 @@ function PageNodeComponent({
                   handleDelete();
                 }}
                 className="p-2 hover:bg-gray-800 transition-colors duration-200"
-                title="Delete Page"
+                title="Delete Behaviour"
               >
                 <FontAwesomeIcon icon={faTrash} />
               </button>
@@ -114,7 +114,7 @@ function PageNodeComponent({
                   handleSettings();
                 }}
                 className="p-2 hover:bg-gray-800 transition-colors duration-200"
-                title="Page Settings"
+                title="Behaviour Settings"
               >
                 <FontAwesomeIcon icon={faGears} />
               </button>
@@ -140,7 +140,7 @@ function PageNodeComponent({
       </div>
       
       <div
-        className="relative rounded-lg border-2 border-dashed page-container"
+        className="relative rounded-lg border-2 border-dashed behaviour-container"
         style={{
           backgroundColor: backgroundColor + Math.floor(opacity * 255).toString(16).padStart(2, '0'),
           borderColor: backgroundColor,
@@ -149,7 +149,7 @@ function PageNodeComponent({
           pointerEvents: 'none', // Allow clicks to pass through to child nodes
         }}
       >
-        {/* Page Header */}
+        {/* Behaviour Header */}
         <div 
           className="absolute top-0 left-0 right-0 flex items-center justify-between p-2 rounded-t-lg text-white"
           style={{ 
@@ -166,26 +166,26 @@ function PageNodeComponent({
             <span className="text-sm font-medium text-white">{label}</span>
           </div>
           
-          {/* Page Number Badge */}
+          {/* Behaviour Number Badge */}
           <div 
             className="px-2 py-1 rounded text-xs font-semibold text-white"
             style={{ backgroundColor: backgroundColor }}
-            title={`Page ${pageNumber}`}
+            title={`Behaviour ${pageNumber}`}
           >
             {pageNumber}
           </div>
         </div>
 
-        {/* Clickable background area for page selection */}
+        {/* Clickable background area for behaviour selection */}
         <div 
           className="absolute inset-0 top-12"
           style={{ pointerEvents: 'auto', zIndex: -1 }}
-          title="Click to select page"
+          title="Click to select behaviour"
         />
         
-        {/* Page Content Area */}
+        {/* Behaviour Content Area */}
         <div className="absolute inset-0 top-12 flex items-center justify-center">
-          {/* Plus button for adding nodes to empty page - only show when page is empty */}
+          {/* Plus button for adding nodes to empty behaviour - only show when behaviour is empty */}
           {!hasNodesInPage && (
             <button
               onClick={handleAddNode}
@@ -194,7 +194,7 @@ function PageNodeComponent({
                 borderColor: backgroundColor,
                 pointerEvents: 'auto', // Re-enable pointer events for plus button
               }}
-              title="Add node to page"
+              title="Add node to behaviour"
             >
               <svg
                 className="w-6 h-6"
@@ -219,7 +219,7 @@ function PageNodeComponent({
           type="target"
           position={Position.Left}
           id="input"
-          className="page-input-handle"
+          className="behaviour-input-handle"
           style={{ 
             top: "50%", 
             left: "-1.25%", 
@@ -238,7 +238,7 @@ function PageNodeComponent({
           type="source"
           position={Position.Right}
           id="output"
-          className="page-output-handle"
+          className="behaviour-output-handle"
           style={{ 
             top: "50%", 
             right: "-1.25%", 
@@ -256,8 +256,8 @@ function PageNodeComponent({
   );
 }
 
-// Node class for page node
-export class PageNodeClass extends BaseNode<BaseNodeProps, PageNodeData> {
+// Node class for behaviour node
+export class BehaviourNodeClass extends BaseNode<BaseNodeProps, BehaviourNodeData> {
   static nodeType = "base" as const;
   static canAddNode = true;
   static defaultHandlerID = "Starter";
@@ -266,72 +266,72 @@ export class PageNodeClass extends BaseNode<BaseNodeProps, PageNodeData> {
   static handleConfigs = {
     "input": {
       maxConnections: -1,
-      compatibleWith: ["output", "chat-output", "variable-output"],
+      compatibleWith: ["output", "variable-output"],
     },
     "output": {
       maxConnections: -1,
-      compatibleWith: ["input", "agent-input", "result-input", "output-page", "variable-input"],
+      compatibleWith: ["input", "variable-input"],
     },
-    "page-input": {
+    "behaviour-input": {
       maxConnections: -1,
-      compatibleWith: ["output", "chat-output", "variable-output"],
+      compatibleWith: ["output", "variable-output"],
     },
-    "page-output": {
+    "behaviour-output": {
       maxConnections: -1,
-      compatibleWith: ["input", "agent-input", "result-input", "output-page", "variable-input"],
+      compatibleWith: ["input", "variable-input"],
     },
   };
 
   static getSideMenuInfo() {
     return {
       category: "Structure",
-      name: "Page",
-      icon: "📄",
-      description: "Create a resizable page container for organizing nodes",
+      name: "Behaviour",
+      icon: "🎭",
+      description: "Create a resizable behaviour container for organizing nodes",
     };
   }
 
   getNodeType() {
-    return "page";
+    return "behaviour";
   }
 
   renderNodeContent() {
-    return <div>Page Node Content</div>;
+    return <div>Behaviour Node Content</div>;
   }
 
   getConfig() {
     return {
-      nodeType: "page",
-      displayName: "Page",
+      nodeType: "behaviour",
+      displayName: "Behaviour",
       properties: []
     };
   }
 
   render() {
-    return <div>Page Node Class</div>;
+    return <div>Behaviour Node Class</div>;
   }
 }
 
-// Export the page node component
-export const PageNode = PageNodeComponent;
+// Export the behaviour node component
+export const BehaviourNode = BehaviourNodeComponent;
 
-// Export page node config
-export { PAGE_NODE_CONFIG as PageNodeConfig } from "../configs/pageNodeConfig";
+// Export behaviour node config
+export { BEHAVIOUR_NODE_CONFIG as BehaviourNodeConfig } from "../configs/behaviourNodeConfig";
 
-// Creator function for the page node
-export const createPageNodeType = (
+// Creator function for the behaviour node
+export const createBehaviourNodeType = (
   onAddNodeClick?: (objectType?: string, sourceNodeId?: string, pageId?: string) => void,
   edges?: unknown[],
   onDelete?: (nodeId: string) => void,
-  onSettings?: (nodeId: string, nodeType: string, data: PageNodeData) => void,
+  onSettings?: (nodeId: string, nodeType: string, data: BehaviourNodeData) => void,
   pageRelationships?: Record<string, string[]>,
   allNodes?: { id: string; type: string }[]
 ) => {
-  return function PageNodeWrapper(props: NodeProps) {
+  return function BehaviourNodeWrapper(props: NodeProps) {
     return (
-      <PageNodeComponent
+      <BehaviourNodeComponent
         {...props}
-        data={props.data as PageNodeData}
+        data={props.data as BehaviourNodeData}
         onAddNodeClick={onAddNodeClick}
         onDelete={onDelete}
         onSettings={onSettings}

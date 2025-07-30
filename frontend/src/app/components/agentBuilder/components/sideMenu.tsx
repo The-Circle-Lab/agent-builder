@@ -36,6 +36,7 @@ const objectTypeFilters: Record<string, string[]> = {
   codeAnalyzer: ["analysis"],
   Questions: ["questions"],
   Submission: ["submission"],
+  Behaviour: ["behaviour"],
 };
 
 export function SideMenu({
