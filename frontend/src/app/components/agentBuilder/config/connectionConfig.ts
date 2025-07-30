@@ -26,6 +26,25 @@ export function registerNodeClasses(getNodeClasses: () => Record<string, unknown
   connectionConfigCache = null;
 }
 
+// Function to clear the cache and force reload
+export function clearConnectionConfigCache() {
+  connectionConfigCache = null;
+}
+
+// Debug function to inspect connection config
+export function debugConnectionConfig() {
+  const config = getConnectionConfig();
+  console.log('Full connection config:', config);
+  return config;
+}
+
+// Make debug functions available globally for browser console access
+if (typeof window !== 'undefined') {
+  const globalWindow = window as unknown as Record<string, unknown>;
+  globalWindow.debugConnectionConfig = debugConnectionConfig;
+  globalWindow.clearConnectionConfigCache = clearConnectionConfigCache;
+}
+
 // Dynamically build connection config from node class definitions
 function buildConnectionConfig(): ConnectionConfig {
   // Use cache if available
@@ -50,10 +69,25 @@ function buildConnectionConfig(): ConnectionConfig {
       if (NodeClassTyped && typeof NodeClassTyped.getHandleConfigs === 'function') {
         const handleConfigs = NodeClassTyped.getHandleConfigs();
         Object.entries(handleConfigs).forEach(([handleId, handleConfig]) => {
-          config[handleId] = {
-            maxConnections: handleConfig.maxConnections,
-            compatibleWith: handleConfig.compatibleWith,
-          };
+          if (config[handleId]) {
+            // Merge with existing configuration
+            const existing = config[handleId];
+            const mergedCompatible = Array.from(
+              new Set([...existing.compatibleWith, ...handleConfig.compatibleWith])
+            );
+            config[handleId] = {
+              maxConnections:
+                existing.maxConnections === -1 || handleConfig.maxConnections === -1
+                  ? -1
+                  : Math.max(existing.maxConnections, handleConfig.maxConnections),
+              compatibleWith: mergedCompatible,
+            };
+          } else {
+            config[handleId] = {
+              maxConnections: handleConfig.maxConnections,
+              compatibleWith: handleConfig.compatibleWith,
+            };
+          }
         });
       }
     });
@@ -87,6 +121,20 @@ export const connectionConfig = new Proxy({} as ConnectionConfig, {
   }
 });
 
+// Helper function to extract handle type from handle ID
+function getHandleType(handleId: string): string {
+  // First check if it's a dynamic variable handle
+  if (handleId.includes('-input')) {
+    return 'variable-input';
+  }
+  if (handleId.includes('-output')) {
+    return 'variable-output';
+  }
+  
+  // For other handle types, return the handle ID as-is
+  return handleId;
+}
+
 export function canConnect(
   sourceHandle: string,
   targetHandle: string,
@@ -95,19 +143,29 @@ export function canConnect(
   targetNodeId: string
 ): boolean {
   const config = getConnectionConfig();
-  const sourceConfig = config[sourceHandle];
-  const targetConfig = config[targetHandle];
+  
+  // Get handle types (for dynamic handles like variable handles)
+  const sourceType = getHandleType(sourceHandle);
+  const targetType = getHandleType(targetHandle);
+  
+  // Try exact handle IDs first, then fall back to handle types
+  const sourceConfig = config[sourceHandle] || config[sourceType];
+  const targetConfig = config[targetHandle] || config[targetType];
   
   // Check if handles exist in config
   if (!sourceConfig || !targetConfig) {
     console.warn(
-      `Handle configuration missing for ${sourceHandle} or ${targetHandle}`
+      `Handle configuration missing for ${sourceHandle} (type: ${sourceType}) or ${targetHandle} (type: ${targetType})`
     );
     return false;
   }
 
-  // Check compatibility
-  if (!sourceConfig.compatibleWith.includes(targetHandle)) {
+  // Check compatibility using both exact IDs and types
+  const isCompatible = 
+    sourceConfig.compatibleWith.includes(targetHandle) ||
+    sourceConfig.compatibleWith.includes(targetType);
+    
+  if (!isCompatible) {
     return false;
   }
 

@@ -13,6 +13,7 @@ export interface NodeTypeHandlers {
   edges?: Edge[];
   onDelete?: (nodeId: string) => void;
   onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void;
+  onDataUpdate?: (nodeId: string, updatedData: NodeData) => void;
   workflowId?: string | number;
   pageRelationships?: Record<string, string[]>;
   nodes?: { id: string; type: string }[];
@@ -57,6 +58,31 @@ const NODE_FACTORY_MAP: Record<
         handlers.pageRelationships,
         handlers.nodes
       ) as React.ComponentType<NodeProps>;
+    } else if (nodeType === "behaviour") {
+      // Behaviour node gets special handling for pageRelationships and nodes
+      const creator = NodeCreators[nodeType] as (
+        onAddNodeClick?: (objectType?: string, sourceNodeId?: string, pageId?: string) => void,
+        edges?: unknown[],
+        onDelete?: (nodeId: string) => void,
+        onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void,
+        pageRelationships?: Record<string, string[]>,
+        allNodes?: { id: string; type: string }[]
+      ) => React.ComponentType<NodeProps>;
+      return creator(
+        handlers.onAddNodeClick,
+        handlers.edges || [],
+        handlers.onDelete,
+        handlers.onSettings,
+        handlers.pageRelationships,
+        handlers.nodes
+      ) as React.ComponentType<NodeProps>;
+    } else if (nodeType === "globalVariables") {
+      // Global Variables node gets simpler handling - no page relationships needed
+      const creator = NodeCreators[nodeType] as (
+        onDelete?: (nodeId: string) => void,
+        onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void,
+      ) => React.ComponentType<NodeProps>;
+      return creator(handlers.onDelete, handlers.onSettings) as React.ComponentType<NodeProps>;
     } else if (NodeClasses[nodeType as keyof typeof NodeClasses].canAddNode) {
       // Nodes that can add nodes get special handler mapping
       return (

@@ -5,12 +5,19 @@ import { BaseNodeData } from "./nodeTypes/baseNode";
 
 export type NodeData = BaseNodeData;
 
+// Variable interface for Global Variables node
+export interface Variable {
+  id: string;
+  name: string;
+  type: 'text' | 'group';
+}
+
 // Property definition system for generic settings forms
 export interface PropertyDefinition {
   key: string;
   label: string;
-  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions" | "submissionPrompts";
-  defaultValue: string | number | boolean | string[] | TestCase[] | MultipleChoiceQuestion[] | SubmissionPrompt[];
+  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions" | "submissionPrompts" | "variablesList";
+  defaultValue: string | number | boolean | string[] | TestCase[] | MultipleChoiceQuestion[] | SubmissionPrompt[] | Variable[];
   placeholder?: string;
   options?: string[]; // For select type
   min?: number; // For number and range types
