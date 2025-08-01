@@ -10,13 +10,14 @@ import * as deepSeekNode from "./llmNodes/deepSeekNode";
 import * as metaNode from "./llmNodes/metaNode";
 import * as codeNode from "./deploymentTypeNodes/codeNode";
 import * as testsNode from "./contentNodes/testsNode";
-import * as codeAnalyzer from "./agenticNodes/codeAnalyzerNode"
-import * as multipleChoiceNode from "./deploymentTypeNodes/multipleChoiceNode"
-import * as questionsNode from "./contentNodes/questionsNode"
-import * as promptNode from "./deploymentTypeNodes/promptNode"
-import * as submissionNode from "./contentNodes/submissionNode"
-import * as pageNode from "./pageNodes/pageNode"
+import * as codeAnalyzer from "./agenticNodes/codeAnalyzerNode";
+import * as multipleChoiceNode from "./deploymentTypeNodes/multipleChoiceNode";
+import * as questionsNode from "./contentNodes/questionsNode";
+import * as promptNode from "./deploymentTypeNodes/promptNode";
+import * as submissionNode from "./contentNodes/submissionNode";
+import * as pageNode from "./pageNodes/pageNode";
 import { BaseNode, BaseNodeProps, BaseNodeData } from "./baseNode";
+import * as videoNode from "./deploymentTypeNodes/videoNode";
 
 // Base classes and interfaces
 export { BaseNode } from "./baseNode";
@@ -58,50 +59,73 @@ const NODE_MODULES = {
   prompt: promptNode,
   submission: submissionNode,
   page: pageNode,
+  video: videoNode,
 } as const;
 
 // Dynamically generate NodeTypes
-export const NodeTypes = Object.entries(NODE_MODULES).reduce((acc, [key, module]) => {
-  const nodeName = Object.keys(module).find(exportName => 
-    exportName.endsWith('Node') && !exportName.endsWith('NodeClass') && !exportName.endsWith('NodeConfig')
-  );
-  if (nodeName && module[nodeName as keyof typeof module]) {
-    acc[key] = module[nodeName as keyof typeof module];
-  }
-  return acc;
-}, {} as Record<string, NodeComponent>);
+export const NodeTypes = Object.entries(NODE_MODULES).reduce(
+  (acc, [key, module]) => {
+    const nodeName = Object.keys(module).find(
+      (exportName) =>
+        exportName.endsWith("Node") &&
+        !exportName.endsWith("NodeClass") &&
+        !exportName.endsWith("NodeConfig")
+    );
+    if (nodeName && module[nodeName as keyof typeof module]) {
+      acc[key] = module[nodeName as keyof typeof module];
+    }
+    return acc;
+  },
+  {} as Record<string, NodeComponent>
+);
 
 // Dynamically generate NodeClasses
-export const NodeClasses = Object.entries(NODE_MODULES).reduce((acc, [key, module]) => {
-  const nodeClassName = Object.keys(module).find(exportName => exportName.endsWith('NodeClass'));
-  if (nodeClassName && module[nodeClassName as keyof typeof module]) {
-    acc[key] = module[nodeClassName as keyof typeof module];
-  }
-  return acc;
-}, {} as Record<string, NodeClass>);
+export const NodeClasses = Object.entries(NODE_MODULES).reduce(
+  (acc, [key, module]) => {
+    const nodeClassName = Object.keys(module).find((exportName) =>
+      exportName.endsWith("NodeClass")
+    );
+    if (nodeClassName && module[nodeClassName as keyof typeof module]) {
+      acc[key] = module[nodeClassName as keyof typeof module];
+    }
+    return acc;
+  },
+  {} as Record<string, NodeClass>
+);
 
 // Dynamically generate NodeConfigs
-export const NodeConfigs = Object.entries(NODE_MODULES).reduce((acc, [key, module]) => {
-  const configName = Object.keys(module).find(exportName => exportName.endsWith('NodeConfig'));
-  if (configName && module[configName as keyof typeof module]) {
-    acc[key] = module[configName as keyof typeof module];
-  }
-  return acc;
-}, {} as Record<string, NodeConfig>);
+export const NodeConfigs = Object.entries(NODE_MODULES).reduce(
+  (acc, [key, module]) => {
+    const configName = Object.keys(module).find((exportName) =>
+      exportName.endsWith("NodeConfig")
+    );
+    if (configName && module[configName as keyof typeof module]) {
+      acc[key] = module[configName as keyof typeof module];
+    }
+    return acc;
+  },
+  {} as Record<string, NodeConfig>
+);
 
 // Dynamically generate NodeCreators
-export const NodeCreators = Object.entries(NODE_MODULES).reduce((acc, [key, module]) => {
-  const creatorName = Object.keys(module).find(exportName => exportName.startsWith('create') && exportName.endsWith('NodeType'));
-  if (creatorName && module[creatorName as keyof typeof module]) {
-    acc[key] = module[creatorName as keyof typeof module];
-  }
-  return acc;
-}, {} as Record<string, NodeCreator>);
+export const NodeCreators = Object.entries(NODE_MODULES).reduce(
+  (acc, [key, module]) => {
+    const creatorName = Object.keys(module).find(
+      (exportName) =>
+        exportName.startsWith("create") && exportName.endsWith("NodeType")
+    );
+    if (creatorName && module[creatorName as keyof typeof module]) {
+      acc[key] = module[creatorName as keyof typeof module];
+    }
+    return acc;
+  },
+  {} as Record<string, NodeCreator>
+);
 
 // Register NodeClasses with the connection config system to resolve circular dependency
-if (typeof window !== 'undefined') {
+if (typeof window !== "undefined") {
   // Only run on client side
-  import('../../../config/connectionConfig').then(({ registerNodeClasses }) => {
+  import("../../../config/connectionConfig").then(({ registerNodeClasses }) => {
     registerNodeClasses(() => NodeClasses);
   });
 }

@@ -1,24 +1,25 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { Class, Workflow, Deployment } from '@/lib/types';
-import { ClassAPI } from './classAPI';
-import ClassWorkflows from './ClassWorkflows';
-import ClassDeployments from './ClassDeployments';
-import ClassMembers from './ClassMembers';
-import JoinCodeModal from './JoinCodeModal';
-import StudentConversationsModal from './StudentConversationsModal';
-import StudentSubmissionsModal from './StudentSubmissionsModal';
-import StudentMCQModal from './StudentMCQModal';
-import StudentPromptsModal from './StudentPromptsModal';
-import { createWorkflowJSON } from '../agentBuilder/scripts/exportWorkflow';
-import { 
-  ArrowLeftIcon, 
+import React, { useState, useEffect } from "react";
+import { Class, Workflow, Deployment } from "@/lib/types";
+import { ClassAPI } from "./classAPI";
+import ClassWorkflows from "./ClassWorkflows";
+import ClassDeployments from "./ClassDeployments";
+import ClassMembers from "./ClassMembers";
+import JoinCodeModal from "./JoinCodeModal";
+import StudentConversationsModal from "./StudentConversationsModal";
+import StudentSubmissionsModal from "./StudentSubmissionsModal";
+import StudentMCQModal from "./StudentMCQModal";
+import StudentPromptsModal from "./StudentPromptsModal";
+import StudentVideoProgressModal from "./StudentVideoProgressModal";
+import { createWorkflowJSON } from "../agentBuilder/scripts/exportWorkflow";
+import {
+  ArrowLeftIcon,
   KeyIcon,
   BeakerIcon,
   UserGroupIcon,
-  RocketLaunchIcon
-} from '@heroicons/react/24/outline';
+  RocketLaunchIcon,
+} from "@heroicons/react/24/outline";
 
 interface ClassDetailPageProps {
   classObj: Class;
@@ -27,50 +28,76 @@ interface ClassDetailPageProps {
   onChatWithDeployment: (deploymentId: string, deploymentName: string) => void;
   onCodeWithDeployment?: (deploymentId: string, deploymentName: string) => void;
   onMCQWithDeployment?: (deploymentId: string, deploymentName: string) => void;
-  onPromptWithDeployment?: (deploymentId: string, deploymentName: string) => void;
+  onPromptWithDeployment?: (
+    deploymentId: string,
+    deploymentName: string
+  ) => void;
+  onVideoWithDeployment?: (
+    deploymentId: string,
+    deploymentName: string
+  ) => void;
   onPageWithDeployment?: (deploymentId: string, deploymentName: string) => void;
 }
 
-export default function ClassDetailPage({ 
-  classObj, 
-  onBack, 
+export default function ClassDetailPage({
+  classObj,
+  onBack,
   onEditWorkflow,
   onChatWithDeployment,
   onCodeWithDeployment,
   onMCQWithDeployment,
   onPromptWithDeployment,
-  onPageWithDeployment
+  onVideoWithDeployment,
+  onPageWithDeployment,
 }: ClassDetailPageProps) {
-  const isInstructor = classObj.user_role === 'instructor';
-  
+  const isInstructor = classObj.user_role === "instructor";
+
   // Auto-navigate based on user role: instructors to workflows, students to deployments
-  const [activeTab, setActiveTab] = useState<'workflows' | 'deployments' | 'members'>(
-    isInstructor ? 'workflows' : 'deployments'
-  );
+  const [activeTab, setActiveTab] = useState<
+    "workflows" | "deployments" | "members"
+  >(isInstructor ? "workflows" : "deployments");
   const [workflows, setWorkflows] = useState<Workflow[]>([]);
   const [deployments, setDeployments] = useState<Deployment[]>([]);
   const [showJoinCode, setShowJoinCode] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showStudentChats, setShowStudentChats] = useState<{deploymentId: string; deploymentName: string} | null>(null);
-  const [showStudentSubmissions, setShowStudentSubmissions] = useState<{deploymentId: string; deploymentName: string} | null>(null);
-  const [showStudentMCQ, setShowStudentMCQ] = useState<{deploymentId: string; deploymentName: string} | null>(null);
-  const [showStudentPrompts, setShowStudentPrompts] = useState<{deploymentId: string; deploymentName: string} | null>(null);
+  const [showStudentChats, setShowStudentChats] = useState<{
+    deploymentId: string;
+    deploymentName: string;
+  } | null>(null);
+  const [showStudentSubmissions, setShowStudentSubmissions] = useState<{
+    deploymentId: string;
+    deploymentName: string;
+  } | null>(null);
+  const [showStudentMCQ, setShowStudentMCQ] = useState<{
+    deploymentId: string;
+    deploymentName: string;
+  } | null>(null);
+  const [showStudentPrompts, setShowStudentPrompts] = useState<{
+    deploymentId: string;
+    deploymentName: string;
+  } | null>(null);
+  const [showStudentVideoProgress, setShowStudentVideoProgress] = useState<{
+    deploymentId: string;
+    deploymentName: string;
+  } | null>(null);
 
   const loadClassData = React.useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const [classWorkflows, classDeployments] = await Promise.all([
         ClassAPI.getClassWorkflows(classObj.id),
-        ClassAPI.getClassDeployments()
+        ClassAPI.getClassDeployments(),
       ]);
-      
+
       setWorkflows(classWorkflows);
       setDeployments(classDeployments);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load class data');
+      setError(
+        err instanceof Error ? err.message : "Failed to load class data"
+      );
     } finally {
       setLoading(false);
     }
@@ -82,8 +109,12 @@ export default function ClassDetailPage({
 
   const handleCreateWorkflow = async (name: string, description?: string) => {
     try {
-      const newWorkflow = await ClassAPI.createWorkflow(classObj.id, name, description);
-      setWorkflows(prevWorkflows => [...prevWorkflows, newWorkflow]);
+      const newWorkflow = await ClassAPI.createWorkflow(
+        classObj.id,
+        name,
+        description
+      );
+      setWorkflows((prevWorkflows) => [...prevWorkflows, newWorkflow]);
       return newWorkflow;
     } catch (err) {
       throw err;
@@ -94,26 +125,48 @@ export default function ClassDetailPage({
     try {
       // Convert workflow data from saved format (nodes/edges) to deployment format (numbered nodes)
       let deploymentData = workflow.workflow_data;
-      
+
       // Check if workflow_data is in the saved format (has nodes/edges)
-      if (workflow.workflow_data && workflow.workflow_data.nodes && workflow.workflow_data.edges) {
+      if (
+        workflow.workflow_data &&
+        workflow.workflow_data.nodes &&
+        workflow.workflow_data.edges
+      ) {
         try {
           // Convert from saved format to deployment format
           // Cast to unknown first then to the required type to avoid type conflicts
-          const nodes = workflow.workflow_data.nodes as unknown as Parameters<typeof createWorkflowJSON>[0];
-          const edges = workflow.workflow_data.edges as unknown as Parameters<typeof createWorkflowJSON>[1];
-          const pageRelationships = (workflow.workflow_data as { pageRelationships?: Record<string, string[]> }).pageRelationships || {};
-          const workflowJSON = createWorkflowJSON(nodes, edges, pageRelationships);
-          deploymentData = JSON.parse(workflowJSON || '{}');
+          const nodes = workflow.workflow_data.nodes as unknown as Parameters<
+            typeof createWorkflowJSON
+          >[0];
+          const edges = workflow.workflow_data.edges as unknown as Parameters<
+            typeof createWorkflowJSON
+          >[1];
+          const pageRelationships =
+            (
+              workflow.workflow_data as {
+                pageRelationships?: Record<string, string[]>;
+              }
+            ).pageRelationships || {};
+          const workflowJSON = createWorkflowJSON(
+            nodes,
+            edges,
+            pageRelationships
+          );
+          deploymentData = JSON.parse(workflowJSON || "{}");
         } catch (conversionError) {
-          console.error('Failed to convert workflow data format:', conversionError);
-          throw new Error('Failed to prepare workflow for deployment. Please try editing and saving the workflow first.');
+          console.error(
+            "Failed to convert workflow data format:",
+            conversionError
+          );
+          throw new Error(
+            "Failed to prepare workflow for deployment. Please try editing and saving the workflow first."
+          );
         }
       }
-      
+
       const deployment = await ClassAPI.deployWorkflow(
-        workflow.id, 
-        workflow.name, 
+        workflow.id,
+        workflow.name,
         deploymentData || {}
       );
       await loadClassData(); // Reload to get the new deployment
@@ -126,7 +179,9 @@ export default function ClassDetailPage({
   const handleDeleteDeployment = async (deploymentId: string) => {
     try {
       await ClassAPI.deleteDeployment(deploymentId);
-      setDeployments(deployments.filter(d => d.deployment_id !== deploymentId));
+      setDeployments(
+        deployments.filter((d) => d.deployment_id !== deploymentId)
+      );
     } catch (err) {
       throw err;
     }
@@ -135,17 +190,27 @@ export default function ClassDetailPage({
   const handleDeleteWorkflow = async (workflowId: number) => {
     try {
       await ClassAPI.deleteWorkflow(workflowId);
-      setWorkflows(workflows.filter(w => w.id !== workflowId));
+      setWorkflows(workflows.filter((w) => w.id !== workflowId));
     } catch (err) {
       throw err;
     }
   };
 
   const tabs = [
-    { id: 'workflows', label: 'Workflows', icon: BeakerIcon, show: isInstructor },
-    { id: 'deployments', label: 'Deployments', icon: RocketLaunchIcon, show: true },
-    { id: 'members', label: 'Members', icon: UserGroupIcon, show: true }
-  ].filter(tab => tab.show);
+    {
+      id: "workflows",
+      label: "Workflows",
+      icon: BeakerIcon,
+      show: isInstructor,
+    },
+    {
+      id: "deployments",
+      label: "Deployments",
+      icon: RocketLaunchIcon,
+      show: true,
+    },
+    { id: "members", label: "Members", icon: UserGroupIcon, show: true },
+  ].filter((tab) => tab.show);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -161,9 +226,13 @@ export default function ClassDetailPage({
                 <ArrowLeftIcon className="h-5 w-5 text-gray-600" />
               </button>
               <div>
-                <h1 className="text-xl font-semibold text-gray-900">{classObj.name}</h1>
+                <h1 className="text-xl font-semibold text-gray-900">
+                  {classObj.name}
+                </h1>
                 {classObj.description && (
-                  <p className="text-sm text-gray-500">{classObj.description}</p>
+                  <p className="text-sm text-gray-500">
+                    {classObj.description}
+                  </p>
                 )}
               </div>
             </div>
@@ -184,17 +253,22 @@ export default function ClassDetailPage({
       <div className="bg-white border-b">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <nav className="-mb-px flex space-x-8">
-            {tabs.map(tab => {
+            {tabs.map((tab) => {
               const Icon = tab.icon;
               return (
                 <button
                   key={tab.id}
-                  onClick={() => setActiveTab(tab.id as 'workflows' | 'deployments' | 'members')}
+                  onClick={() =>
+                    setActiveTab(
+                      tab.id as "workflows" | "deployments" | "members"
+                    )
+                  }
                   className={`
                     flex items-center py-4 px-1 border-b-2 text-sm font-medium transition-colors
-                    ${activeTab === tab.id
-                      ? 'border-blue-500 text-blue-600'
-                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                    ${
+                      activeTab === tab.id
+                        ? "border-blue-500 text-blue-600"
+                        : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                     }
                   `}
                 >
@@ -225,7 +299,7 @@ export default function ClassDetailPage({
           </div>
         ) : (
           <>
-            {activeTab === 'workflows' && isInstructor && (
+            {activeTab === "workflows" && isInstructor && (
               <ClassWorkflows
                 workflows={workflows}
                 onCreateWorkflow={handleCreateWorkflow}
@@ -234,18 +308,20 @@ export default function ClassDetailPage({
                 onDeleteWorkflow={handleDeleteWorkflow}
               />
             )}
-            {activeTab === 'deployments' && (
+            {activeTab === "deployments" && (
               <ClassDeployments
                 deployments={deployments}
                 isInstructor={isInstructor}
                 onChatWithDeployment={onChatWithDeployment}
                 onDeleteDeployment={handleDeleteDeployment}
                 onViewStudentChats={async (deploymentId) => {
-                  const deployment = deployments.find(d => d.deployment_id === deploymentId);
+                  const deployment = deployments.find(
+                    (d) => d.deployment_id === deploymentId
+                  );
                   if (deployment) {
-                    setShowStudentChats({ 
-                      deploymentId, 
-                      deploymentName: deployment.workflow_name 
+                    setShowStudentChats({
+                      deploymentId,
+                      deploymentName: deployment.workflow_name,
                     });
                   }
                 }}
@@ -258,13 +334,17 @@ export default function ClassDetailPage({
                 onViewStudentPrompts={(deploymentId, deploymentName) => {
                   setShowStudentPrompts({ deploymentId, deploymentName });
                 }}
+                onViewStudentVideoProgress={(deploymentId, deploymentName) => {
+                  setShowStudentVideoProgress({ deploymentId, deploymentName });
+                }}
                 onCodeWithDeployment={onCodeWithDeployment}
                 onMCQWithDeployment={onMCQWithDeployment}
                 onPromptWithDeployment={onPromptWithDeployment}
+                onVideoWithDeployment={onVideoWithDeployment}
                 onPageWithDeployment={onPageWithDeployment}
               />
             )}
-            {activeTab === 'members' && (
+            {activeTab === "members" && (
               <ClassMembers
                 classId={classObj.id}
                 currentUserRole={classObj.user_role}
@@ -309,6 +389,13 @@ export default function ClassDetailPage({
           onClose={() => setShowStudentPrompts(null)}
         />
       )}
+      {showStudentVideoProgress && (
+        <StudentVideoProgressModal
+          deploymentId={showStudentVideoProgress.deploymentId}
+          deploymentName={showStudentVideoProgress.deploymentName}
+          onClose={() => setShowStudentVideoProgress(null)}
+        />
+      )}
     </div>
   );
-} 
+}

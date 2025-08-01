@@ -12,6 +12,7 @@ type PropertyTypeMap = {
   select: string;
   range: number;
   dynamicTextList: string[];
+  videoLink: string;
   testCases: import("../types").TestCase[];
   multipleChoiceQuestions: import("../types").MultipleChoiceQuestion[];
   submissionPrompts: import("../types").SubmissionPrompt[];
@@ -72,11 +73,11 @@ export abstract class BaseNode<
   public static nodeType: "base" | "start" | "end" = "base";
   public static canAddNode = false;
   public static defaultHandlerID: string | null = null;
-  
+
   // Static properties for handle configurations and side menu info that nodes can override
   public static handleConfigs: Record<string, HandleConfig> = {};
   public static sideMenuInfo: SideMenuInfo | null = null;
-  
+
   public abstract getNodeType(): string;
   protected abstract renderNodeContent(): React.ReactNode;
   protected abstract getConfig(): NodePropertyConfig;
@@ -124,7 +125,13 @@ export abstract class BaseNode<
       (
         defaultData as unknown as Record<
           string,
-          string | number | boolean | string[] | import("../types").TestCase[] | import("../types").MultipleChoiceQuestion[] | import("../types").SubmissionPrompt[]
+          | string
+          | number
+          | boolean
+          | string[]
+          | import("../types").TestCase[]
+          | import("../types").MultipleChoiceQuestion[]
+          | import("../types").SubmissionPrompt[]
         >
       )[property.key] = property.defaultValue;
     });

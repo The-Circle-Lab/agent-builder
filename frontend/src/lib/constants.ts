@@ -1,4 +1,4 @@
-import { getApiConfig, getUIConfig, getValidationConfig } from './config';
+import { getApiConfig, getUIConfig, getValidationConfig } from "./config";
 
 // Environment and API Configuration
 const apiConfig = getApiConfig();
@@ -11,15 +11,15 @@ export const API_CONFIG = {
 // Application Routes
 export const ROUTES = {
   AUTH: {
-    LOGIN: '/auth/login',
-    REGISTER: '/auth/register',
-    LOGOUT: '/auth/logout',
-    ME: '/me',
+    LOGIN: "/auth/login",
+    REGISTER: "/auth/register",
+    LOGOUT: "/auth/logout",
+    ME: "/me",
   },
-  CLASSES: '/api/classes',
-  WORKFLOWS: '/api/workflows',
-  DOCUMENTS: '/api/documents',
-  DEPLOYMENTS: '/api/deploy',
+  CLASSES: "/api/classes",
+  WORKFLOWS: "/api/workflows",
+  DOCUMENTS: "/api/documents",
+  DEPLOYMENTS: "/api/deploy",
 } as const;
 
 // UI Constants
@@ -28,7 +28,7 @@ export const UI = {
   DEBOUNCE_DELAY: uiConfig.debounce_delay,
   ANIMATION_DURATION: uiConfig.animation_duration,
   MAX_FILE_SIZE: uiConfig.max_file_size,
-  SUPPORTED_FILE_TYPES: ['.pdf', '.docx', '.doc'] as const,
+  SUPPORTED_FILE_TYPES: [".pdf", ".docx", ".doc"] as const,
 } as const;
 
 // Validation Rules
@@ -51,33 +51,34 @@ export const VALIDATION = {
 
 // Error Messages
 export const ERROR_MESSAGES = {
-  NETWORK: 'Network error. Please check your connection and try again.',
-  UNAUTHORIZED: 'Session expired. Please log in again.',
-  FORBIDDEN: 'You do not have permission to perform this action.',
-  NOT_FOUND: 'The requested resource was not found.',
-  SERVER_ERROR: 'A server error occurred. Please try again later.',
+  NETWORK: "Network error. Please check your connection and try again.",
+  UNAUTHORIZED: "Session expired. Please log in again.",
+  FORBIDDEN: "You do not have permission to perform this action.",
+  NOT_FOUND: "The requested resource was not found.",
+  SERVER_ERROR: "A server error occurred. Please try again later.",
   VALIDATION: {
-    EMAIL_INVALID: 'Please enter a valid email address.',
+    EMAIL_INVALID: "Please enter a valid email address.",
     PASSWORD_TOO_SHORT: `Password must be at least ${VALIDATION.PASSWORD.MIN_LENGTH} characters.`,
-    PASSWORD_MISMATCH: 'Passwords do not match.',
-    REQUIRED_FIELD: 'This field is required.',
+    PASSWORD_MISMATCH: "Passwords do not match.",
+    REQUIRED_FIELD: "This field is required.",
   },
 } as const;
 
 // Application States
 export const APP_STATES = {
-  LOADING: 'loading',
-  LOGIN: 'login',
-  CLASSES: 'classes',
-  CLASS_DETAIL: 'classDetail',
-  WORKFLOWS: 'workflows',
-  EDITOR: 'editor',
-  DEPLOYMENTS: 'deployments',
-  CHAT: 'chat',
-  CODE: 'code',
-  MCQ: 'mcq',
-  PROMPT: 'prompt',
-  PAGE: 'page',
+  LOADING: "loading",
+  LOGIN: "login",
+  CLASSES: "classes",
+  CLASS_DETAIL: "classDetail",
+  WORKFLOWS: "workflows",
+  EDITOR: "editor",
+  DEPLOYMENTS: "deployments",
+  CHAT: "chat",
+  CODE: "code",
+  MCQ: "mcq",
+  PROMPT: "prompt",
+  VIDEO: "video",
+  PAGE: "page",
 } as const;
 
-export type AppState = typeof APP_STATES[keyof typeof APP_STATES]; 
+export type AppState = (typeof APP_STATES)[keyof typeof APP_STATES];

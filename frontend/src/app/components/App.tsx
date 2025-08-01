@@ -2,10 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import { AuthAPI, User } from "../../lib/authAPI";
-import LoginPage from "./loginPage";
+import LoginPage from "./LoginPage";
 import ClassesPage from "./classes/ClassesPage";
 import ClassDetailPage from "./classes/ClassDetailPage";
-import WorkflowEditorPage from "./workflowEditorPage";
+import WorkflowEditorPage from "./WorkflowEditorPage";
 import ChatInterface from "./deployments/chat/chatInterface";
 import CodeInterface from "./deployments/code/codeInterface";
 import { MCQInterface } from "./deployments/mcq";
@@ -13,14 +13,20 @@ import { PromptInterface } from "./deployments/prompt";
 import { PageInterface } from "./deployments/page";
 import { APP_STATES, type AppState } from "@/lib/constants";
 import { Class } from "@/lib/types";
+import VideoInterface from "./deployments/video/videoInterface";
 
 export default function App() {
   const [appState, setAppState] = useState<AppState>(APP_STATES.LOADING);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [currentClass, setCurrentClass] = useState<Class | null>(null);
-  const [currentWorkflowId, setCurrentWorkflowId] = useState<number | null>(null);
-  const [currentDeploymentId, setCurrentDeploymentId] = useState<string | null>(null);
-  const [currentDeploymentName, setCurrentDeploymentName] = useState<string>("");
+  const [currentWorkflowId, setCurrentWorkflowId] = useState<number | null>(
+    null
+  );
+  const [currentDeploymentId, setCurrentDeploymentId] = useState<string | null>(
+    null
+  );
+  const [currentDeploymentName, setCurrentDeploymentName] =
+    useState<string>("");
 
   useEffect(() => {
     checkAuthStatus();
@@ -42,7 +48,7 @@ export default function App() {
       setCurrentUser(user);
       setAppState(APP_STATES.CLASSES);
     } catch (err) {
-      console.error('Failed to get user info after login:', err);
+      console.error("Failed to get user info after login:", err);
     }
   };
 
@@ -50,7 +56,7 @@ export default function App() {
     try {
       await AuthAPI.logout();
     } catch (err) {
-      console.error('Logout error:', err);
+      console.error("Logout error:", err);
     }
     setCurrentUser(null);
     setCurrentClass(null);
@@ -79,31 +85,55 @@ export default function App() {
     setAppState(APP_STATES.CLASS_DETAIL);
   };
 
-  const handleChatWithDeployment = (deploymentId: string, deploymentName: string) => {
+  const handleChatWithDeployment = (
+    deploymentId: string,
+    deploymentName: string
+  ) => {
     setCurrentDeploymentId(deploymentId);
     setCurrentDeploymentName(deploymentName);
     setAppState(APP_STATES.CHAT);
   };
 
-  const handleCodeWithDeployment = (deploymentId: string, deploymentName: string) => {
+  const handleCodeWithDeployment = (
+    deploymentId: string,
+    deploymentName: string
+  ) => {
     setCurrentDeploymentId(deploymentId);
     setCurrentDeploymentName(deploymentName);
     setAppState(APP_STATES.CODE);
   };
 
-  const handleMCQWithDeployment = (deploymentId: string, deploymentName: string) => {
+  const handleMCQWithDeployment = (
+    deploymentId: string,
+    deploymentName: string
+  ) => {
     setCurrentDeploymentId(deploymentId);
     setCurrentDeploymentName(deploymentName);
     setAppState(APP_STATES.MCQ);
   };
 
-  const handlePromptWithDeployment = (deploymentId: string, deploymentName: string) => {
+  const handlePromptWithDeployment = (
+    deploymentId: string,
+    deploymentName: string
+  ) => {
     setCurrentDeploymentId(deploymentId);
     setCurrentDeploymentName(deploymentName);
     setAppState(APP_STATES.PROMPT);
   };
 
-  const handlePageWithDeployment = (deploymentId: string, deploymentName: string) => {
+  const handleVideoWithDeployment = (
+    deploymentId: string,
+    deploymentName: string
+  ) => {
+    setCurrentDeploymentId(deploymentId);
+    setCurrentDeploymentName(deploymentName);
+    setAppState(APP_STATES.VIDEO);
+  };
+
+  const handlePageWithDeployment = (
+    deploymentId: string,
+    deploymentName: string
+  ) => {
     setCurrentDeploymentId(deploymentId);
     setCurrentDeploymentName(deploymentName);
     setAppState(APP_STATES.PAGE);
@@ -130,6 +160,11 @@ export default function App() {
   };
 
   const handleBackFromPage = () => {
+    setCurrentDeploymentId(null);
+    setAppState(APP_STATES.CLASS_DETAIL);
+  };
+
+  const handleBackFromVideo = () => {
     setCurrentDeploymentId(null);
     setAppState(APP_STATES.CLASS_DETAIL);
   };
@@ -171,7 +206,7 @@ export default function App() {
   // Classes list page
   if (appState === APP_STATES.CLASSES) {
     return (
-      <ClassesPage 
+      <ClassesPage
         user={currentUser}
         onSelectClass={handleSelectClass}
         onLogout={handleLogout}
@@ -190,6 +225,7 @@ export default function App() {
         onCodeWithDeployment={handleCodeWithDeployment}
         onMCQWithDeployment={handleMCQWithDeployment}
         onPromptWithDeployment={handlePromptWithDeployment}
+        onVideoWithDeployment={handleVideoWithDeployment}
         onPageWithDeployment={handlePageWithDeployment}
       />
     );
@@ -198,9 +234,9 @@ export default function App() {
   // Workflow editor page
   if (appState === APP_STATES.EDITOR && currentWorkflowId) {
     return (
-      <WorkflowEditorPage 
-        workflowId={currentWorkflowId} 
-        onBack={handleBackFromEditor} 
+      <WorkflowEditorPage
+        workflowId={currentWorkflowId}
+        onBack={handleBackFromEditor}
       />
     );
   }
@@ -249,6 +285,16 @@ export default function App() {
     );
   }
 
+  if (appState === APP_STATES.VIDEO && currentDeploymentId) {
+    return (
+      <VideoInterface
+        deploymentId={currentDeploymentId}
+        deploymentName={currentDeploymentName}
+        onClose={handleBackFromVideo}
+      />
+    );
+  }
+
   // Page interface
   if (appState === APP_STATES.PAGE && currentDeploymentId) {
     return (
@@ -262,10 +308,10 @@ export default function App() {
 
   // Default to classes page
   return (
-    <ClassesPage 
+    <ClassesPage
       user={currentUser}
       onSelectClass={handleSelectClass}
       onLogout={handleLogout}
     />
   );
-} 
+}

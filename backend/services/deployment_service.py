@@ -7,6 +7,8 @@ from services.config_service import parse_agent_config
 from services.deployment_types.code_executor import CodeDeployment
 from services.deployment_types.mcq import MCQDeployment
 from services.deployment_types.prompt import PromptDeployment
+from services.deployment_types.video import VideoDeployment
+
 
 class AgentDeployment:
     _services: AgentNodeList
@@ -15,6 +17,7 @@ class AgentDeployment:
     _code_service: "CodeDeployment | None" = None
     _mcq_service: "MCQDeployment | None" = None
     _prompt_service: "PromptDeployment | None" = None
+    _video_service: "VideoDeployment | None"
 
     def __init__(
         self,
@@ -25,52 +28,62 @@ class AgentDeployment:
     ) -> None:
         self._contains_chat = True
         self.deployment_id = deployment_id
-        self._services = AgentNodeList() 
+        self._services = AgentNodeList()
 
         if not coming_from_page:
-            if config['pagesExist']:
+            if config["pagesExist"]:
                 raise ValueError("Pages are not supported in this workflow")
 
-        config = config['nodes']
+        config = config["nodes"]
 
         # Starting node configuration
-        match config['1']['type']:
-            case 'chat':
+        match config["1"]["type"]:
+            case "chat":
                 self._deployment_type = DeploymentType.CHAT
-            case 'code':
+            case "code":
                 self._deployment_type = DeploymentType.CODE
-                self._code_service = CodeDeployment(
-                    problem_config=config['1']
-                )
+                self._code_service = CodeDeployment(problem_config=config["1"])
                 self._services.append(AgentNode(self._code_service))
-            case 'mcq':
+            case "mcq":
                 self._deployment_type = DeploymentType.MCQ
-                name = config['1']["attachments"]["questions"][0]['config']['title']
-                description = config['1']["attachments"]["questions"][0]['config'].get('description', '')
-                questions = MCQDeployment.from_questions_json(config['1']['attachments']['questions'])
-                question_count = config['1']['config'].get('questionsGiven', -1)
-                randomize = config['1']['config'].get('randomizeQuestions', True)
+                name = config["1"]["attachments"]["questions"][0]["config"]["title"]
+                description = config["1"]["attachments"]["questions"][0]["config"].get(
+                    "description", ""
+                )
+                questions = MCQDeployment.from_questions_json(
+                    config["1"]["attachments"]["questions"]
+                )
+                question_count = config["1"]["config"].get("questionsGiven", -1)
+                randomize = config["1"]["config"].get("randomizeQuestions", True)
                 self._mcq_service = MCQDeployment(
                     name=name,
                     description=description,
                     questions=questions,
                     question_count=question_count,
-                    randomize=randomize
+                    randomize=randomize,
                 )
                 self._services.append(AgentNode(self._mcq_service))
-            case 'prompt':
+            case "prompt":
                 self._deployment_type = DeploymentType.PROMPT
                 self._prompt_service = PromptDeployment.from_config(config)
                 self._services.append(AgentNode(self._prompt_service))
+            case "video":
+                self._deployment_type = DeploymentType.VIDEO
+                title = config["1"]["config"].get("title", "")
+                video_url = config["1"]["config"].get("videoUrl", "")
+                if not video_url or not isinstance(video_url, str):
+                    raise ValueError("No video URL provided for video node")
+                self._video_service = VideoDeployment(title, video_url)
+                self._services.append(AgentNode(self._video_service))
             case _:
                 raise ValueError(f"Invalid deployment type: {config['1']['type']}")
-        
+
         i = 2
         print(config)
-        while (str(i) in config):
-            if (config[str(i)]['type'] == "result"):
+        while str(i) in config:
+            if config[str(i)]["type"] == "result":
                 break
-            elif (config[str(i)]['type'] == "agent"):
+            elif config[str(i)]["type"] == "agent":
                 agent_config = parse_agent_config(config[str(i)])
                 chat_service = Chat(
                     config=agent_config,
@@ -81,11 +94,14 @@ class AgentDeployment:
                 )
                 self._services.append(AgentNode(chat_service))
             i += 1
-        
-        if (self._services.count == 0):
-            if (self._deployment_type == DeploymentType.CHAT):
+
+        if self._services.count == 0:
+            if self._deployment_type == DeploymentType.CHAT:
                 raise ValueError("No agents found in the workflow")
-        if (self._services.count == 1 and (self._deployment_type == DeploymentType.CODE or self._deployment_type == DeploymentType.PROMPT)):
+        if self._services.count == 1 and (
+            self._deployment_type == DeploymentType.CODE
+            or self._deployment_type == DeploymentType.PROMPT
+        ):
             self._contains_chat = False
         print("contains chat: ", self._contains_chat)
 
@@ -116,19 +132,27 @@ class AgentDeployment:
             return 0
         return self._code_service.get_problem_count()
 
-    def run_all_tests(self, code: str, problem_index: int = 0, database_session=None, submission_id=None):
+    def run_all_tests(
+        self,
+        code: str,
+        problem_index: int = 0,
+        database_session=None,
+        submission_id=None,
+    ):
         if self._deployment_type != DeploymentType.CODE or self._code_service is None:
             return None
 
         try:
             return self._code_service.run_all_tests(
-                code, 
-                problem_index=problem_index, 
-                database_session=database_session, 
-                submission_id=submission_id
+                code,
+                problem_index=problem_index,
+                database_session=database_session,
+                submission_id=submission_id,
             )
         except Exception as exc:
-            print(f"[AgentDeployment] Code test execution failed for problem {problem_index}: {exc}")
+            print(
+                f"[AgentDeployment] Code test execution failed for problem {problem_index}: {exc}"
+            )
             raise
 
     def get_code_problem_info_legacy(self) -> Optional[Dict[str, Any]]:
@@ -145,7 +169,9 @@ class AgentDeployment:
             return 0
         return len(self._mcq_service.questions)
 
-    def create_mcq_question_set(self, question_count: int = -1, randomize: bool = True) -> List[int]:
+    def create_mcq_question_set(
+        self, question_count: int = -1, randomize: bool = True
+    ) -> List[int]:
         if self._deployment_type != DeploymentType.MCQ or self._mcq_service is None:
             return []
         return self._mcq_service.create_question_set(question_count, randomize)
@@ -157,12 +183,18 @@ class AgentDeployment:
         return self._prompt_service
 
     def get_prompt_info(self) -> Optional[Dict[str, Any]]:
-        if self._deployment_type != DeploymentType.PROMPT or self._prompt_service is None:
+        if (
+            self._deployment_type != DeploymentType.PROMPT
+            or self._prompt_service is None
+        ):
             return None
         return self._prompt_service.to_dict()
 
     def validate_prompt_submission(self, index: int, response: str) -> Dict[str, Any]:
-        if self._deployment_type != DeploymentType.PROMPT or self._prompt_service is None:
+        if (
+            self._deployment_type != DeploymentType.PROMPT
+            or self._prompt_service is None
+        ):
             return {"valid": False, "error": "Not a prompt deployment"}
         return self._prompt_service.validate_submission(index, response)
 
@@ -183,9 +215,11 @@ class AgentDeployment:
         user_id: int | None = None,
     ) -> Dict[str, Any]:
         history = history or []
-        if (self._services.count == 0):
+        if self._services.count == 0:
             return None
-        return await self._services.back.current_agent.chat(message, history, user_id=user_id, stream=False)
+        return await self._services.back.current_agent.chat(
+            message, history, user_id=user_id, stream=False
+        )
 
     async def chat_streaming(
         self,
@@ -195,7 +229,7 @@ class AgentDeployment:
         user_id: int | None = None,
     ) -> Dict[str, Any]:
         history = history or []
-        if (self._services.count == 0):
+        if self._services.count == 0:
             return None
         return await self._services.back.current_agent.chat(
             message,
@@ -205,11 +239,11 @@ class AgentDeployment:
             user_id=user_id,
         )
 
-    async def _prepare_context(self, message: str, k: int = 15):  
-        return await self._services.back.current_agent._prepare_context(message, k)  
+    async def _prepare_context(self, message: str, k: int = 15):
+        return await self._services.back.current_agent._prepare_context(message, k)
 
-    def _extract_unique_sources(self, search_results):  
-        return self._services.back.current_agent._extract_unique_sources(search_results) 
+    def _extract_unique_sources(self, search_results):
+        return self._services.back.current_agent._extract_unique_sources(search_results)
 
     async def close(self) -> None:
         print(f"AgentDeployment {self.deployment_id} cleaned up")
@@ -223,7 +257,7 @@ def get_deployment_files_info(
     try:
         from sqlmodel import select
         from models.database.db_models import Document
-        
+
         rag_document_ids: list[int] = db_deployment.rag_document_ids or []
         if not rag_document_ids:
             return {
@@ -236,26 +270,28 @@ def get_deployment_files_info(
         documents = (
             db_session.exec(
                 select(Document)
-                .where(Document.id.in_(rag_document_ids), Document.is_active == True)  # noqa: E712 – keep comparison with literal True for SQLModel
+                .where(
+                    Document.id.in_(rag_document_ids), Document.is_active == True
+                )  # noqa: E712 – keep comparison with literal True for SQLModel
                 .order_by(Document.uploaded_at.desc())
             )
         ).all()
-        
+
         file_list: list[Dict[str, Any]] = []
         for doc in documents:
             file_list.append(
                 {
-                "id": doc.id,
-                "filename": doc.original_filename,
-                "file_size": doc.file_size,
-                "file_type": doc.file_type,
-                "chunk_count": doc.chunk_count,
-                "uploaded_at": doc.uploaded_at.isoformat(),
-                "has_stored_file": doc.storage_path is not None,
+                    "id": doc.id,
+                    "filename": doc.original_filename,
+                    "file_size": doc.file_size,
+                    "file_type": doc.file_type,
+                    "chunk_count": doc.chunk_count,
+                    "uploaded_at": doc.uploaded_at.isoformat(),
+                    "has_stored_file": doc.storage_path is not None,
                     "can_view": doc.storage_path is not None,
-            }
+                }
             )
-        
+
         return {
             "deployment_id": deployment_id,
             "file_count": len(file_list),
@@ -264,8 +300,8 @@ def get_deployment_files_info(
             "total_chunks": sum(doc.chunk_count for doc in documents),
             "total_file_size": sum(doc.file_size for doc in documents),
         }
-        
-    except Exception as exc:  
+
+    except Exception as exc:
         print(f"Error getting deployment files info: {exc}")
         return {
             "deployment_id": deployment_id,
@@ -273,4 +309,4 @@ def get_deployment_files_info(
             "files": [],
             "has_rag_files": False,
             "error": str(exc),
-        } 
+        }

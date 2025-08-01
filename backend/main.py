@@ -8,6 +8,7 @@ from api.documents import router as document_router
 from api.deployment_routes import router as deployment_router
 from api.classes import router as class_router
 from api.file_storage import router as file_storage_router
+from api.video import router as video_router
 from services.deployment_manager import cleanup_all_deployments
 from models.database.db_models import User
 from contextlib import asynccontextmanager
@@ -28,11 +29,16 @@ logs_dir.mkdir(exist_ok=True)
 
 logging.basicConfig(
     level=getattr(logging, config.get("app", {}).get("log_level", "INFO")),
-    format='%(asctime)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
-        logging.FileHandler(logs_dir / datetime.now().strftime(config.get("app", {}).get("log_file_pattern", "api_%Y%m%d.log"))),
-        logging.StreamHandler()
-    ]
+        logging.FileHandler(
+            logs_dir
+            / datetime.now().strftime(
+                config.get("app", {}).get("log_file_pattern", "api_%Y%m%d.log")
+            )
+        ),
+        logging.StreamHandler(),
+    ],
 )
 logger = logging.getLogger(__name__)
 
@@ -46,10 +52,12 @@ async def lifespan(app: FastAPI):
     # Verify Celery broker connectivity (non-blocking)
     try:
         broker_ping = task_app.control.ping(timeout=2.0)
-        logger.info(f"Celery broker reachable: {bool(broker_ping)} - ping={broker_ping}")
+        logger.info(
+            f"Celery broker reachable: {bool(broker_ping)} - ping={broker_ping}"
+        )
     except Exception as ping_exc:
         logger.warning(f"Celery broker not reachable: {ping_exc}")
-    
+
     yield
     # Shutdown
     await cleanup_all_deployments()
@@ -57,15 +65,14 @@ async def lifespan(app: FastAPI):
     shutdown_db()
     logger.info("Database connections closed")
 
+
 app = FastAPI(
-    title=config.get("app", {}).get("name", "Agent Builder Backend"),
-    lifespan=lifespan
+    title=config.get("app", {}).get("name", "Agent Builder Backend"), lifespan=lifespan
 )
 
 # Add session middleware
 app.add_middleware(
-    SessionMiddleware, 
-    secret_key=config.get("auth", {}).get("secret_key")
+    SessionMiddleware, secret_key=config.get("auth", {}).get("secret_key")
 )
 
 # Add CORS middleware
@@ -85,23 +92,27 @@ app.include_router(document_router)
 app.include_router(deployment_router)
 app.include_router(file_storage_router)
 app.include_router(summary_router)
+app.include_router(video_router)
+
 
 @app.get("/")
 def read_root():
     return {"Hello": "World"}
 
+
 @app.get("/me")
-def me(user = Depends(get_current_user)):
+def me(user=Depends(get_current_user)):
     # Get user's roles from class memberships
     from database.database import get_session
     from scripts.permission_helpers import user_is_student_only
     from sqlmodel import Session as DBSession
-    
+
     db: DBSession = next(get_session())
     is_student = user_is_student_only(user, db)
     db.close()
-    
+
     return {"id": user.id, "email": user.email, "student": is_student}
+
 
 # Test WebSocket endpoint
 @app.websocket("/ws/test")
@@ -110,17 +121,18 @@ async def websocket_test(websocket: WebSocket):
     await websocket.send_text("Test WebSocket connection successful!")
     await websocket.close()
 
+
 if __name__ == "__main__":
     import uvicorn
     import sys
-    
+
     # Load configuration for server settings
     config = load_config()
-    
+
     # Get server settings
     host = config.get("server", {}).get("host", "0.0.0.0")
     port = config.get("server", {}).get("port", 8000)
-    
+
     # Run the server with reload enabled (equivalent to --reload flag)
     uvicorn.run(
         "main:app",
@@ -128,7 +140,7 @@ if __name__ == "__main__":
         port=port,
         reload=True,
         ws_ping_interval=30,  # WebSocket ping interval
-        ws_ping_timeout=10,   # WebSocket ping timeout
+        ws_ping_timeout=10,  # WebSocket ping timeout
         access_log=True,
-        log_level="info"
+        log_level="info",
     )
