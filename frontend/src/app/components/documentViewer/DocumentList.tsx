@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import React, { useState } from 'react';
-import DocumentViewerModal from './documentViewerModal';
+import React, { useState } from "react";
+import DocumentViewerModal from "./DocumentViewerModal";
 
 interface DocumentItem {
   id: number;
@@ -28,17 +28,19 @@ const DocumentList: React.FC<DocumentListProps> = ({
   documents,
   title = "Documents",
   showUploader = false,
-  className = ''
+  className = "",
 }) => {
-  const [selectedDocument, setSelectedDocument] = useState<DocumentItem | null>(null);
+  const [selectedDocument, setSelectedDocument] = useState<DocumentItem | null>(
+    null
+  );
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 Bytes';
+    if (bytes === 0) return "0 Bytes";
     const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const sizes = ["Bytes", "KB", "MB", "GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
   const formatDate = (dateString: string): string => {
@@ -47,23 +49,35 @@ const DocumentList: React.FC<DocumentListProps> = ({
 
   const getFileIcon = (fileType: string) => {
     switch (fileType.toLowerCase()) {
-      case 'pdf':
+      case "pdf":
         return (
-          <svg className="w-6 h-6 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M4 18h12V6l-4-4H4v16zm8-14v3h3l-3-3z"/>
+          <svg
+            className="w-6 h-6 text-red-500"
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path d="M4 18h12V6l-4-4H4v16zm8-14v3h3l-3-3z" />
           </svg>
         );
-      case 'docx':
-      case 'doc':
+      case "docx":
+      case "doc":
         return (
-          <svg className="w-6 h-6 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M4 18h12V6l-4-4H4v16zm8-14v3h3l-3-3z"/>
+          <svg
+            className="w-6 h-6 text-blue-500"
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path d="M4 18h12V6l-4-4H4v16zm8-14v3h3l-3-3z" />
           </svg>
         );
       default:
         return (
-          <svg className="w-6 h-6 text-gray-500" fill="currentColor" viewBox="0 0 20 20">
-            <path d="M4 18h12V6l-4-4H4v16zm8-14v3h3l-3-3z"/>
+          <svg
+            className="w-6 h-6 text-gray-500"
+            fill="currentColor"
+            viewBox="0 0 20 20"
+          >
+            <path d="M4 18h12V6l-4-4H4v16zm8-14v3h3l-3-3z" />
           </svg>
         );
     }
@@ -78,7 +92,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
 
   const handleDownloadDocument = (document: DocumentItem) => {
     if (document.can_download && document.download_url) {
-      window.open(document.download_url, '_blank');
+      window.open(document.download_url, "_blank");
     }
   };
 
@@ -93,8 +107,12 @@ const DocumentList: React.FC<DocumentListProps> = ({
         <div className="card-body">
           <h2 className="card-title">{title}</h2>
           <div className="flex flex-col items-center justify-center py-8 text-base-content/70">
-            <svg className="w-12 h-12 mb-4" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M4 18h12V6l-4-4H4v16zm8-14v3h3l-3-3z"/>
+            <svg
+              className="w-12 h-12 mb-4"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path d="M4 18h12V6l-4-4H4v16zm8-14v3h3l-3-3z" />
             </svg>
             <p>No documents available</p>
           </div>
@@ -143,7 +161,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
                       <div className="badge badge-sm">{doc.chunk_count}</div>
                     </td>
                     {showUploader && (
-                      <td>{doc.uploaded_by_email || 'Unknown'}</td>
+                      <td>{doc.uploaded_by_email || "Unknown"}</td>
                     )}
                     <td>{formatDate(doc.uploaded_at)}</td>
                     <td>
@@ -154,9 +172,24 @@ const DocumentList: React.FC<DocumentListProps> = ({
                             onClick={() => handleViewDocument(doc)}
                             title="View document"
                           >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                            <svg
+                              className="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+                              />
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"
+                              />
                             </svg>
                             View
                           </button>
@@ -167,8 +200,18 @@ const DocumentList: React.FC<DocumentListProps> = ({
                             onClick={() => handleDownloadDocument(doc)}
                             title="Download document"
                           >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            <svg
+                              className="w-4 h-4"
+                              fill="none"
+                              stroke="currentColor"
+                              viewBox="0 0 24 24"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                              />
                             </svg>
                             Download
                           </button>
@@ -193,7 +236,7 @@ const DocumentList: React.FC<DocumentListProps> = ({
         <DocumentViewerModal
           isOpen={isModalOpen}
           onClose={closeModal}
-          fileUrl={selectedDocument.view_url || ''}
+          fileUrl={selectedDocument.view_url || ""}
           fileName={selectedDocument.filename}
           fileType={selectedDocument.file_type}
         />
@@ -202,4 +245,4 @@ const DocumentList: React.FC<DocumentListProps> = ({
   );
 };
 
-export default DocumentList; 
+export default DocumentList;

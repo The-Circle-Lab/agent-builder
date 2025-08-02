@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import React from 'react';
-import dynamic from 'next/dynamic';
+import React from "react";
+import dynamic from "next/dynamic";
 
 // Dynamically import DocumentViewer to avoid SSR issues with react-pdf
-const DocumentViewer = dynamic(() => import('./documentViewer'), { 
+const DocumentViewer = dynamic(() => import("./DocumentViewer"), {
   ssr: false,
   loading: () => (
     <div className="flex items-center justify-center h-64">
@@ -13,7 +13,7 @@ const DocumentViewer = dynamic(() => import('./documentViewer'), {
         <span className="text-gray-600">Loading document viewer...</span>
       </div>
     </div>
-  )
+  ),
 });
 
 interface DocumentViewerModalProps {
@@ -31,7 +31,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   fileUrl,
   fileName,
   fileType,
-  initialPage
+  initialPage,
 }) => {
   if (!isOpen) return null;
 
@@ -42,7 +42,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   };
 
   return (
-    <div 
+    <div
       className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
       onClick={handleBackdropClick}
     >
@@ -61,8 +61,18 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600 transition-colors"
           >
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            <svg
+              className="w-6 h-6"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M6 18L18 6M6 6l12 12"
+              />
             </svg>
           </button>
         </div>
@@ -82,4 +92,4 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
   );
 };
 
-export default DocumentViewerModal; 
+export default DocumentViewerModal;
