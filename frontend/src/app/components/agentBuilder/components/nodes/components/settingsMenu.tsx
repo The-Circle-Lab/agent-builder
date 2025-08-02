@@ -4,7 +4,8 @@ import { faTimes } from "@fortawesome/free-solid-svg-icons";
 import { NodeData } from "../types";
 import { getNodeConfig } from "../nodeRegistry";
 import { PropertyDefinition } from "../types";
-import DocumentManager from "./documentManager";
+import DocumentManager from "./DocumentManager";
+import VideoUploadManager from "./VideoManager";
 
 export * from "../../../hooks/useSettingsMenu";
 
@@ -24,14 +25,18 @@ interface GenericFormProps {
   workflowId?: string | number;
 }
 
-function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFormProps) {
+function GenericSettingsForm({
+  properties,
+  data,
+  onSave,
+  workflowId,
+}: GenericFormProps) {
   const [formData, setFormData] = useState<NodeData>(() => {
     // Initialize form data with existing data or default values
     const initialData: Record<string, unknown> = {};
     properties.forEach((prop) => {
       initialData[prop.key] =
-        (data as Record<string, unknown>)[prop.key] ??
-        prop.defaultValue;
+        (data as Record<string, unknown>)[prop.key] ?? prop.defaultValue;
     });
     return initialData as NodeData;
   });
@@ -71,14 +76,21 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
             const count = updated[prop.countKey] as number | undefined;
             if (typeof count === "number") {
               const testsKey = prop.key;
-              let tests = updated[testsKey] as import("../types").TestCase[] | undefined;
+              let tests = updated[testsKey] as
+                | import("../types").TestCase[]
+                | undefined;
               if (!Array.isArray(tests)) tests = [];
 
               tests = tests.map((t) => {
-                let params = Array.isArray(t.parameters) ? [...t.parameters] : [];
+                let params = Array.isArray(t.parameters)
+                  ? [...t.parameters]
+                  : [];
                 if (params.length > count) params = params.slice(0, count);
                 else if (params.length < count) {
-                  params = [...params, ...Array(count - params.length).fill("")];
+                  params = [
+                    ...params,
+                    ...Array(count - params.length).fill(""),
+                  ];
                 }
                 return { ...t, parameters: params };
               });
@@ -232,16 +244,28 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
       case "upload":
         return (
           <div key={key}>
-            <DocumentManager 
-              workflowId={workflowId} 
+            <DocumentManager
+              workflowId={workflowId}
               onDocumentsChange={documentChangeHandlers[key] || (() => {})}
+            />
+          </div>
+        );
+
+      case "uploadVideo":
+        return (
+          <div key={key}>
+            <VideoUploadManager
+              value={value}
+              onChange={(urls) => handleInputChange(key, urls)}
             />
           </div>
         );
 
       case "dynamicTextList": {
         const countKey = property.countKey;
-        const count = (formData as Record<string, unknown>)[countKey ?? ""] as number | undefined;
+        const count = (formData as Record<string, unknown>)[countKey ?? ""] as
+          | number
+          | undefined;
         const list = Array.isArray(value) ? (value as string[]) : [];
 
         const effectiveCount = typeof count === "number" ? count : list.length;
@@ -280,8 +304,11 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
 
       case "testCases": {
         const countKey = property.countKey;
-        const paramCount = (formData as Record<string, unknown>)[countKey ?? ""] as number | undefined;
-        const effectiveParamCount = typeof paramCount === "number" ? paramCount : 0;
+        const paramCount = (formData as Record<string, unknown>)[
+          countKey ?? ""
+        ] as number | undefined;
+        const effectiveParamCount =
+          typeof paramCount === "number" ? paramCount : 0;
 
         // Hide section if param count is 0
         if (effectiveParamCount === 0) return null;
@@ -289,14 +316,21 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const tests: any[] = Array.isArray(value) ? value : [];
 
-        const updateTest = (index: number, field: string, val: string, paramIdx?: number) => {
+        const updateTest = (
+          index: number,
+          field: string,
+          val: string,
+          paramIdx?: number
+        ) => {
           const newTests = tests.map((t, i) => {
             if (i !== index) return t;
             if (field === "expected") {
               return { ...t, expected: val };
             }
             // field === "param"
-            const newParams = Array.isArray(t.parameters) ? [...t.parameters] : [];
+            const newParams = Array.isArray(t.parameters)
+              ? [...t.parameters]
+              : [];
             if (typeof paramIdx === "number") {
               newParams[paramIdx] = val;
             }
@@ -306,8 +340,13 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
         };
 
         const addTest = () => {
-          const emptyParams = Array.from({ length: effectiveParamCount }).fill("");
-          const newTests = [...tests, { parameters: emptyParams, expected: "" }];
+          const emptyParams = Array.from({ length: effectiveParamCount }).fill(
+            ""
+          );
+          const newTests = [
+            ...tests,
+            { parameters: emptyParams, expected: "" },
+          ];
           handleInputChange(key, newTests);
         };
 
@@ -322,7 +361,10 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
               {label}
             </label>
             {tests.map((test, idx) => (
-              <div key={`${key}-test-${idx}`} className="space-y-1 border border-gray-600 p-2 rounded-md">
+              <div
+                key={`${key}-test-${idx}`}
+                className="space-y-1 border border-gray-600 p-2 rounded-md"
+              >
                 <div className="flex justify-between items-center">
                   <span className="text-gray-300 text-sm">Test #{idx + 1}</span>
                   <button
@@ -334,20 +376,26 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
                   </button>
                 </div>
                 <div className="grid grid-cols-1 gap-2 mt-2">
-                  {Array.from({ length: effectiveParamCount }).map((_, pIdx) => (
-                    <input
-                      key={`param-${pIdx}`}
-                      type="text"
-                      value={test.parameters?.[pIdx] ?? ""}
-                      onChange={(e) => updateTest(idx, "param", e.target.value, pIdx)}
-                      className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder={`Parameter #${pIdx + 1}`}
-                    />
-                  ))}
+                  {Array.from({ length: effectiveParamCount }).map(
+                    (_, pIdx) => (
+                      <input
+                        key={`param-${pIdx}`}
+                        type="text"
+                        value={test.parameters?.[pIdx] ?? ""}
+                        onChange={(e) =>
+                          updateTest(idx, "param", e.target.value, pIdx)
+                        }
+                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder={`Parameter #${pIdx + 1}`}
+                      />
+                    )
+                  )}
                   <input
                     type="text"
                     value={test.expected ?? ""}
-                    onChange={(e) => updateTest(idx, "expected", e.target.value)}
+                    onChange={(e) =>
+                      updateTest(idx, "expected", e.target.value)
+                    }
                     className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                     placeholder="Expected Return"
                   />
@@ -369,10 +417,15 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const questions: any[] = Array.isArray(value) ? value : [];
 
-        const updateQuestion = (index: number, field: string, val: string | number, answerIdx?: number) => {
+        const updateQuestion = (
+          index: number,
+          field: string,
+          val: string | number,
+          answerIdx?: number
+        ) => {
           const newQuestions = questions.map((q, i) => {
             if (i !== index) return q;
-            
+
             if (field === "text") {
               return { ...q, text: val };
             } else if (field === "correctAnswer") {
@@ -390,7 +443,9 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
         const addAnswer = (questionIdx: number) => {
           const newQuestions = questions.map((q, i) => {
             if (i !== questionIdx) return q;
-            const newAnswers = Array.isArray(q.answers) ? [...q.answers, ""] : [""];
+            const newAnswers = Array.isArray(q.answers)
+              ? [...q.answers, ""]
+              : [""];
             return { ...q, answers: newAnswers };
           });
           handleInputChange(key, newQuestions);
@@ -399,19 +454,28 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
         const removeAnswer = (questionIdx: number, answerIdx: number) => {
           const newQuestions = questions.map((q, i) => {
             if (i !== questionIdx) return q;
-            const newAnswers = Array.isArray(q.answers) ? q.answers.filter((_: unknown, idx: number) => idx !== answerIdx) : [];
+            const newAnswers = Array.isArray(q.answers)
+              ? q.answers.filter((_: unknown, idx: number) => idx !== answerIdx)
+              : [];
             // Adjust correctAnswer if it was pointing to a removed answer
             let newCorrectAnswer = q.correctAnswer;
             if (newCorrectAnswer >= answerIdx && newCorrectAnswer > 0) {
               newCorrectAnswer = Math.max(0, newCorrectAnswer - 1);
             }
-            return { ...q, answers: newAnswers, correctAnswer: newCorrectAnswer };
+            return {
+              ...q,
+              answers: newAnswers,
+              correctAnswer: newCorrectAnswer,
+            };
           });
           handleInputChange(key, newQuestions);
         };
 
         const addQuestion = () => {
-          const newQuestions = [...questions, { text: "", answers: ["", ""], correctAnswer: 0 }];
+          const newQuestions = [
+            ...questions,
+            { text: "", answers: ["", ""], correctAnswer: 0 },
+          ];
           handleInputChange(key, newQuestions);
         };
 
@@ -426,9 +490,14 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
               {label}
             </label>
             {questions.map((question, qIdx) => (
-              <div key={`${key}-question-${qIdx}`} className="space-y-3 border border-gray-600 p-4 rounded-md">
+              <div
+                key={`${key}-question-${qIdx}`}
+                className="space-y-3 border border-gray-600 p-4 rounded-md"
+              >
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-300 text-sm">Question #{qIdx + 1}</span>
+                  <span className="text-gray-300 text-sm">
+                    Question #{qIdx + 1}
+                  </span>
                   <button
                     type="button"
                     onClick={() => deleteQuestion(qIdx)}
@@ -437,7 +506,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
                     ×
                   </button>
                 </div>
-                
+
                 {/* Question Text */}
                 <textarea
                   value={question.text ?? ""}
@@ -459,34 +528,43 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
                       Add Answer
                     </button>
                   </div>
-                  
-                  {(question.answers || []).map((answer: string, aIdx: number) => (
-                    <div key={`answer-${aIdx}`} className="flex items-center space-x-2">
-                      <input
-                        type="radio"
-                        name={`correct-${qIdx}`}
-                        checked={question.correctAnswer === aIdx}
-                        onChange={() => updateQuestion(qIdx, "correctAnswer", aIdx)}
-                        className="text-green-600 bg-gray-700 border-gray-600 focus:ring-green-500"
-                      />
-                      <input
-                        type="text"
-                        value={answer}
-                        onChange={(e) => updateQuestion(qIdx, "answer", e.target.value, aIdx)}
-                        className="flex-1 px-3 py-1 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        placeholder={`Answer ${aIdx + 1}`}
-                      />
-                      {(question.answers || []).length > 2 && (
-                        <button
-                          type="button"
-                          onClick={() => removeAnswer(qIdx, aIdx)}
-                          className="text-red-400 hover:text-red-500 px-2"
-                        >
-                          ×
-                        </button>
-                      )}
-                    </div>
-                  ))}
+
+                  {(question.answers || []).map(
+                    (answer: string, aIdx: number) => (
+                      <div
+                        key={`answer-${aIdx}`}
+                        className="flex items-center space-x-2"
+                      >
+                        <input
+                          type="radio"
+                          name={`correct-${qIdx}`}
+                          checked={question.correctAnswer === aIdx}
+                          onChange={() =>
+                            updateQuestion(qIdx, "correctAnswer", aIdx)
+                          }
+                          className="text-green-600 bg-gray-700 border-gray-600 focus:ring-green-500"
+                        />
+                        <input
+                          type="text"
+                          value={answer}
+                          onChange={(e) =>
+                            updateQuestion(qIdx, "answer", e.target.value, aIdx)
+                          }
+                          className="flex-1 px-3 py-1 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder={`Answer ${aIdx + 1}`}
+                        />
+                        {(question.answers || []).length > 2 && (
+                          <button
+                            type="button"
+                            onClick={() => removeAnswer(qIdx, aIdx)}
+                            className="text-red-400 hover:text-red-500 px-2"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    )
+                  )}
                 </div>
               </div>
             ))}
@@ -508,7 +586,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
         const updatePrompt = (index: number, field: string, val: string) => {
           const newPrompts = prompts.map((p, i) => {
             if (i !== index) return p;
-            
+
             if (field === "prompt") {
               return { ...p, prompt: val };
             } else if (field === "mediaType") {
@@ -520,7 +598,10 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
         };
 
         const addPrompt = () => {
-          const newPrompts = [...prompts, { prompt: "", mediaType: "textarea" }];
+          const newPrompts = [
+            ...prompts,
+            { prompt: "", mediaType: "textarea" },
+          ];
           handleInputChange(key, newPrompts);
         };
 
@@ -535,9 +616,14 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
               {label}
             </label>
             {prompts.map((prompt, pIdx) => (
-              <div key={`${key}-prompt-${pIdx}`} className="space-y-3 border border-gray-600 p-4 rounded-md">
+              <div
+                key={`${key}-prompt-${pIdx}`}
+                className="space-y-3 border border-gray-600 p-4 rounded-md"
+              >
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-300 text-sm">Submission #{pIdx + 1}</span>
+                  <span className="text-gray-300 text-sm">
+                    Submission #{pIdx + 1}
+                  </span>
                   <button
                     type="button"
                     onClick={() => deletePrompt(pIdx)}
@@ -546,7 +632,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
                     ×
                   </button>
                 </div>
-                
+
                 {/* Prompt Text */}
                 <textarea
                   value={prompt.prompt ?? ""}
@@ -558,7 +644,9 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
 
                 {/* Media Type Selection */}
                 <div className="space-y-2">
-                  <span className="text-sm text-gray-300">Expected submission type:</span>
+                  <span className="text-sm text-gray-300">
+                    Expected submission type:
+                  </span>
                   <div className="flex space-x-4">
                     <label className="flex items-center space-x-2">
                       <input
@@ -566,10 +654,14 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
                         name={`mediaType-${pIdx}`}
                         value="textarea"
                         checked={prompt.mediaType === "textarea"}
-                        onChange={(e) => updatePrompt(pIdx, "mediaType", e.target.value)}
+                        onChange={(e) =>
+                          updatePrompt(pIdx, "mediaType", e.target.value)
+                        }
                         className="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500"
                       />
-                      <span className="text-sm text-gray-300">Text Response</span>
+                      <span className="text-sm text-gray-300">
+                        Text Response
+                      </span>
                     </label>
                     <label className="flex items-center space-x-2">
                       <input
@@ -577,7 +669,9 @@ function GenericSettingsForm({ properties, data, onSave, workflowId }: GenericFo
                         name={`mediaType-${pIdx}`}
                         value="hyperlink"
                         checked={prompt.mediaType === "hyperlink"}
-                        onChange={(e) => updatePrompt(pIdx, "mediaType", e.target.value)}
+                        onChange={(e) =>
+                          updatePrompt(pIdx, "mediaType", e.target.value)
+                        }
                         className="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500"
                       />
                       <span className="text-sm text-gray-300">Hyperlink</span>

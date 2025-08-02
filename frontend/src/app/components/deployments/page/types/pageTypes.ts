@@ -1,5 +1,11 @@
 // Use the deployment type from the backend
-export type DeploymentType = 'chat' | 'code' | 'mcq' | 'prompt' | 'page';
+export type DeploymentType =
+  | "chat"
+  | "code"
+  | "mcq"
+  | "prompt"
+  | "page"
+  | "video";
 
 export interface PageInfo {
   page_number: number;
@@ -34,4 +40,4 @@ export interface PageInterfaceProps {
   deploymentId: string;
   deploymentName: string;
   onBack?: () => void;
-} 
+}

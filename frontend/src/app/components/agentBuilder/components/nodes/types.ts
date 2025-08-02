@@ -9,8 +9,27 @@ export type NodeData = BaseNodeData;
 export interface PropertyDefinition {
   key: string;
   label: string;
-  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions" | "submissionPrompts";
-  defaultValue: string | number | boolean | string[] | TestCase[] | MultipleChoiceQuestion[] | SubmissionPrompt[];
+  type:
+    | "text"
+    | "textarea"
+    | "number"
+    | "checkbox"
+    | "select"
+    | "range"
+    | "upload"
+    | "uploadVideo"
+    | "dynamicTextList"
+    | "testCases"
+    | "multipleChoiceQuestions"
+    | "submissionPrompts";
+  defaultValue:
+    | string
+    | number
+    | boolean
+    | string[]
+    | TestCase[]
+    | MultipleChoiceQuestion[]
+    | SubmissionPrompt[];
   placeholder?: string;
   options?: string[]; // For select type
   min?: number; // For number and range types
@@ -35,7 +54,7 @@ export interface PlusButtonProps {
   handleId: string;
   objectType: string;
   nodeId?: string;
-  edges?: Edge[]; 
+  edges?: Edge[];
   onAddNodeClick?: (objectType?: string, sourceNodeId?: string) => void;
   position: {
     bottom?: string;
@@ -61,7 +80,7 @@ export interface TestCase {
 export interface MultipleChoiceQuestion {
   text: string;
   answers: string[];
-  correctAnswer: number; 
+  correctAnswer: number;
 }
 
 // Submission prompt representation for submission nodes
