@@ -10,7 +10,9 @@ import {
 export function createWorkflowJSON(nodes: Node[], edges: Edge[], pageRelationships?: Record<string, string[]>) {
   // Check if the workflow is valid for deployment
   if (!checkWorkflowValidity(nodes, edges)) {
-    throw new Error("Invalid workflow: Make sure your workflow has a chat node connected to other nodes and ends with an output node.");
+    throw new Error(
+      "Invalid workflow: Make sure your workflow has a chat node connected to other nodes and ends with an output node."
+    );
   }
 
   // Check if pages exist in the workflow
@@ -177,7 +179,6 @@ export function checkWorkflowValidity(nodes: Node[], edges: Edge[]): boolean {
 
     currentNode = tempInstance.getNextNode(nodes);
   }
-
 
   return false;
 }

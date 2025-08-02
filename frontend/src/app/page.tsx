@@ -12,7 +12,7 @@ const App = dynamic(() => import("./components/App"), {
         <span className="text-gray-600">Loading...</span>
       </div>
     </div>
-  )
+  ),
 });
 
 export default function HomePage() {

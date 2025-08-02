@@ -1,7 +1,13 @@
 "use client";
 
 import React, { useEffect, useCallback, useState } from "react";
-import { ReactFlow, Edge, Background, Node } from "@xyflow/react";
+import {
+  ReactFlow,
+  Edge,
+  Background,
+  Node,
+  BackgroundVariant,
+} from "@xyflow/react";
 import { useFlowState } from "./hooks/useFlowState";
 import {
   createAllNodeTypes,
@@ -42,7 +48,7 @@ export default function WorkflowEditor({
   workflowId,
   workflowName = "Untitled Workflow",
   onDeploySuccess,
-  }: WorkflowEditorProps) {
+}: WorkflowEditorProps) {
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployError, setDeployError] = useState("");
 
@@ -91,15 +97,18 @@ export default function WorkflowEditor({
   } = useSettingsMenu(workflowId);
 
   // Handle node data updates
-  const handleNodeDataUpdate = useCallback((nodeId: string, updatedData: NodeData) => {
-    setNodes((nds: Node[]) =>
-      nds.map((node: Node) =>
-        node.id === nodeId
-          ? { ...node, data: { ...node.data, ...updatedData } }
-          : node
-      )
-    );
-  }, [setNodes]);
+  const handleNodeDataUpdate = useCallback(
+    (nodeId: string, updatedData: NodeData) => {
+      setNodes((nds: Node[]) =>
+        nds.map((node: Node) =>
+          node.id === nodeId
+            ? { ...node, data: { ...node.data, ...updatedData } }
+            : node
+        )
+      );
+    },
+    [setNodes]
+  );
 
   // Custom handler for page node clicks
   const handlePageAddNodeClick = useCallback(
@@ -136,17 +145,17 @@ export default function WorkflowEditor({
   // Handle Ctrl+E keyboard shortcut
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.ctrlKey && event.key === 'e') {
+      if (event.ctrlKey && event.key === "e") {
         event.preventDefault();
         const workflowJSON = createWorkflowJSON(nodes, edges, pageRelationships);
         console.log(workflowJSON);
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown);
 
     return () => {
-      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown);
     };
   }, [nodes, edges]);
 
@@ -168,11 +177,17 @@ export default function WorkflowEditor({
 
     try {
       // Check if workflow has been saved
-      if (!workflowId || typeof workflowId === 'string' && workflowId === 'new') {
-        throw new Error("Please save the workflow before deploying. Only saved workflows can be deployed.");
+      if (
+        !workflowId ||
+        (typeof workflowId === "string" && workflowId === "new")
+      ) {
+        throw new Error(
+          "Please save the workflow before deploying. Only saved workflows can be deployed."
+        );
       }
 
-      const numericWorkflowId = typeof workflowId === 'string' ? parseInt(workflowId, 10) : workflowId;
+      const numericWorkflowId =
+        typeof workflowId === "string" ? parseInt(workflowId, 10) : workflowId;
       if (isNaN(numericWorkflowId)) {
         throw new Error("Invalid workflow ID. Please save the workflow first.");
       }
@@ -184,7 +199,13 @@ export default function WorkflowEditor({
         console.log("Authentication successful:", authResult);
       } catch (authError) {
         console.error("Authentication failed:", authError);
-        throw new Error(`Authentication failed: ${authError instanceof Error ? authError.message : "Unknown auth error"}`);
+        throw new Error(
+          `Authentication failed: ${
+            authError instanceof Error
+              ? authError.message
+              : "Unknown auth error"
+          }`
+        );
       }
 
       // Create workflow JSON
@@ -195,15 +216,21 @@ export default function WorkflowEditor({
 
       // Deploy workflow
       console.log("Deploying workflow...");
-              const response = await BaseDeploymentAPI.deployWorkflow(workflowName, numericWorkflowId, workflowData);
+      const response = await BaseDeploymentAPI.deployWorkflow(
+        workflowName,
+        numericWorkflowId,
+        workflowData
+      );
       console.log("Deployment successful:", response);
-      
+
       if (onDeploySuccess) {
         onDeploySuccess(response.deployment_id, response.chat_url);
       }
     } catch (error) {
       console.error("Deployment error:", error);
-      setDeployError(error instanceof Error ? error.message : "Deployment failed");
+      setDeployError(
+        error instanceof Error ? error.message : "Deployment failed"
+      );
     } finally {
       setIsDeploying(false);
     }
@@ -382,4 +409,4 @@ export default function WorkflowEditor({
       )}
     </div>
   );
-} 
+}
