@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { MCQDeploymentAPI, MCQSession, MCQAnswer } from '@/lib/mcqDeploymentAPI';
+import { MCQDeploymentAPI, MCQSession, MCQAnswer } from '@/lib/deploymentAPIs/mcqDeploymentAPI';
 import { 
   MCQHeader, 
   QuestionNavigationSidebar, 

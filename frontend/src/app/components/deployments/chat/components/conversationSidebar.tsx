@@ -1,5 +1,5 @@
 import React from 'react';
-import { ConversationResponse } from '../../../../../lib/chatDeploymentAPI';
+import { ConversationResponse } from '../../../../../lib/deploymentAPIs/chatDeploymentAPI';
 
 interface ConversationSidebarProps {
   conversations: ConversationResponse[];

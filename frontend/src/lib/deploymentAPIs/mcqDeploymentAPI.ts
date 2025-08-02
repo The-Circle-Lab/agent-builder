@@ -51,6 +51,25 @@ export class MCQDeploymentAPI {
     return await response.json();
   }
 
+  // Get or create MCQ session (the backend POST endpoint handles both cases)
+  static async getOrCreateSession(deploymentId: string): Promise<MCQSession> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    const response = await fetch(`${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/mcq/session`, {
+      method: 'POST',
+      credentials: 'include',
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText);
+    }
+
+    return await response.json();
+  }
+
   // Create new MCQ session
   static async createSession(deploymentId: string): Promise<MCQSession> {
     if (!deploymentId?.trim()) {
@@ -106,16 +125,7 @@ export class MCQDeploymentAPI {
 
   // Initialize session (get existing or create new)
   static async initializeSession(deploymentId: string): Promise<MCQSession> {
-    try {
-      // First try to get existing session
-      return await this.getSession(deploymentId);
-    } catch (error) {
-      // If no existing session found (404), create a new one
-      if (error instanceof Error && (error.message.includes('404') || error.message.includes('Not Found'))) {
-        return await this.createSession(deploymentId);
-      }
-      // Re-throw other errors
-      throw error;
-    }
+    // The backend POST endpoint handles both getting existing and creating new sessions
+    return await this.getOrCreateSession(deploymentId);
   }
 } 

@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { ChatDeploymentAPI, ConversationResponse, MessageResponse } from '../../../../../lib/chatDeploymentAPI';
+import { ChatDeploymentAPI, ConversationResponse, MessageResponse } from '../../../../../lib/deploymentAPIs/chatDeploymentAPI';
 import { Message } from '../types/chat';
 
 export const useConversations = (deploymentId: string) => {

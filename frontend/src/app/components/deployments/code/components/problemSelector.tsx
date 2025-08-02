@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { ProblemInfo } from "../../../../../lib/codeDeploymentAPI";
+import { ProblemInfo } from "../../../../../lib/deploymentAPIs/codeDeploymentAPI";
 
 interface ProblemSelectorProps {
   problems: ProblemInfo[];

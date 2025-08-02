@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { Deployment } from '@/lib/types';
-import { BaseDeploymentAPI } from '../../../lib/deploymentAPI';
+import { BaseDeploymentAPI } from '../../../lib/deploymentAPIs/deploymentAPI';
 import { 
   ChatBubbleLeftRightIcon, 
   TrashIcon, 
@@ -12,9 +12,143 @@ import {
   AcademicCapIcon,
   LockClosedIcon,
   LockOpenIcon,
-  ClipboardDocumentCheckIcon
+  ClipboardDocumentCheckIcon,
+  PencilSquareIcon,
+  DocumentIcon
 } from '@heroicons/react/24/outline';
 import { API_CONFIG } from '@/lib/constants';
+
+// =============================================================================
+// DEPLOYMENT TYPE CONFIGURATION
+// =============================================================================
+// To add a new deployment type, simply add an entry here with the required properties
+const DEPLOYMENT_TYPES = {
+  chat: {
+    name: 'chat',
+    displayName: 'Chat',
+    buttonText: 'Chat',
+    buttonColor: 'bg-blue-600 hover:bg-blue-700',
+    icon: ChatBubbleLeftRightIcon,
+    hasGrading: false,
+    studentViewLabel: 'View student conversations',
+    handleDeploymentAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      props.onChatWithDeployment(deployment.deployment_id, deployment.workflow_name);
+    },
+    handleStudentViewAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      props.onViewStudentChats(deployment.deployment_id);
+    }
+  },
+  code: {
+    name: 'code',
+    displayName: 'Code Challenge',
+    buttonText: 'Code',
+    buttonColor: 'bg-purple-600 hover:bg-purple-700',
+    icon: RocketLaunchIcon,
+    hasGrading: true,
+    studentViewLabel: 'View student submissions',
+    handleDeploymentAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      if (props.onCodeWithDeployment) {
+        props.onCodeWithDeployment(deployment.deployment_id, deployment.workflow_name);
+      }
+    },
+    handleStudentViewAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      if (props.onViewStudentSubmissions) {
+        props.onViewStudentSubmissions(deployment.deployment_id, deployment.workflow_name);
+      }
+    }
+  },
+  mcq: {
+    name: 'mcq',
+    displayName: 'Multiple Choice Quiz',
+    buttonText: 'Quiz',
+    buttonColor: 'bg-green-600 hover:bg-green-700',
+    icon: ClipboardDocumentCheckIcon,
+    hasGrading: true,
+    studentViewLabel: 'View student quiz sessions',
+    handleDeploymentAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      if (props.onMCQWithDeployment) {
+        props.onMCQWithDeployment(deployment.deployment_id, deployment.workflow_name);
+      }
+    },
+    handleStudentViewAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      if (props.onViewStudentMCQ) {
+        props.onViewStudentMCQ(deployment.deployment_id, deployment.workflow_name);
+      }
+    }
+  },
+  prompt: {
+    name: 'prompt',
+    displayName: 'Prompt Response',
+    buttonText: 'Respond',
+    buttonColor: 'bg-orange-600 hover:bg-orange-700',
+    icon: PencilSquareIcon,
+    hasGrading: false,
+    studentViewLabel: 'View student responses',
+    handleDeploymentAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      if (props.onPromptWithDeployment) {
+        props.onPromptWithDeployment(deployment.deployment_id, deployment.workflow_name);
+      }
+    },
+    handleStudentViewAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      if (props.onViewStudentPrompts) {
+        props.onViewStudentPrompts(deployment.deployment_id, deployment.workflow_name);
+      }
+    }
+  },
+  page: {
+    name: 'page',
+    displayName: 'Multi-Page Workflow',
+    buttonText: 'Enter',
+    buttonColor: 'bg-indigo-600 hover:bg-indigo-700',
+    icon: DocumentIcon,
+    hasGrading: true, // Pages can contain different types including graded ones
+    studentViewLabel: 'View student page interactions',
+    handleDeploymentAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      if (props.onPageWithDeployment) {
+        props.onPageWithDeployment(deployment.deployment_id, deployment.workflow_name);
+      }
+    },
+    handleStudentViewAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      if (props.onViewStudentPages) {
+        props.onViewStudentPages(deployment.deployment_id, deployment.workflow_name);
+      }
+    }
+  }
+  // Add new deployment types here following the same pattern
+  // Example:
+  // newType: {
+  //   name: 'newType',
+  //   displayName: 'New Type',
+  //   buttonText: 'Start',
+  //   buttonColor: 'bg-indigo-600 hover:bg-indigo-700',
+  //   icon: SomeHeroIcon,
+  //   hasGrading: false,
+  //   studentViewLabel: 'View student sessions',
+  //   handleDeploymentAction: (props: any, deployment: any) => {
+  //     if (props.onNewTypeWithDeployment) {
+  //       props.onNewTypeWithDeployment(deployment.deployment_id, deployment.workflow_name);
+  //     }
+  //   },
+  //   handleStudentViewAction: (props: any, deployment: any) => {
+  //     props.onViewStudentChats(deployment.deployment_id); // or custom logic
+  //   }
+  // }
+};
+
+// =============================================================================
+// TYPES
+// =============================================================================
+interface DeploymentTypeConfig {
+  name: string;
+  displayName: string;
+  buttonText: string;
+  buttonColor: string;
+  icon: React.ComponentType<{ className?: string }>;
+  hasGrading: boolean;
+  studentViewLabel: string;
+  handleDeploymentAction: (props: ClassDeploymentsProps, deployment: Deployment) => void;
+  handleStudentViewAction: (props: ClassDeploymentsProps, deployment: Deployment) => void;
+}
 
 interface StudentGrade {
   user_id: number;
@@ -43,22 +177,109 @@ interface ClassDeploymentsProps {
   onChatWithDeployment: (deploymentId: string, deploymentName: string) => void;
   onCodeWithDeployment?: (deploymentId: string, deploymentName: string) => void;
   onMCQWithDeployment?: (deploymentId: string, deploymentName: string) => void;
+  onPromptWithDeployment?: (deploymentId: string, deploymentName: string) => void;
+  onPageWithDeployment?: (deploymentId: string, deploymentName: string) => void;
   onDeleteDeployment: (deploymentId: string) => Promise<void>;
   onViewStudentChats: (deploymentId: string) => Promise<void>;
   onViewStudentSubmissions?: (deploymentId: string, deploymentName: string) => void;
   onViewStudentMCQ?: (deploymentId: string, deploymentName: string) => void;
+  onViewStudentPrompts?: (deploymentId: string, deploymentName: string) => void;
+  onViewStudentPages?: (deploymentId: string, deploymentName: string) => void;
+  // Add new deployment handler props here as needed
 }
 
+// =============================================================================
+// HELPER FUNCTIONS
+// =============================================================================
+const getDeploymentTypeConfig = (deploymentType: string): DeploymentTypeConfig => {
+  return DEPLOYMENT_TYPES[deploymentType as keyof typeof DEPLOYMENT_TYPES] || DEPLOYMENT_TYPES.chat;
+};
+
+const getGradingMethods = () => ['problem_correct', 'test_cases_correct'];
+
+// Helper function to check if configuration is a chat deployment configuration
+const isChatConfiguration = (config: unknown): config is { provider: string; model: string; has_rag: boolean; mcp_enabled: boolean } => {
+  return config !== null && typeof config === 'object' && 
+         'provider' in config && typeof (config as Record<string, unknown>).provider === 'string' && 
+         'model' in config && typeof (config as Record<string, unknown>).model === 'string';
+};
+
+// Helper function to extract question count for code deployments
+const getCodeDeploymentQuestionCount = (deployment: Deployment): number => {
+  if (!deployment.configuration) return 0;
+  
+  // Check if configuration has question_count property (code deployment)
+  const config = deployment.configuration as Record<string, unknown>;
+  if (typeof config.question_count === 'number') {
+    return config.question_count;
+  }
+  
+  return 0;
+};
+
+// Helper function to extract question count for MCQ deployments
+const getMCQDeploymentQuestionCount = (deployment: Deployment): number => {
+  if (!deployment.configuration) return 0;
+  
+  // Check if configuration has question_count property (MCQ deployment)
+  const config = deployment.configuration as Record<string, unknown>;
+  if (typeof config.question_count === 'number') {
+    return config.question_count;
+  }
+  
+  return 0;
+};
+
+// Helper function to get page count for page deployments
+const getPageCount = (deployment: Deployment): string => {
+  if (deployment.total_pages && typeof deployment.total_pages === 'number') {
+    return String(deployment.total_pages);
+  }
+  
+  // Fallback to configuration if total_pages is not available
+  if (deployment.configuration) {
+    const config = deployment.configuration as Record<string, unknown>;
+    if (typeof config.page_count === 'number') {
+      return String(config.page_count);
+    }
+  }
+  
+  return 'Multiple';
+};
+
+// Helper function to check if deployment is page-based
+const isPageBasedDeployment = (deployment: Deployment, deploymentType: string): boolean => {
+  if (deploymentType === 'page') return true;
+  
+  // Check the is_page_based field directly
+  if (deployment.is_page_based === true) return true;
+  
+  // Fallback to configuration
+  if (deployment.configuration && typeof deployment.configuration === 'object') {
+    const config = deployment.configuration as Record<string, unknown>;
+    return Boolean(config.is_page_based);
+  }
+  
+  return false;
+};
+
+// =============================================================================
+// MAIN COMPONENT
+// =============================================================================
 export default function ClassDeployments({ 
   deployments, 
   isInstructor,
   onChatWithDeployment,
   onCodeWithDeployment,
   onMCQWithDeployment,
+  onPromptWithDeployment,
+  onPageWithDeployment,
   onDeleteDeployment,
   onViewStudentChats,
   onViewStudentSubmissions,
-  onViewStudentMCQ 
+  onViewStudentMCQ,
+  onViewStudentPrompts,
+  onViewStudentPages
 }: ClassDeploymentsProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deploymentTypes, setDeploymentTypes] = useState<Record<string,string>>({});
@@ -67,22 +288,42 @@ export default function ClassDeployments({
   const [individualGrades, setIndividualGrades] = useState<Record<string, IndividualGradesData>>({});
   const [loadingGrades, setLoadingGrades] = useState<Record<string, boolean>>({});
 
+  // Sort deployments by most recent first
+  const sortedDeployments = [...deployments].sort((a, b) => 
+    new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+  );
+
   // Determine deployment types on mount / prop change
   useEffect(() => {
     const determineTypes = async () => {
       const types: Record<string,string> = {};
       const unknown: string[] = [];
-      deployments.forEach(d=>{
-        if (d.type) types[d.deployment_id]=d.type;
-        else unknown.push(d.deployment_id);
+      
+      deployments.forEach(d => {
+        // Check if this is a page-based deployment first
+        if (d.is_page_based === true) {
+          types[d.deployment_id] = "page";
+        } else if (d.type) {
+          types[d.deployment_id] = d.type;
+        } else {
+          unknown.push(d.deployment_id);
+        }
       });
-      if (unknown.length>0){
-        await Promise.all(unknown.map(async id=>{
-          try{ const resp = await BaseDeploymentAPI.getDeploymentType(id); types[id]=resp.type;}catch{types[id]="chat";}
+      
+      if (unknown.length > 0) {
+        await Promise.all(unknown.map(async id => {
+          try { 
+            const resp = await BaseDeploymentAPI.getDeploymentType(id); 
+            types[id] = resp.type;
+          } catch {
+            types[id] = "chat";
+          }
         }));
       }
+      
       setDeploymentTypes(types);
     };
+    
     determineTypes();
 
     // Initialize deployment states (assume open by default, real state will be fetched if needed)
@@ -93,12 +334,13 @@ export default function ClassDeployments({
     setDeploymentStates(states);
   }, [deployments]);
 
-  // Fetch individual grades for CODE and MCQ deployments
+  // Fetch individual grades for deployments that support grading
   useEffect(() => {
     const fetchIndividualGrades = async () => {
       const gradedDeployments = deployments.filter(d => {
         const type = deploymentTypes[d.deployment_id] ?? d.type ?? 'chat';
-        return type === 'code' || type === 'mcq';
+        const typeConfig = getDeploymentTypeConfig(type);
+        return typeConfig.hasGrading;
       });
 
       for (const deployment of gradedDeployments) {
@@ -107,8 +349,7 @@ export default function ClassDeployments({
         setLoadingGrades(prev => ({ ...prev, [deployment.deployment_id]: true }));
         
         try {
-          // Try both grading methods to see which one has data
-          const methods = ['problem_correct', 'test_cases_correct'];
+          const methods = getGradingMethods();
           let gradesData = null;
 
           for (const method of methods) {
@@ -194,10 +435,13 @@ export default function ClassDeployments({
     }
   };
 
+
+
   const renderGradeDisplay = (deployment: Deployment) => {
     const deploymentType = deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat';
+    const typeConfig = getDeploymentTypeConfig(deploymentType);
     
-    if (deploymentType !== 'code' && deploymentType !== 'mcq') return null;
+    if (!typeConfig.hasGrading) return null;
 
     const grades = individualGrades[deployment.deployment_id];
     const isLoading = loadingGrades[deployment.deployment_id];
@@ -233,7 +477,6 @@ export default function ClassDeployments({
       );
     } else {
       // For students, show their individual grade
-      // Backend now filters to return only the student's own grade
       const studentGrade = grades.student_grades[0]; // Should be their own grade
       
       if (studentGrade) {
@@ -252,7 +495,6 @@ export default function ClassDeployments({
           </div>
         );
       } else {
-        // Student has no grade yet
         return (
           <div className="flex items-center space-x-1">
             <AcademicCapIcon className="h-3 w-3 text-gray-400" />
@@ -276,7 +518,7 @@ export default function ClassDeployments({
       </div>
 
       {/* Deployments List */}
-      {deployments.length === 0 ? (
+      {sortedDeployments.length === 0 ? (
         <div className="text-center py-12 bg-white rounded-lg border border-gray-200">
           <RocketLaunchIcon className="mx-auto h-12 w-12 text-gray-400" />
           <h3 className="mt-2 text-sm font-semibold text-gray-900">No active deployments</h3>
@@ -288,20 +530,23 @@ export default function ClassDeployments({
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-4">
-          {deployments.map(deployment => {
+          {sortedDeployments.map(deployment => {
             const isOpen = deploymentStates[deployment.deployment_id] ?? true;
             const isDisabled = !isOpen;
+            const deploymentType = deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat';
+            const typeConfig = getDeploymentTypeConfig(deploymentType);
+            const IconComponent = typeConfig.icon;
             
             return (
-            <div
-              key={deployment.deployment_id}
-              className={`rounded-lg shadow-sm border p-4 transition-all ${
-                isDisabled 
-                  ? 'bg-gray-50 border-gray-300' 
-                  : 'bg-white border-gray-200 hover:shadow-md'
-              }`}
-            >
-                              <div className="flex items-start justify-between">
+              <div
+                key={deployment.deployment_id}
+                className={`rounded-lg shadow-sm border p-4 transition-all ${
+                  isDisabled 
+                    ? 'bg-gray-50 border-gray-300' 
+                    : 'bg-white border-gray-200 hover:shadow-md'
+                }`}
+              >
+                <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className={`flex items-center ${isDisabled ? 'opacity-60' : ''}`}>
                       <h3 className="text-sm font-medium text-gray-900">
@@ -321,131 +566,129 @@ export default function ClassDeployments({
                       </div>
                     </div>
                   
-                  <div className="mt-1 text-xs text-gray-500 space-y-1">
-                    <div className={isDisabled ? 'opacity-60' : ''}>
-                      { (deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat') === 'chat' && deployment.configuration?.model && (
-                        <p>Model: {deployment.configuration.model}</p>
-                      )}
-                      {deployment.configuration?.provider && (
-                        <p>Provider: {deployment.configuration.provider}</p>
-                      )}
-                      {(deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat') === 'chat' && deployment.configuration?.has_rag && (
-                        <p>RAG: Enabled</p>
-                      )}
-                      <p>Deployed: {new Date(deployment.created_at).toLocaleDateString()}</p>
+                    <div className="mt-1 text-xs text-gray-500 space-y-1">
+                      <div className={isDisabled ? 'opacity-60' : ''}>
+                        {deploymentType === 'chat' && deployment.configuration && isChatConfiguration(deployment.configuration) && (
+                          <>
+                            <p>Model: {deployment.configuration.model}</p>
+                            <p>Provider: {deployment.configuration.provider}</p>
+                            <p>RAG: {deployment.configuration.has_rag ? 'Enabled' : 'Disabled'}</p>
+                          </>
+                        )}
+                        {deploymentType === 'code' && (<p>Questions: {getCodeDeploymentQuestionCount(deployment)}</p>)}
+                        {deploymentType === 'mcq' && (<p>Questions: {getMCQDeploymentQuestionCount(deployment)}</p>)}
+                        {isPageBasedDeployment(deployment, deploymentType) && (
+                          <>
+                            <p>Pages: {getPageCount(deployment)}</p>
+                            <p>Type: Multi-Page Workflow</p>
+                          </>
+                        )}
+                        <p>Deployed: {new Date(deployment.created_at).toLocaleDateString()}</p>
+                      </div>
+                      {renderGradeDisplay(deployment)}
                     </div>
-                    {/* Individual Grade Display for Code Deployments - Always visible */}
-                    {renderGradeDisplay(deployment)}
                   </div>
-                </div>
 
-                <div className="flex items-center space-x-2 ml-4">
-                  {/* Student action button - can be disabled */}
-                  <div className={isDisabled ? 'opacity-60' : ''}>
-                    {(()=>{ 
-                      const depType = deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat'; 
-                      const isCode = depType === 'code';
-                      const isMCQ = depType === 'mcq';
-                      return (
+                  <div className="flex items-center space-x-2 ml-4">
+                    {/* Student action button */}
+                    <div className={isDisabled ? 'opacity-60' : ''}>
                       <button
-                        onClick={()=> {
-                          if (isDisabled) return; // Prevent action if disabled
-                          if (isCode && onCodeWithDeployment) {
-                            onCodeWithDeployment(deployment.deployment_id, deployment.workflow_name);
-                          } else if (isMCQ && onMCQWithDeployment) {
-                            onMCQWithDeployment(deployment.deployment_id, deployment.workflow_name);
-                          } else {
-                            onChatWithDeployment(deployment.deployment_id, deployment.workflow_name);
-                          }
+                        onClick={() => {
+                          if (isDisabled) return;
+                          typeConfig.handleDeploymentAction({
+                            onChatWithDeployment,
+                            onCodeWithDeployment,
+                            onMCQWithDeployment,
+                            onPromptWithDeployment,
+                            onPageWithDeployment,
+                            onDeleteDeployment,
+                            onViewStudentChats,
+                            onViewStudentSubmissions,
+                            onViewStudentMCQ,
+                            onViewStudentPrompts,
+                            onViewStudentPages,
+                            deployments,
+                            isInstructor
+                          }, deployment);
                         }}
                         disabled={isDisabled}
                         className={`inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded ${
                           isDisabled 
                             ? 'bg-gray-400 text-gray-200 cursor-not-allowed' 
-                            : `text-white ${
-                                isCode ? 'bg-purple-600 hover:bg-purple-700' :
-                                isMCQ ? 'bg-green-600 hover:bg-green-700' :
-                                'bg-blue-600 hover:bg-blue-700'
-                              }`
+                            : `text-white ${typeConfig.buttonColor}`
                         }`}
-                        title={isDisabled ? 'Deployment is closed' : (
-                          isCode ? 'Solve this code challenge' :
-                          isMCQ ? 'Take the multiple choice quiz' :
-                          'Chat with this deployment'
-                        )}
+                        title={isDisabled ? 'Deployment is closed' : `${typeConfig.displayName}: ${typeConfig.buttonText}`}
                       >
-                        {isCode ? <RocketLaunchIcon className="h-3 w-3 mr-1"/> : 
-                         isMCQ ? <ClipboardDocumentCheckIcon className="h-3 w-3 mr-1"/> :
-                         <ChatBubbleLeftRightIcon className="h-3 w-3 mr-1"/>}
-                        {isCode ? 'Code' : isMCQ ? 'Quiz' : 'Chat'}
+                        <IconComponent className="h-3 w-3 mr-1"/>
+                        {typeConfig.buttonText}
                       </button>
-                    );})()}
-                  </div>
-                  
-                  {/* Instructor controls - always fully visible */}
-                  {isInstructor && (
-                    <>
-                      <button
-                        onClick={() => {
-                          const depType = deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat';
-                          if (depType === 'code' && onViewStudentSubmissions) {
-                            onViewStudentSubmissions(deployment.deployment_id, deployment.workflow_name);
-                          } else if (depType === 'mcq' && onViewStudentMCQ) {
-                            onViewStudentMCQ(deployment.deployment_id, deployment.workflow_name);
-                          } else {
-                            onViewStudentChats(deployment.deployment_id);
-                          }
-                        }}
-                        className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50"
-                        title={
-                          deploymentTypes[deployment.deployment_id] === 'code' ? 'View student submissions' :
-                          deploymentTypes[deployment.deployment_id] === 'mcq' ? 'View student quiz sessions' :
-                          'View student conversations'
-                        }
-                      >
-                        <UsersIcon className="h-3 w-3 mr-1" />
-                        Students
-                      </button>
+                    </div>
+                    
+                    {/* Instructor controls */}
+                    {isInstructor && (
+                      <>
+                        <button
+                          onClick={() => typeConfig.handleStudentViewAction({
+                            onChatWithDeployment,
+                            onCodeWithDeployment,
+                            onMCQWithDeployment,
+                            onPromptWithDeployment,
+                            onPageWithDeployment,
+                            onDeleteDeployment,
+                            onViewStudentChats,
+                            onViewStudentSubmissions,
+                            onViewStudentMCQ,
+                            onViewStudentPrompts,
+                            onViewStudentPages,
+                            deployments,
+                            isInstructor
+                          }, deployment)}
+                          className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50"
+                          title={typeConfig.studentViewLabel}
+                        >
+                          <UsersIcon className="h-3 w-3 mr-1" />
+                          Students
+                        </button>
 
-                      <button
-                        onClick={() => handleToggleDeploymentState(deployment.deployment_id)}
-                        disabled={togglingStates[deployment.deployment_id]}
-                        className={`p-1 rounded disabled:opacity-50 ${
-                          deploymentStates[deployment.deployment_id] ?? true
-                            ? 'text-green-600 hover:text-green-700 hover:bg-green-50' 
-                            : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
-                        }`}
-                        title={(deploymentStates[deployment.deployment_id] ?? true) ? 'Close deployment' : 'Open deployment'}
-                      >
-                        {(deploymentStates[deployment.deployment_id] ?? true) ? (
-                          <LockOpenIcon className="h-4 w-4" />
-                        ) : (
-                          <LockClosedIcon className="h-4 w-4" />
-                        )}
-                      </button>
-                      
-                      <button
-                        onClick={() => handleDelete(deployment.deployment_id)}
-                        disabled={deletingId === deployment.deployment_id}
-                        className="p-1 text-gray-400 hover:text-red-600 disabled:opacity-50"
-                        title="Delete deployment"
-                      >
-                        <TrashIcon className="h-4 w-4" />
-                      </button>
-                    </>
-                  )}
+                        <button
+                          onClick={() => handleToggleDeploymentState(deployment.deployment_id)}
+                          disabled={togglingStates[deployment.deployment_id]}
+                          className={`p-1 rounded disabled:opacity-50 ${
+                            deploymentStates[deployment.deployment_id] ?? true
+                              ? 'text-green-600 hover:text-green-700 hover:bg-green-50' 
+                              : 'text-gray-400 hover:text-gray-600 hover:bg-gray-50'
+                          }`}
+                          title={(deploymentStates[deployment.deployment_id] ?? true) ? 'Close deployment' : 'Open deployment'}
+                        >
+                          {(deploymentStates[deployment.deployment_id] ?? true) ? (
+                            <LockOpenIcon className="h-4 w-4" />
+                          ) : (
+                            <LockClosedIcon className="h-4 w-4" />
+                          )}
+                        </button>
+                        
+                        <button
+                          onClick={() => handleDelete(deployment.deployment_id)}
+                          disabled={deletingId === deployment.deployment_id}
+                          className="p-1 text-gray-400 hover:text-red-600 disabled:opacity-50"
+                          title="Delete deployment"
+                        >
+                          <TrashIcon className="h-4 w-4" />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
+
+                {isInstructor && (
+                  <div className="mt-3 pt-3 border-t border-gray-100">
+                    <div className="flex items-center text-xs text-gray-500">
+                      <ChartBarIcon className="h-3 w-3 mr-1" />
+                      <span>Quick Stats: View student conversations to see usage</span>
+                    </div>
+                  </div>
+                )}
               </div>
-
-              {isInstructor && (
-                <div className="mt-3 pt-3 border-t border-gray-100">
-                  <div className="flex items-center text-xs text-gray-500">
-                    <ChartBarIcon className="h-3 w-3 mr-1" />
-                    <span>Quick Stats: View student conversations to see usage</span>
-                  </div>
-                </div>
-              )}
-            </div>
             );
           })}
         </div>

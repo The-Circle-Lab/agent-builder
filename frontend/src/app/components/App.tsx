@@ -8,6 +8,8 @@ import ClassDetailPage from "./classes/ClassDetailPage";
 import ChatInterface from "./deployments/chat/chatInterface";
 import CodeInterface from "./deployments/code/codeInterface";
 import { MCQInterface } from "./deployments/mcq";
+import { PromptInterface } from "./deployments/prompt";
+import { PageInterface } from "./deployments/page";
 import WorkflowEditorPage from "./WorkflowEditorPage";
 import { APP_STATES, type AppState } from "@/lib/constants";
 import { Class } from "@/lib/types";
@@ -109,6 +111,18 @@ export default function App() {
     setAppState(APP_STATES.MCQ);
   };
 
+  const handlePromptWithDeployment = (deploymentId: string, deploymentName: string) => {
+    setCurrentDeploymentId(deploymentId);
+    setCurrentDeploymentName(deploymentName);
+    setAppState(APP_STATES.PROMPT);
+  };
+
+  const handlePageWithDeployment = (deploymentId: string, deploymentName: string) => {
+    setCurrentDeploymentId(deploymentId);
+    setCurrentDeploymentName(deploymentName);
+    setAppState(APP_STATES.PAGE);
+  };
+
   const handleBackFromChat = () => {
     setCurrentDeploymentId(null);
     setAppState(APP_STATES.CLASS_DETAIL);
@@ -120,6 +134,16 @@ export default function App() {
   };
 
   const handleBackFromMCQ = () => {
+    setCurrentDeploymentId(null);
+    setAppState(APP_STATES.CLASS_DETAIL);
+  };
+
+  const handleBackFromPrompt = () => {
+    setCurrentDeploymentId(null);
+    setAppState(APP_STATES.CLASS_DETAIL);
+  };
+
+  const handleBackFromPage = () => {
     setCurrentDeploymentId(null);
     setAppState(APP_STATES.CLASS_DETAIL);
   };
@@ -179,6 +203,8 @@ export default function App() {
         onChatWithDeployment={handleChatWithDeployment}
         onCodeWithDeployment={handleCodeWithDeployment}
         onMCQWithDeployment={handleMCQWithDeployment}
+        onPromptWithDeployment={handlePromptWithDeployment}
+        onPageWithDeployment={handlePageWithDeployment}
       />
     );
   }
@@ -222,6 +248,28 @@ export default function App() {
         deploymentId={currentDeploymentId}
         deploymentName={currentDeploymentName}
         onClose={handleBackFromMCQ}
+      />
+    );
+  }
+
+  // Prompt interface
+  if (appState === APP_STATES.PROMPT && currentDeploymentId) {
+    return (
+      <PromptInterface
+        deploymentId={currentDeploymentId}
+        deploymentName={currentDeploymentName}
+        onClose={handleBackFromPrompt}
+      />
+    );
+  }
+
+  // Page interface
+  if (appState === APP_STATES.PAGE && currentDeploymentId) {
+    return (
+      <PageInterface
+        deploymentId={currentDeploymentId}
+        deploymentName={currentDeploymentName}
+        onBack={handleBackFromPage}
       />
     );
   }

@@ -1,4 +1,4 @@
-import { DetailedCodeTestResult } from "../../../../../lib/codeDeploymentAPI";
+import { DetailedCodeTestResult } from "../../../../../lib/deploymentAPIs/codeDeploymentAPI";
 
 interface TestResultDisplayProps {
   testResult: DetailedCodeTestResult;

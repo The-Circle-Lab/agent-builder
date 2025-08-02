@@ -14,6 +14,8 @@ export interface NodeTypeHandlers {
   onDelete?: (nodeId: string) => void;
   onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void;
   workflowId?: string | number;
+  pageRelationships?: Record<string, string[]>;
+  nodes?: { id: string; type: string }[];
 }
 
 // Helper function to get node configuration by type
@@ -37,6 +39,24 @@ const NODE_FACTORY_MAP: Record<
         workflowId?: string | number
       ) => React.ComponentType<NodeProps>;
       return creator(handlers.onDelete, handlers.onSettings, handlers.workflowId) as React.ComponentType<NodeProps>;
+    } else if (nodeType === "page") {
+      // Page node gets special handling for pageRelationships and nodes
+      const creator = NodeCreators[nodeType] as (
+        onAddNodeClick?: (objectType?: string, sourceNodeId?: string, pageId?: string) => void,
+        edges?: unknown[],
+        onDelete?: (nodeId: string) => void,
+        onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void,
+        pageRelationships?: Record<string, string[]>,
+        allNodes?: { id: string; type: string }[]
+      ) => React.ComponentType<NodeProps>;
+      return creator(
+        handlers.onAddNodeClick,
+        handlers.edges || [],
+        handlers.onDelete,
+        handlers.onSettings,
+        handlers.pageRelationships,
+        handlers.nodes
+      ) as React.ComponentType<NodeProps>;
     } else if (NodeClasses[nodeType as keyof typeof NodeClasses].canAddNode) {
       // Nodes that can add nodes get special handler mapping
       return (

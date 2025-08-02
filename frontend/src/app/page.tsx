@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 
 // Dynamically import the main App component with SSR disabled
-const App = dynamic(() => import("./components/App"), {
+const App = dynamic(() => import("./components/App"), { 
   ssr: false,
   loading: () => (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center">

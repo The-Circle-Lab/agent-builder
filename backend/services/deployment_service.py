@@ -6,6 +6,7 @@ from models.database.db_models import DeploymentType
 from services.config_service import parse_agent_config
 from services.deployment_types.code_executor import CodeDeployment
 from services.deployment_types.mcq import MCQDeployment
+from services.deployment_types.prompt import PromptDeployment
 
 class AgentDeployment:
     _services: AgentNodeList
@@ -13,44 +14,59 @@ class AgentDeployment:
     _contains_chat: bool
     _code_service: "CodeDeployment | None" = None
     _mcq_service: "MCQDeployment | None" = None
+    _prompt_service: "PromptDeployment | None" = None
 
     def __init__(
         self,
         deployment_id: str,
         config: Dict[str, Any],
         collection_name: Optional[str] = None,
+        coming_from_page: bool = False,
     ) -> None:
         self._contains_chat = True
         self.deployment_id = deployment_id
         self._services = AgentNodeList() 
-        
-        if (config['1']['type'] == 'chat'):
-            self._deployment_type = DeploymentType.CHAT
-        elif (config['1']['type'] == 'code'):
-            self._deployment_type = DeploymentType.CODE
-            self._code_service = CodeDeployment(
-                problem_config=config['1']
-            )
-            self._services.append(AgentNode(self._code_service))
-        elif (config['1']['type'] == 'mcq'):
-            self._deployment_type = DeploymentType.MCQ
-            name = config['1']["attachments"]["questions"][0]['config']['title']
-            description = config['1']["attachments"]["questions"][0]['config'].get('description', '')
-            questions = MCQDeployment.from_questions_json(config['1']['attachments']['questions'])
-            question_count = config['1']['config'].get('questionsGiven', -1)
-            randomize = config['1']['config'].get('randomizeQuestions', True)
-            self._mcq_service = MCQDeployment(
-                name=name,
-                description=description,
-                questions=questions,
-                question_count=question_count,
-                randomize=randomize
-            )
-            self._services.append(AgentNode(self._mcq_service))
-        else:
-            raise ValueError(f"Invalid deployment type: {config['1']['type']}")
+
+        if not coming_from_page:
+            if config['pagesExist']:
+                raise ValueError("Pages are not supported in this workflow")
+
+        config = config['nodes']
+
+        # Starting node configuration
+        match config['1']['type']:
+            case 'chat':
+                self._deployment_type = DeploymentType.CHAT
+            case 'code':
+                self._deployment_type = DeploymentType.CODE
+                self._code_service = CodeDeployment(
+                    problem_config=config['1']
+                )
+                self._services.append(AgentNode(self._code_service))
+            case 'mcq':
+                self._deployment_type = DeploymentType.MCQ
+                name = config['1']["attachments"]["questions"][0]['config']['title']
+                description = config['1']["attachments"]["questions"][0]['config'].get('description', '')
+                questions = MCQDeployment.from_questions_json(config['1']['attachments']['questions'])
+                question_count = config['1']['config'].get('questionsGiven', -1)
+                randomize = config['1']['config'].get('randomizeQuestions', True)
+                self._mcq_service = MCQDeployment(
+                    name=name,
+                    description=description,
+                    questions=questions,
+                    question_count=question_count,
+                    randomize=randomize
+                )
+                self._services.append(AgentNode(self._mcq_service))
+            case 'prompt':
+                self._deployment_type = DeploymentType.PROMPT
+                self._prompt_service = PromptDeployment.from_config(config)
+                self._services.append(AgentNode(self._prompt_service))
+            case _:
+                raise ValueError(f"Invalid deployment type: {config['1']['type']}")
         
         i = 2
+        print(config)
         while (str(i) in config):
             if (config[str(i)]['type'] == "result"):
                 break
@@ -69,7 +85,7 @@ class AgentDeployment:
         if (self._services.count == 0):
             if (self._deployment_type == DeploymentType.CHAT):
                 raise ValueError("No agents found in the workflow")
-        if (self._services.count == 1 and self._deployment_type == DeploymentType.CODE):
+        if (self._services.count == 1 and (self._deployment_type == DeploymentType.CODE or self._deployment_type == DeploymentType.PROMPT)):
             self._contains_chat = False
         print("contains chat: ", self._contains_chat)
 
@@ -133,6 +149,22 @@ class AgentDeployment:
         if self._deployment_type != DeploymentType.MCQ or self._mcq_service is None:
             return []
         return self._mcq_service.create_question_set(question_count, randomize)
+
+    # Prompt related methods
+    def get_prompt_service(self) -> Optional["PromptDeployment"]:
+        if self._deployment_type != DeploymentType.PROMPT:
+            return None
+        return self._prompt_service
+
+    def get_prompt_info(self) -> Optional[Dict[str, Any]]:
+        if self._deployment_type != DeploymentType.PROMPT or self._prompt_service is None:
+            return None
+        return self._prompt_service.to_dict()
+
+    def validate_prompt_submission(self, index: int, response: str) -> Dict[str, Any]:
+        if self._deployment_type != DeploymentType.PROMPT or self._prompt_service is None:
+            return {"valid": False, "error": "Not a prompt deployment"}
+        return self._prompt_service.validate_submission(index, response)
 
     @staticmethod
     def _convert_value(value: Any) -> Any:

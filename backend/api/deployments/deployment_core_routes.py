@@ -133,9 +133,21 @@ async def deploy_workflow(
         
         deployment_type = request.type if hasattr(request, "type") else DeploymentType.CHAT
 
-        mcp_deployment = AgentDeployment(deployment_id, request.workflow_data, collection_name)
-
-        deployment_type = mcp_deployment.get_deployment_type()
+        # Check if workflow uses pages
+        is_page_based = request.workflow_data.get("pagesExist", False)
+        
+        if is_page_based:
+            # Import PageDeployment
+            from services.page_service import PageDeployment
+            
+            # Create page-based deployment
+            page_deployment = PageDeployment(deployment_id, request.workflow_data, collection_name)
+            deployment_type = page_deployment.get_primary_deployment_type()
+            print(f"[DEPLOY] Page-based deployment created with {page_deployment.get_page_count()} pages")
+        else:
+            # Create regular single deployment
+            mcp_deployment = AgentDeployment(deployment_id, request.workflow_data, collection_name)
+            deployment_type = mcp_deployment.get_deployment_type()
         
         print(f"[DEPLOY] Deployment type detected: {deployment_type}")
         print(f"[DEPLOY] Deployment type value: {deployment_type.value}")
@@ -144,11 +156,26 @@ async def deploy_workflow(
         created_problem_ids = []
         if deployment_type == DeploymentType.CODE:
             try:
-                # Get all problems info from the deployment
-                all_problems_info = mcp_deployment.get_all_code_problems_info()
-                problem_count = mcp_deployment.get_code_problem_count()
-                
-                print(f"[DEPLOY] Creating {problem_count} problems for CODE deployment")
+                if is_page_based:
+                    # For page-based deployments, collect problems from all pages
+                    all_problems_info = []
+                    problem_count = 0
+                    
+                    for page_idx, page_deploy in enumerate(page_deployment.get_deployment_list()):
+                        if page_deploy.get_deployment_type() == DeploymentType.CODE:
+                            page_problems = page_deploy.get_all_code_problems_info()
+                            page_problem_count = page_deploy.get_code_problem_count()
+                            if page_problems:
+                                all_problems_info.extend(page_problems)
+                                problem_count += page_problem_count
+                    
+                    print(f"[DEPLOY] Creating {problem_count} problems for page-based CODE deployment across {page_deployment.get_page_count()} pages")
+                else:
+                    # Get all problems info from the single deployment
+                    all_problems_info = mcp_deployment.get_all_code_problems_info()
+                    problem_count = mcp_deployment.get_code_problem_count()
+                    
+                    print(f"[DEPLOY] Creating {problem_count} problems for CODE deployment")
                 
                 if all_problems_info:
                     for problem_idx, problem_info in enumerate(all_problems_info):
@@ -211,22 +238,70 @@ async def deploy_workflow(
 
         # Store deployment configuration in database and memory
         try:
-            # Save to database
-            db_deployment = Deployment(
-                deployment_id=deployment_id,
-                user_id=current_user.id,
-                workflow_id=workflow.id,
-                class_id=workflow.class_id,
-                workflow_name=request.workflow_name,
-                collection_name=collection_name,
-                config=combined_config,
-                rag_document_ids=rag_document_ids if rag_document_ids else None,
-                type=deployment_type,
-                grade=request.grade
-            )
-            db.add(db_deployment)
-            db.commit()
-            db.refresh(db_deployment)
+            if is_page_based:
+                # Create main deployment record for page-based deployment
+                db_deployment = Deployment(
+                    deployment_id=deployment_id,
+                    user_id=current_user.id,
+                    workflow_id=workflow.id,
+                    class_id=workflow.class_id,
+                    workflow_name=request.workflow_name,
+                    collection_name=collection_name,
+                    config=combined_config,
+                    rag_document_ids=rag_document_ids if rag_document_ids else None,
+                    type=deployment_type,
+                    grade=request.grade,
+                    is_page_based=True,
+                    total_pages=page_deployment.get_page_count()
+                )
+                db.add(db_deployment)
+                db.commit()
+                db.refresh(db_deployment)
+                
+                # Create individual deployment records for each page
+                for page_idx, page_deploy in enumerate(page_deployment.get_deployment_list()):
+                    page_config = {
+                        **config,
+                        "__workflow_nodes__": {"pagesExist": False, "nodes": {}},  # Individual page config
+                    }
+                    
+                    page_db_deployment = Deployment(
+                        deployment_id=page_deploy.deployment_id,
+                        user_id=current_user.id,
+                        workflow_id=workflow.id,
+                        class_id=workflow.class_id,
+                        workflow_name=f"{request.workflow_name} - Page {page_idx + 1}",
+                        collection_name=collection_name,
+                        config=page_config,
+                        rag_document_ids=rag_document_ids if rag_document_ids else None,
+                        type=page_deploy.get_deployment_type(),
+                        grade=request.grade,
+                        is_page_based=True,
+                        parent_deployment_id=deployment_id,
+                        page_number=page_idx + 1,
+                        total_pages=page_deployment.get_page_count()
+                    )
+                    db.add(page_db_deployment)
+                
+                db.commit()
+                print(f"[DEPLOY] Created main deployment and {page_deployment.get_page_count()} page deployments")
+            else:
+                # Save single deployment to database
+                db_deployment = Deployment(
+                    deployment_id=deployment_id,
+                    user_id=current_user.id,
+                    workflow_id=workflow.id,
+                    class_id=workflow.class_id,
+                    workflow_name=request.workflow_name,
+                    collection_name=collection_name,
+                    config=combined_config,
+                    rag_document_ids=rag_document_ids if rag_document_ids else None,
+                    type=deployment_type,
+                    grade=request.grade
+                )
+                db.add(db_deployment)
+                db.commit()
+                db.refresh(db_deployment)
             
             # Link problem to deployment for CODE deployments
             if created_problem_ids and deployment_type == DeploymentType.CODE:
@@ -245,15 +320,44 @@ async def deploy_workflow(
                     print(f"[DEPLOY] Warning: Failed to link problems to deployment: {link_error}")
             
             # Store in memory for active use
-            add_active_deployment(deployment_id, {
-                "user_id": current_user.id,
-                "workflow_name": request.workflow_name,
-                "config": combined_config,
-                "mcp_deployment": mcp_deployment,
-                "created_at": datetime.now(timezone.utc).isoformat(),
-                "chat_history": [],
-                "type": deployment_type
-            })
+            if is_page_based:
+                # Store page deployment in memory
+                add_active_deployment(deployment_id, {
+                    "user_id": current_user.id,
+                    "workflow_name": request.workflow_name,
+                    "config": combined_config,
+                    "mcp_deployment": page_deployment,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "chat_history": [],
+                    "type": deployment_type,
+                    "is_page_based": True,
+                    "page_count": page_deployment.get_page_count()
+                })
+                
+                # Also store individual page deployments for direct access
+                for page_idx, page_deploy in enumerate(page_deployment.get_deployment_list()):
+                    add_active_deployment(page_deploy.deployment_id, {
+                        "user_id": current_user.id,
+                        "workflow_name": f"{request.workflow_name} - Page {page_idx + 1}",
+                        "config": combined_config,
+                        "mcp_deployment": page_deploy,
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                        "chat_history": [],
+                        "type": page_deploy.get_deployment_type(),
+                        "is_page_based": True,
+                        "parent_deployment_id": deployment_id,
+                        "page_number": page_idx + 1
+                    })
+            else:
+                add_active_deployment(deployment_id, {
+                    "user_id": current_user.id,
+                    "workflow_name": request.workflow_name,
+                    "config": combined_config,
+                    "mcp_deployment": mcp_deployment,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                    "chat_history": [],
+                    "type": deployment_type
+                })
             print(f"Deployment stored successfully for user {current_user.id} (DB ID: {db_deployment.id})")
         except Exception as storage_error:
             print(f"Error storing deployment: {storage_error}")
@@ -261,23 +365,39 @@ async def deploy_workflow(
         
         chat_url = f"/chat/{deployment_id}"
         
+        # Build configuration response
+        configuration = {
+            "workflow_id": workflow.id,
+            "workflow_collection_id": workflow.workflow_collection_id,
+            "provider": config.get("llm_config", {}).get("provider", "vertexai"),
+            "model": config.get("llm_config", {}).get("model", ""),
+            "has_rag": config.get("has_mcp", False),
+            "collection": collection_name,
+            "mcp_enabled": config.get("has_mcp", False),
+            "file_count": len(rag_document_ids),
+            "files_url": f"/api/deploy/{deployment_id}/files" if rag_document_ids else None
+        }
+        
+        # Add page information for page-based deployments
+        if is_page_based:
+            configuration.update({
+                "is_page_based": True,
+                "page_count": page_deployment.get_page_count(),
+                "page_deployment_ids": page_deployment.get_page_deployment_ids(),
+                "pages_url": f"/api/deploy/{deployment_id}/pages"
+            })
+            message = f"Successfully deployed {request.workflow_name} with {page_deployment.get_page_count()} pages"
+        else:
+            configuration["is_page_based"] = False
+            message = f"Successfully deployed {request.workflow_name} with MCP server"
+        
         return DeploymentResponse(
             deployment_id=deployment_id,
             chat_url=chat_url,
-            message=f"Successfully deployed {request.workflow_name} with MCP server",
+            message=message,
             type=deployment_type,
             grade=db_deployment.grade,
-            configuration={
-                "workflow_id": workflow.id,
-                "workflow_collection_id": workflow.workflow_collection_id,
-                "provider": config.get("llm_config", {}).get("provider", "vertexai"),
-                "model": config.get("llm_config", {}).get("model", ""),
-                "has_rag": config.get("has_mcp", False),
-                "collection": collection_name,
-                "mcp_enabled": config.get("has_mcp", False),
-                "file_count": len(rag_document_ids),
-                "files_url": f"/api/deploy/{deployment_id}/files" if rag_document_ids else None
-            }
+            configuration=configuration
         )
         
     except Exception as e:
@@ -317,8 +437,47 @@ async def list_active_deployments(
                 ).all()
                 file_count = len(active_docs)
             
-            # Just list the deployment info without loading it into memory
-            user_deployments.append({
+            # Build configuration object based on deployment type
+            configuration = {
+                "provider": deployment.config.get("llm_config", {}).get("provider", "vertexai"),
+                "model": deployment.config.get("llm_config", {}).get("model", ""),
+                "has_rag": deployment.config.get("has_mcp", False),
+                "mcp_enabled": deployment.config.get("has_mcp", False)
+            }
+            
+            # Add question count for CODE deployments
+            if deployment.type == DeploymentType.CODE:
+                question_count = 0
+                try:
+                    if isinstance(deployment.config, dict):
+                        workflow_nodes = deployment.config.get("__workflow_nodes__", {})
+                        node1 = workflow_nodes.get("1", {})
+                        attachments = node1.get("attachments", {})
+                        tests_list = attachments.get("tests", [])
+                        question_count = len(tests_list)
+                except Exception:
+                    question_count = 0
+                configuration["question_count"] = question_count
+            
+            # Add question count for MCQ deployments
+            if deployment.type == DeploymentType.MCQ:
+                question_count = 0
+                try:
+                    if isinstance(deployment.config, dict):
+                        workflow_nodes = deployment.config.get("__workflow_nodes__", {})
+                        node1 = workflow_nodes.get("1", {})
+                        attachments = node1.get("attachments", {})
+                        questions_list = attachments.get("questions", [])
+                        if questions_list and len(questions_list) > 0:
+                            questions_config = questions_list[0].get("config", {})
+                            questions_data = questions_config.get("questions", [])
+                            question_count = len(questions_data)
+                except Exception:
+                    question_count = 0
+                configuration["question_count"] = question_count
+            
+            # Build deployment info object
+            deployment_info = {
                 "deployment_id": deployment.deployment_id,
                 "workflow_name": deployment.workflow_name,
                 "created_at": deployment.created_at.isoformat(),
@@ -330,13 +489,23 @@ async def list_active_deployments(
                 "has_files": file_count > 0,
                 "type": deployment.type.value,
                 "grade": deployment.grade,
-                "configuration": {
-                    "provider": deployment.config.get("llm_config", {}).get("provider", "vertexai"),
-                    "model": deployment.config.get("llm_config", {}).get("model", ""),
-                    "has_rag": deployment.config.get("has_mcp", False),
-                    "mcp_enabled": deployment.config.get("has_mcp", False)
-                }
-            })
+                "configuration": configuration
+            }
+            
+            # Add page information if it's a page-based deployment
+            if deployment.is_page_based:
+                deployment_info.update({
+                    "is_page_based": True,
+                    "total_pages": deployment.total_pages,
+                    "pages_url": f"/api/deploy/{deployment.deployment_id}/pages"
+                })
+                
+                # Only show parent deployments in the list, not individual pages
+                if deployment.parent_deployment_id is None:
+                    user_deployments.append(deployment_info)
+            else:
+                deployment_info["is_page_based"] = False
+                user_deployments.append(deployment_info)
         
         return {"deployments": user_deployments}
         
@@ -355,9 +524,17 @@ async def get_deployment_type_endpoint(
 ):
     db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db)
 
+    # Check if this is a page-based deployment
+    if db_deployment.is_page_based and db_deployment.parent_deployment_id is None:
+        # This is the main page deployment, return "page" type
+        deployment_type = DeploymentType.PAGE.value
+    else:
+        # Regular deployment or individual page within a page deployment
+        deployment_type = db_deployment.type.value
+
     return {
         "deployment_id": deployment_id,
-        "type": db_deployment.type.value,
+        "type": deployment_type,
     }
 
 @router.get("/{deployment_id}/contains-chat")
@@ -403,20 +580,49 @@ async def delete_deployment(
             detail="Only instructors of this class can delete deployments"
         )
     
-    # Clean up MCP server if loaded in memory
+    # Clean up deployment in memory
     if is_deployment_active(deployment_id):
         deployment = get_active_deployment(deployment_id)
         
         try:
             mcp_deployment = deployment.get("mcp_deployment")
             if mcp_deployment:
-                await mcp_deployment.close()
+                # Check if it's a page-based deployment
+                if deployment.get("is_page_based", False):
+                    # Clean up all page deployments
+                    if hasattr(mcp_deployment, 'cleanup_all_pages'):
+                        mcp_deployment.cleanup_all_pages()
+                    
+                    # Remove all page deployments from memory
+                    for page_deploy in mcp_deployment.get_deployment_list():
+                        if is_deployment_active(page_deploy.deployment_id):
+                            remove_active_deployment(page_deploy.deployment_id)
+                else:
+                    # Regular deployment cleanup
+                    if hasattr(mcp_deployment, 'close'):
+                        await mcp_deployment.close()
         except Exception as e:
-            print(f"Error cleaning up MCP deployment: {e}")
+            print(f"Error cleaning up deployment: {e}")
         
         remove_active_deployment(deployment_id)
     
     # Mark deployment as inactive in database
+    if db_deployment.is_page_based:
+        # Also mark all page deployments as inactive
+        page_deployments = db.exec(
+            select(Deployment).where(
+                Deployment.parent_deployment_id == deployment_id,
+                Deployment.is_active == True
+            )
+        ).all()
+        
+        for page_deployment in page_deployments:
+            page_deployment.is_active = False
+            page_deployment.updated_at = datetime.now(timezone.utc)
+            db.add(page_deployment)
+        
+        print(f"Marked {len(page_deployments)} page deployments as inactive")
+    
     db_deployment.is_active = False
     db_deployment.updated_at = datetime.now(timezone.utc)
     db.add(db_deployment)

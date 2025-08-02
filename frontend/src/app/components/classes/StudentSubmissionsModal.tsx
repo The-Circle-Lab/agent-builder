@@ -13,7 +13,7 @@ import {
   LockClosedIcon,
   LockOpenIcon
 } from '@heroicons/react/24/outline';
-import { CodeDeploymentAPI, StudentSubmission, SubmissionSummary, SubmissionTestResults, AllProblemsInfo, ProblemInfo } from '../../../lib/codeDeploymentAPI';
+import { CodeDeploymentAPI, StudentSubmission, SubmissionSummary, SubmissionTestResults, AllProblemsInfo, ProblemInfo } from '../../../lib/deploymentAPIs/codeDeploymentAPI';
 import { API_CONFIG } from '@/lib/constants';
 
 interface StudentGrade {

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { CodeDeploymentAPI, ProblemInfo, DetailedCodeTestResult, AllProblemsInfo } from "../../../../lib/codeDeploymentAPI";
+import { CodeDeploymentAPI, ProblemInfo, DetailedCodeTestResult, AllProblemsInfo } from "../../../../lib/deploymentAPIs/codeDeploymentAPI";
 import ChatInterface from "../chat/chatInterface";
 import { CodeHeader, CodeEditor, TestResultDisplay } from "./components";
 

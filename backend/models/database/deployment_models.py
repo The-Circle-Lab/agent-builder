@@ -20,6 +20,12 @@ class Deployment(SQLModel, table=True):
 
     type: DeploymentType = Field(default=DeploymentType.CHAT, index=True)
     
+    # Page-based deployment fields
+    is_page_based: bool = Field(default=False, index=True)  # Whether this deployment uses pages
+    parent_deployment_id: str | None = Field(default=None, index=True)  # Main deployment ID for page deployments
+    page_number: int | None = Field(default=None, index=True)  # Page number for page deployments
+    total_pages: int | None = Field(default=None)  # Total number of pages for main deployment
+    
     # Store the deployment configuration as JSON
     config: Dict[str, Any] = Field(sa_column=Column(JSON))
     

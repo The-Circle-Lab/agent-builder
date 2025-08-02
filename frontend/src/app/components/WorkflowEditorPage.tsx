@@ -41,11 +41,12 @@ export default function WorkflowEditorPage({
   // Start with an empty canvas for new workflows
   const [initialNodes] = useState<ReactFlowNode[]>([]);
   const [initialEdges] = useState<ReactFlowEdge[]>([]);
+  const [initialPageRelationships] = useState<Record<string, string[]>>({});
 
-  const [currentNodes, setCurrentNodes] =
-    useState<ReactFlowNode[]>(initialNodes);
-  const [currentEdges, setCurrentEdges] =
-    useState<ReactFlowEdge[]>(initialEdges);
+  const [currentNodes, setCurrentNodes] = useState<ReactFlowNode[]>(initialNodes);
+  const [currentEdges, setCurrentEdges] = useState<ReactFlowEdge[]>(initialEdges);
+  const [currentPageRelationships, setCurrentPageRelationships] = useState<Record<string, string[]>>(initialPageRelationships);
+
   const [deploymentSuccess, setDeploymentSuccess] = useState<string>("");
 
   const loadWorkflow = useCallback(async () => {
@@ -65,10 +66,12 @@ export default function WorkflowEditorPage({
       ) {
         setCurrentNodes(workflow.workflow_data.nodes);
         setCurrentEdges(workflow.workflow_data.edges || []);
+        setCurrentPageRelationships(workflow.workflow_data.pageRelationships || {});
       } else {
         // If no workflow data or empty nodes, keep the empty initial state
         setCurrentNodes(initialNodes);
         setCurrentEdges(initialEdges);
+        setCurrentPageRelationships(initialPageRelationships);
       }
     } catch (error) {
       setError(
@@ -77,7 +80,7 @@ export default function WorkflowEditorPage({
     } finally {
       setLoading(false);
     }
-  }, [workflowId, initialNodes, initialEdges]);
+  }, [workflowId, initialNodes, initialEdges, initialPageRelationships]);
 
   useEffect(() => {
     if (workflowId) {
@@ -85,30 +88,25 @@ export default function WorkflowEditorPage({
     }
   }, [workflowId, loadWorkflow]);
 
-  const handleWorkflowChange = useCallback(
-    (nodes: ReactFlowNode[], edges: ReactFlowEdge[]) => {
-      setCurrentNodes(nodes);
-      setCurrentEdges(edges);
-      setSaveStatus("unsaved");
+  const handleWorkflowChange = useCallback((nodes: ReactFlowNode[], edges: ReactFlowEdge[], pageRelationships: Record<string, string[]>) => {
+    setCurrentNodes(nodes);
+    setCurrentEdges(edges);
+    setCurrentPageRelationships(pageRelationships);
+    setSaveStatus("unsaved");
 
-      // Auto-save after 2 seconds of inactivity
-      AutoSave.scheduleAutoSave(
-        currentWorkflowId,
-        workflowName,
-        workflowDescription,
-        nodes,
-        edges,
-        (result: unknown) => {
-          // If this is a new workflow, update the ID
-          const resultObj = result as { id?: number };
-          if (!currentWorkflowId && resultObj.id) {
-            setCurrentWorkflowId(resultObj.id);
-          }
-          setSaveStatus("saved");
-        },
-        (error) => {
-          setSaveStatus("error");
-          console.error("Auto-save error:", error);
+    // Auto-save after 2 seconds of inactivity
+    AutoSave.scheduleAutoSave(
+      currentWorkflowId,
+      workflowName,
+      workflowDescription,
+      nodes,
+      edges,
+      pageRelationships,
+      (result: unknown) => {
+        // If this is a new workflow, update the ID
+        const resultObj = result as { id?: number };
+        if (!currentWorkflowId && resultObj.id) {
+          setCurrentWorkflowId(resultObj.id);
         }
       );
     },
@@ -123,7 +121,8 @@ export default function WorkflowEditorPage({
         workflowName,
         workflowDescription,
         currentNodes,
-        currentEdges
+        currentEdges,
+        currentPageRelationships
       );
 
       // If this is a new workflow, update the ID
@@ -294,6 +293,7 @@ export default function WorkflowEditorPage({
         <WorkflowEditor
           initialNodes={currentNodes}
           initialEdges={currentEdges}
+          initialPageRelationships={currentPageRelationships}
           onWorkflowChange={handleWorkflowChange}
           workflowId={currentWorkflowId || undefined}
           workflowName={workflowName}

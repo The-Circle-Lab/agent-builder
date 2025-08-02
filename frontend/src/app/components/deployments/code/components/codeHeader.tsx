@@ -1,5 +1,5 @@
 import React from "react";
-import { ProblemInfo } from "../../../../../lib/codeDeploymentAPI";
+import { ProblemInfo } from "../../../../../lib/deploymentAPIs/codeDeploymentAPI";
 import ProblemSelector from "./problemSelector";
 
 interface CodeHeaderProps {

@@ -4,14 +4,19 @@ import { getApiConfig } from "@/lib/config";
 export interface WorkflowSaveData {
   nodes: Node[];
   edges: Edge[];
+  pageRelationships?: Record<string, string[]>; // pageId -> array of nodeIds
   metadata?: {
     lastSaved: string;
     version: string;
   };
 }
 
-// Save workflow data (nodes and edges) without any validation
-export function createWorkflowSaveData(nodes: Node[], edges: Edge[]): WorkflowSaveData {
+// Save workflow data (nodes, edges, and page relationships) without any validation
+export function createWorkflowSaveData(
+  nodes: Node[], 
+  edges: Edge[], 
+  pageRelationships?: Record<string, string[]>
+): WorkflowSaveData {
   return {
     nodes: nodes.map(node => ({
       ...node,
@@ -21,6 +26,7 @@ export function createWorkflowSaveData(nodes: Node[], edges: Edge[]): WorkflowSa
     edges: edges.map(edge => ({
       ...edge
     })),
+    pageRelationships: pageRelationships || {},
     metadata: {
       lastSaved: new Date().toISOString(),
       version: "1.0"
@@ -32,8 +38,15 @@ export function createWorkflowSaveData(nodes: Node[], edges: Edge[]): WorkflowSa
 export class WorkflowAPI {
   private static readonly BASE_URL = getApiConfig().base_url;
 
-  static async saveWorkflow(workflowId: number | null, name: string, description: string, nodes: Node[], edges: Edge[]) {
-    const workflowData = createWorkflowSaveData(nodes, edges);
+  static async saveWorkflow(
+    workflowId: number | null, 
+    name: string, 
+    description: string, 
+    nodes: Node[], 
+    edges: Edge[], 
+    pageRelationships?: Record<string, string[]>
+  ) {
+    const workflowData = createWorkflowSaveData(nodes, edges, pageRelationships);
     
     const payload = {
       name,
@@ -116,6 +129,7 @@ export class AutoSave {
     description: string, 
     nodes: Node[], 
     edges: Edge[],
+    pageRelationships?: Record<string, string[]>,
     onSave?: (result: unknown) => void,
     onError?: (error: Error) => void
   ) {
@@ -127,7 +141,7 @@ export class AutoSave {
     // Schedule new save
     this.saveTimeout = setTimeout(async () => {
       try {
-        const result = await WorkflowAPI.saveWorkflow(workflowId, name, description, nodes, edges);
+        const result = await WorkflowAPI.saveWorkflow(workflowId, name, description, nodes, edges, pageRelationships);
         if (onSave) {
           onSave(result);
         }

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useRef, useEffect } from "react";
-import { ChatDeploymentAPI } from "../../../../lib/chatDeploymentAPI";
+import { ChatDeploymentAPI } from "../../../../lib/deploymentAPIs/chatDeploymentAPI";
 import { ChatInterfaceProps, Message } from "./types/chat";
 import { useWebSocket } from "./hooks/useWebSocket";
 import { useConversations } from "./hooks/useConversations";

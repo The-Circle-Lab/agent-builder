@@ -28,7 +28,6 @@ __all__ = [
     "_load_deployment_for_user",
 ]
 
-# WebSocket-specific helpers
 
 # Return the session id from either cookies or query params.
 def _extract_sid_from_websocket(websocket: WebSocket) -> str | None:  # noqa: D401
