@@ -1,13 +1,7 @@
 "use client";
 
 import React, { useEffect, useCallback, useState } from "react";
-import {
-  ReactFlow,
-  Edge,
-  Background,
-  Node,
-  BackgroundVariant,
-} from "@xyflow/react";
+import { ReactFlow, Edge, Background, Node } from "@xyflow/react";
 import { useFlowState } from "./hooks/useFlowState";
 import {
   createAllNodeTypes,
@@ -30,7 +24,11 @@ interface WorkflowEditorProps {
   initialNodes?: Node[];
   initialEdges?: Edge[];
   initialPageRelationships?: Record<string, string[]>;
-  onWorkflowChange?: (nodes: Node[], edges: Edge[], pageRelationships: Record<string, string[]>) => void;
+  onWorkflowChange?: (
+    nodes: Node[],
+    edges: Edge[],
+    pageRelationships: Record<string, string[]>
+  ) => void;
   autoSave?: boolean;
   autoSaveInterval?: number;
   workflowId?: string | number;
@@ -75,7 +73,9 @@ export default function WorkflowEditor({
   } = useSideMenu();
 
   // State for tracking which page we're adding to
-  const [currentPageId, setCurrentPageId] = useState<string | undefined>(undefined);
+  const [currentPageId, setCurrentPageId] = useState<string | undefined>(
+    undefined
+  );
 
   const { handleAddNode } = useNodeOperations(
     setNodes,
@@ -132,7 +132,7 @@ export default function WorkflowEditor({
       ),
     workflowId,
     pageRelationships,
-    nodes: nodes.map(node => ({ id: node.id, type: node.type || 'unknown' })),
+    nodes: nodes.map((node) => ({ id: node.id, type: node.type || "unknown" })),
   });
 
   // Notify parent component of workflow changes
@@ -147,7 +147,11 @@ export default function WorkflowEditor({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.ctrlKey && event.key === "e") {
         event.preventDefault();
-        const workflowJSON = createWorkflowJSON(nodes, edges, pageRelationships);
+        const workflowJSON = createWorkflowJSON(
+          nodes,
+          edges,
+          pageRelationships
+        );
         console.log(workflowJSON);
       }
     };
@@ -157,7 +161,7 @@ export default function WorkflowEditor({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [nodes, edges]);
+  }, [nodes, edges, pageRelationships]);
 
   // Auto-save functionality
   useEffect(() => {
@@ -168,7 +172,14 @@ export default function WorkflowEditor({
     }, autoSaveInterval);
 
     return () => clearInterval(interval);
-  }, [nodes, edges, pageRelationships, autoSave, autoSaveInterval, onWorkflowChange]);
+  }, [
+    nodes,
+    edges,
+    pageRelationships,
+    autoSave,
+    autoSaveInterval,
+    onWorkflowChange,
+  ]);
 
   // Deploy handler
   const handleDeploy = useCallback(async () => {
@@ -234,7 +245,14 @@ export default function WorkflowEditor({
     } finally {
       setIsDeploying(false);
     }
-  }, [nodes, edges, workflowName, workflowId, onDeploySuccess]);
+  }, [
+    workflowId,
+    nodes,
+    edges,
+    pageRelationships,
+    workflowName,
+    onDeploySuccess,
+  ]);
 
   return (
     <div style={{ width: "100%", height: "100%", backgroundColor: "#374151" }}>
@@ -276,7 +294,9 @@ export default function WorkflowEditor({
               />
             </svg>
           </button>
-          <span className="text-sm text-gray-400">Add your first node or page</span>
+          <span className="text-sm text-gray-400">
+            Add your first node or page
+          </span>
         </div>
       )}
 
@@ -286,22 +306,24 @@ export default function WorkflowEditor({
         const shouldShowNewPageButton = (() => {
           // If no nodes at all, show button
           if (nodes.length === 0) return true;
-          
+
           // Get all non-page nodes
-          const nonPageNodes = nodes.filter(node => node.type !== 'page');
-          
+          const nonPageNodes = nodes.filter((node) => node.type !== "page");
+
           // If no non-page nodes (only pages exist), show button
           if (nonPageNodes.length === 0) return true;
-          
+
           // Get all nodes that are assigned to pages
           const nodesInPages = new Set();
-          Object.values(pageRelationships).forEach(nodeIds => {
-            nodeIds.forEach(nodeId => nodesInPages.add(nodeId));
+          Object.values(pageRelationships).forEach((nodeIds) => {
+            nodeIds.forEach((nodeId) => nodesInPages.add(nodeId));
           });
-          
+
           // Check if all non-page nodes are contained in pages
-          const allNodesInPages = nonPageNodes.every(node => nodesInPages.has(node.id));
-          
+          const allNodesInPages = nonPageNodes.every((node) =>
+            nodesInPages.has(node.id)
+          );
+
           return allNodesInPages;
         })();
 
@@ -311,23 +333,24 @@ export default function WorkflowEditor({
               onClick={() => {
                 // Find the highest page number among existing pages
                 const existingPageNumbers = nodes
-                  .filter(n => n.type === 'page')
-                  .map(n => n.data?.pageNumber || 1)
-                  .filter(num => typeof num === 'number');
-                
-                const nextPageNumber = existingPageNumbers.length > 0 
-                  ? Math.max(...existingPageNumbers) + 1 
-                  : 1;
+                  .filter((n) => n.type === "page")
+                  .map((n) => n.data?.pageNumber || 1)
+                  .filter((num) => typeof num === "number");
+
+                const nextPageNumber =
+                  existingPageNumbers.length > 0
+                    ? Math.max(...existingPageNumbers) + 1
+                    : 1;
 
                 const newPage: Node = {
                   id: `page-${Date.now()}`,
                   position: { x: 200, y: 200 },
-                  data: { 
+                  data: {
                     pageNumber: nextPageNumber,
-                    backgroundColor: '#3B82F6',
+                    backgroundColor: "#3B82F6",
                     opacity: 0.15,
                     width: 300,
-                    height: 200
+                    height: 200,
                   },
                   type: "page",
                 };
@@ -336,8 +359,18 @@ export default function WorkflowEditor({
               className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium shadow-lg transition duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-2"
               title="Create new page"
             >
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 6v6m0 0v6m0-6h6m-6 0H6"
+                />
               </svg>
               <span>New Page</span>
             </button>
@@ -350,7 +383,7 @@ export default function WorkflowEditor({
         <div className="space-y-3">
           {/* Page Sorter - Only shows when pages exist */}
           <PageSorter nodes={nodes} setNodes={setNodes} />
-          
+
           {/* Deploy Button */}
           <div className="flex flex-col space-y-2">
             {deployError && (
@@ -360,9 +393,18 @@ export default function WorkflowEditor({
             )}
             <button
               onClick={handleDeploy}
-              disabled={isDeploying || !workflowId || (typeof workflowId === 'string' && workflowId === 'new')}
+              disabled={
+                isDeploying ||
+                !workflowId ||
+                (typeof workflowId === "string" && workflowId === "new")
+              }
               className="bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white px-6 py-3 rounded-lg font-semibold shadow-lg transition duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-2"
-              title={(!workflowId || (typeof workflowId === 'string' && workflowId === 'new')) ? "Save workflow before deploying" : "Deploy workflow"}
+              title={
+                !workflowId ||
+                (typeof workflowId === "string" && workflowId === "new")
+                  ? "Save workflow before deploying"
+                  : "Deploy workflow"
+              }
             >
               {isDeploying ? (
                 <>
@@ -371,12 +413,17 @@ export default function WorkflowEditor({
                 </>
               ) : (
                 <>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path 
-                      strokeLinecap="round" 
-                      strokeLinejoin="round" 
-                      strokeWidth={2} 
-                      d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" 
+                  <svg
+                    className="w-5 h-5"
+                    fill="none"
+                    stroke="currentColor"
+                    viewBox="0 0 24 24"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
                     />
                   </svg>
                   <span>Deploy</span>
