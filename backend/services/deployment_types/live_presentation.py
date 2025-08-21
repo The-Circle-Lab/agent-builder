@@ -425,8 +425,7 @@ class LivePresentationDeployment:
         print(f"🔍 Available input_variable_data: {self.input_variable_data}")
         print(f"🔍 Input variable data type: {type(self.input_variable_data)}")
         
-        # Only handle dictionary format (standard group data)
-        # Theme data should NOT be used for group assignments
+        # Handle dictionary format (standard group data)
         if self.input_variable_data and isinstance(self.input_variable_data, dict):
             print(f"🔍 Processing group assignment data - searching through {len(self.input_variable_data)} groups")
             for group_name, members in self.input_variable_data.items():
@@ -445,10 +444,35 @@ class LivePresentationDeployment:
                         print(f"❌ Student '{student.user_name}' not found in group '{group_name}'")
                 else:
                     print(f"⚠️ Group '{group_name}' members is not a list: {type(members)}")
+        
+        # Handle theme data format (list) - convert to groups if it contains student assignments
+        elif self.input_variable_data and isinstance(self.input_variable_data, list):
+            print(f"🔍 Processing theme data - checking if it contains student assignments")
+            
+            # Check if theme data contains student_names (indicating it's theme-based grouping)
+            for theme_idx, theme in enumerate(self.input_variable_data):
+                if isinstance(theme, dict) and 'student_names' in theme and 'title' in theme:
+                    student_names = theme.get('student_names', [])
+                    theme_title = theme.get('title', f'Theme {theme_idx + 1}')
+                    
+                    print(f"🔍 Checking theme '{theme_title}' with students: {student_names}")
+                    
+                    if student.user_name in student_names:
+                        student.group_info = {
+                            "group_name": theme_title,
+                            "group_members": student_names,
+                            "theme_data": theme  # Include full theme data for reference
+                        }
+                        print(f"✅ Found student '{student.user_name}' in theme group '{theme_title}'")
+                        return
+                    else:
+                        print(f"❌ Student '{student.user_name}' not found in theme '{theme_title}'")
+                else:
+                    print(f"⚠️ Theme item {theme_idx} does not contain student_names or title")
+            
+            print(f"⚠️ Student '{student.user_name}' not found in any theme groups")
         else:
-            if isinstance(self.input_variable_data, list):
-                print(f"⚠️ Found theme/list data instead of group assignment data. Theme data should not be used for group info.")
-            print(f"⚠️ No valid group assignment data available")
+            print(f"⚠️ No valid group assignment or theme data available")
         
         print(f"🔍 Final group_info for {student.user_name}: {student.group_info}")
     
@@ -1871,10 +1895,20 @@ class LivePresentationDeployment:
                 if group_data_from_db:
                     self.set_input_variable_data(group_data_from_db)
         elif isinstance(self.input_variable_data, list):
-            print(f"🔍 Found theme data instead of group data, trying database lookup...")
-            group_data_from_db = self._get_latest_group_assignment_from_database()
-            if group_data_from_db:
-                self.set_input_variable_data(group_data_from_db)
+            print(f"🔍 Found theme data - checking if it contains student assignments...")
+            # Check if theme data contains student assignments
+            has_student_assignments = any(
+                isinstance(theme, dict) and 'student_names' in theme and 'title' in theme
+                for theme in self.input_variable_data
+            )
+            
+            if has_student_assignments:
+                print(f"✅ Theme data contains student assignments - using as group data")
+            else:
+                print(f"⚠️ Theme data does not contain student assignments, trying database lookup...")
+                group_data_from_db = self._get_latest_group_assignment_from_database()
+                if group_data_from_db:
+                    self.set_input_variable_data(group_data_from_db)
         
         # First, refresh group info for all students based on current variable data
         for student in self.students.values():
@@ -2006,6 +2040,7 @@ class LivePresentationDeployment:
         # Group statistics if we have group data
         group_stats = {}
         if self.input_variable_data and isinstance(self.input_variable_data, dict):
+            # Standard group assignment format
             for group_name, members in self.input_variable_data.items():
                 if isinstance(members, list):
                     connected_in_group = sum(1 for s in self.students.values() 
@@ -2015,6 +2050,25 @@ class LivePresentationDeployment:
                         "total_members": len(members),
                         "connected_members": connected_in_group,
                         "members": members
+                    }
+        elif self.input_variable_data and isinstance(self.input_variable_data, list):
+            # Theme-based group format
+            for theme in self.input_variable_data:
+                if isinstance(theme, dict) and 'student_names' in theme and 'title' in theme:
+                    group_name = theme.get('title', 'Unknown Theme')
+                    members = theme.get('student_names', [])
+                    connected_in_group = sum(1 for s in self.students.values() 
+                                           if s.group_info and s.group_info.get("group_name") == group_name 
+                                           and s.status != ConnectionStatus.DISCONNECTED)
+                    group_stats[group_name] = {
+                        "total_members": len(members),
+                        "connected_members": connected_in_group,
+                        "members": members,
+                        "theme_info": {
+                            "description": theme.get('description'),
+                            "keywords": theme.get('keywords', []),
+                            "cluster_id": theme.get('cluster_id')
+                        }
                     }
         
         return {
