@@ -67,19 +67,7 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
     });
   }, [fileUrl, fileType, initialPage]);
 
-  // Handle DOCX files - only on client side
-  useEffect(() => {
-    if (typeof window !== 'undefined' && (fileType.toLowerCase() === 'docx' || fileType.toLowerCase() === 'doc')) {
-      loadDocxContent();
-    }
-  }, [fileUrl, fileType]);
 
-  // Handle PDF files - only on client side
-  useEffect(() => {
-    if (typeof window !== 'undefined' && fileType.toLowerCase() === 'pdf') {
-      loadPdfContent();
-    }
-  }, [fileUrl, fileType]);
 
   // Cleanup blob URL to prevent memory leaks
   useEffect(() => {
@@ -158,6 +146,20 @@ const DocumentViewer: React.FC<DocumentViewerProps> = ({
       onError?.(errorMessage);
     }
   }, [fileUrl, onError]);
+
+  // Handle DOCX files - only on client side
+  useEffect(() => {
+    if (typeof window !== 'undefined' && (fileType.toLowerCase() === 'docx' || fileType.toLowerCase() === 'doc')) {
+      loadDocxContent();
+    }
+  }, [fileUrl, fileType, loadDocxContent]);
+
+  // Handle PDF files - only on client side
+  useEffect(() => {
+    if (typeof window !== 'undefined' && fileType.toLowerCase() === 'pdf') {
+      loadPdfContent();
+    }
+  }, [fileUrl, fileType, loadPdfContent]);
 
   const onDocumentLoadSuccess = ({ numPages }: { numPages: number }) => {
     // Ensure currentPage is within valid range

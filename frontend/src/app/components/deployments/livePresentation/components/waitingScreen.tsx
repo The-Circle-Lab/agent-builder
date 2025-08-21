@@ -91,8 +91,8 @@ export const WaitingScreen: React.FC<WaitingScreenProps> = ({
                 Waiting for Presentation to Begin
               </h2>
               <p className="text-gray-600 max-w-md mx-auto">
-                You're connected and ready to go! Your instructor will start the presentation shortly. 
-                When they do, you'll see prompts and content appear here.
+                You&apos;re connected and ready to go! Your instructor will start the presentation shortly. 
+                When they do, you&apos;ll see prompts and content appear here.
               </p>
             </div>
 
@@ -143,7 +143,7 @@ export const WaitingScreen: React.FC<WaitingScreenProps> = ({
                 </li>
                 <li className="flex items-start space-x-2">
                   <span className="flex-shrink-0 w-2 h-2 bg-indigo-600 rounded-full mt-2"></span>
-                  <span>Watch for "I'm Ready" buttons to signal your participation</span>
+                  <span>Watch for &quot;I&apos;m Ready&quot; buttons to signal your participation</span>
                 </li>
                 <li className="flex items-start space-x-2">
                   <span className="flex-shrink-0 w-2 h-2 bg-indigo-600 rounded-full mt-2"></span>

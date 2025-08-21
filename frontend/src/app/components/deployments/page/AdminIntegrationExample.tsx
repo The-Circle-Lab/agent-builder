@@ -3,6 +3,7 @@
 import React, { useState } from 'react';
 import { PageDeploymentAdmin } from './index';
 import { ClassDeployments } from '../../classes';
+import { Deployment } from '@/lib/types';
 
 /**
  * Example integration of PageDeploymentAdmin into a parent component.
@@ -11,7 +12,7 @@ import { ClassDeployments } from '../../classes';
  */
 
 interface ExampleIntegrationProps {
-  deployments: any[];
+  deployments: Deployment[];
   isInstructor: boolean;
 }
 

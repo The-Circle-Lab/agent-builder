@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { XMarkIcon, PencilSquareIcon, LinkIcon, CheckCircleIcon } from '@heroicons/react/24/outline';
 import { PromptDeploymentAPI, PromptInstructorSessionView, PromptInstructorSubmissionView } from '@/lib/deploymentAPIs/promptDeploymentAPI';
 
@@ -21,11 +21,7 @@ export default function StudentPromptsModal({
   const [loadingSubmissions, setLoadingSubmissions] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadSessions();
-  }, [deploymentId]);
-
-  const loadSessions = async () => {
+  const loadSessions = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -37,7 +33,11 @@ export default function StudentPromptsModal({
     } finally {
       setLoading(false);
     }
-  };
+  }, [deploymentId]);
+
+  useEffect(() => {
+    loadSessions();
+  }, [loadSessions]);
 
   const loadSubmissions = async (sessionId: number) => {
     try {

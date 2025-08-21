@@ -6,7 +6,7 @@ export interface LivePresentationPrompt {
   inputPlaceholder?: string;
   useRandomListItem?: boolean;
   listVariableId?: string;
-  assigned_list_item?: any; // The specific list item assigned to this student's group
+  assigned_list_item?: unknown; // The specific list item assigned to this student's group
   isSystemPrompt?: boolean;
   category?: string;
   is_late_join?: boolean; // Flag to indicate this prompt was sent to a late-joining student
@@ -94,8 +94,94 @@ export type MessageType =
 
 export interface WebSocketMessage {
   type: MessageType;
-  [key: string]: any;
+  [key: string]: unknown;
 }
+
+export interface WelcomeMessage {
+  type: 'welcome';
+  message: string;
+  group_info?: GroupInfo;
+}
+
+export interface PromptReceivedMessage {
+  type: 'prompt_received';
+  prompt: LivePresentationPrompt;
+}
+
+export interface GroupInfoMessage {
+  type: 'group_info';
+  group_info: GroupInfo;
+  is_late_join?: boolean;
+}
+
+export interface ReadyCheckMessage {
+  type: 'ready_check';
+  active: boolean;
+  is_late_join?: boolean;
+  message?: string;
+}
+
+export interface StatsUpdateMessage {
+  type: 'stats_update';
+  stats: PresentationStats;
+}
+
+export interface ConnectionUpdateMessage {
+  type: 'connection_update';
+  students: StudentConnection[];
+  stats?: PresentationStats;
+}
+
+export interface ErrorMessage {
+  type: 'error';
+  message: string;
+}
+
+export interface TeacherConnectedMessage {
+  type: 'teacher_connected';
+  stats: PresentationStats;
+  saved_prompts?: LivePresentationPrompt[];
+}
+
+export interface StudentResponseReceivedMessage {
+  type: 'student_response_received';
+  response: string;
+  prompt_id: string;
+  timestamp: string;
+  student: {
+    user_id: string;
+    user_name: string;
+  };
+}
+
+export interface SummaryGenerationStartedMessage {
+  type: 'summary_generation_started';
+  prompt_id: string;
+}
+
+export interface GroupInfoSentMessage {
+  type: 'group_info_sent';
+}
+
+export interface GroupSummaryGeneratedMessage {
+  type: 'group_summary_generated';
+  prompt_id: string;
+}
+
+export type TypedWebSocketMessage = 
+  | WelcomeMessage
+  | PromptReceivedMessage 
+  | GroupInfoMessage
+  | GroupSummaryMessage
+  | ReadyCheckMessage
+  | StatsUpdateMessage
+  | ConnectionUpdateMessage
+  | ErrorMessage
+  | TeacherConnectedMessage
+  | StudentResponseReceivedMessage
+  | SummaryGenerationStartedMessage
+  | GroupInfoSentMessage
+  | GroupSummaryGeneratedMessage;
 
 // Student message types
 export interface StudentReadyMessage {

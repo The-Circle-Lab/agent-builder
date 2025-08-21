@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { API_CONFIG } from '@/lib/constants';
 import { 
   WebSocketMessage, 
+  TypedWebSocketMessage,
   PresentationStats, 
   LivePresentationPrompt, 
   GroupInfo,
@@ -79,7 +80,7 @@ export const useLivePresentationWebSocket = ({
     }
   }, []);
 
-  const handleMessage = useCallback((message: WebSocketMessage) => {
+  const handleMessage = useCallback((message: TypedWebSocketMessage) => {
     console.log('🎤 Received message:', message.type, message);
 
     switch (message.type) {
@@ -151,7 +152,7 @@ export const useLivePresentationWebSocket = ({
         break;
 
       case 'connection_update':
-        if (isTeacher) {
+        if (isTeacher && message.stats) {
           setStats(message.stats);
         }
         break;
@@ -212,7 +213,7 @@ export const useLivePresentationWebSocket = ({
         break;
 
       default:
-        console.log('Unknown message type:', message.type);
+        console.log('Unknown message type:', (message as WebSocketMessage).type);
     }
   }, [isTeacher, setMessageWithTimeout, userName]);
 
@@ -292,7 +293,7 @@ export const useLivePresentationWebSocket = ({
       ws.onmessage = (event) => {
         try {
           const message: WebSocketMessage = JSON.parse(event.data);
-          handleMessage(message);
+          handleMessage(message as TypedWebSocketMessage);
         } catch (error) {
           console.error('Failed to parse WebSocket message:', error);
         }

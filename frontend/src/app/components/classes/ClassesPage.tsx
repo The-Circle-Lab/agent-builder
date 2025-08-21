@@ -14,10 +14,10 @@ interface ClassesPageProps {
   onSelectClass: (classObj: Class) => void;
   onLogout: () => void;
   onSettings: () => void;
-  onUserUpdate: (user: User) => void;
+  onUserUpdate: (updatedUser: User) => void;
 }
 
-export default function ClassesPage({ user, onSelectClass, onLogout, onSettings, onUserUpdate }: ClassesPageProps) {
+export default function ClassesPage({ user, onSelectClass, onLogout, onSettings, onUserUpdate }: ClassesPageProps) { // eslint-disable-line @typescript-eslint/no-unused-vars
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

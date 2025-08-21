@@ -2,7 +2,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { User } from '@/lib/authAPI';
-import { UserIcon, ChevronDownIcon, CogIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
+import { ChevronDownIcon, CogIcon, ArrowRightOnRectangleIcon } from '@heroicons/react/24/outline';
 
 interface UserDropdownProps {
   user: User;

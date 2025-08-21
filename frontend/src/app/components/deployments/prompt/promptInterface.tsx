@@ -125,7 +125,7 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
         [submissionIndex]: {
           submission_index: responseData.submission_index,
           prompt_text: responseData.prompt_text,
-          media_type: responseData.media_type,
+          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf',
           user_response: responseData.user_response,
           submitted_at: responseData.submitted_at,
         },
