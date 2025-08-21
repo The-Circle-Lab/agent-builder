@@ -2,18 +2,21 @@
 
 import React, { useState, useEffect } from 'react';
 import { Class, Workflow, Deployment } from '@/lib/types';
+import { User } from '@/lib/authAPI';
 import { ClassAPI } from './classAPI';
 import ClassWorkflows from './ClassWorkflows';
 import ClassDeployments from './ClassDeployments';
 import ClassMembers from './ClassMembers';
-import JoinCodeModal from './JoinCodeModal';
 import StudentConversationsModal from './StudentConversationsModal';
 import StudentSubmissionsModal from './StudentSubmissionsModal';
 import StudentMCQModal from './StudentMCQModal';
 import StudentPromptsModal from './StudentPromptsModal';
+import JoinCodeModal from './JoinCodeModal';
+import UserDropdown from '../UserDropdown';
+import { PageDeploymentAdmin } from '../deployments/page';
 import { createWorkflowJSON } from '../agentBuilder/scripts/exportWorkflow';
-import { 
-  ArrowLeftIcon, 
+import {
+  ArrowLeftIcon,
   KeyIcon,
   BeakerIcon,
   UserGroupIcon,
@@ -22,6 +25,7 @@ import {
 
 interface ClassDetailPageProps {
   classObj: Class;
+  user: User;
   onBack: () => void;
   onEditWorkflow: (workflowId: number) => void;
   onChatWithDeployment: (deploymentId: string, deploymentName: string) => void;
@@ -29,17 +33,22 @@ interface ClassDetailPageProps {
   onMCQWithDeployment?: (deploymentId: string, deploymentName: string) => void;
   onPromptWithDeployment?: (deploymentId: string, deploymentName: string) => void;
   onPageWithDeployment?: (deploymentId: string, deploymentName: string) => void;
+  onSettings: () => void;
+  onLogout: () => void;
 }
 
 export default function ClassDetailPage({ 
   classObj, 
+  user,
   onBack, 
   onEditWorkflow,
   onChatWithDeployment,
   onCodeWithDeployment,
   onMCQWithDeployment,
   onPromptWithDeployment,
-  onPageWithDeployment
+  onPageWithDeployment,
+  onSettings,
+  onLogout
 }: ClassDetailPageProps) {
   const isInstructor = classObj.user_role === 'instructor';
   
@@ -56,6 +65,7 @@ export default function ClassDetailPage({
   const [showStudentSubmissions, setShowStudentSubmissions] = useState<{deploymentId: string; deploymentName: string} | null>(null);
   const [showStudentMCQ, setShowStudentMCQ] = useState<{deploymentId: string; deploymentName: string} | null>(null);
   const [showStudentPrompts, setShowStudentPrompts] = useState<{deploymentId: string; deploymentName: string} | null>(null);
+  const [showAdminPage, setShowAdminPage] = useState<{deploymentId: string; deploymentName: string} | null>(null);
 
   const loadClassData = React.useCallback(async () => {
     try {
@@ -167,15 +177,22 @@ export default function ClassDetailPage({
                 )}
               </div>
             </div>
-            {isInstructor && (
-              <button
-                onClick={() => setShowJoinCode(true)}
-                className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
-              >
-                <KeyIcon className="h-4 w-4 mr-2" />
-                Join Code
-              </button>
-            )}
+            <div className="flex items-center space-x-4">
+              {isInstructor && (
+                <button
+                  onClick={() => setShowJoinCode(true)}
+                  className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                >
+                  <KeyIcon className="h-4 w-4 mr-2" />
+                  Join Code
+                </button>
+              )}
+              <UserDropdown
+                user={user}
+                onSettings={onSettings}
+                onLogout={onLogout}
+              />
+            </div>
           </div>
         </div>
       </header>
@@ -235,34 +252,47 @@ export default function ClassDetailPage({
               />
             )}
             {activeTab === 'deployments' && (
-              <ClassDeployments
-                deployments={deployments}
-                isInstructor={isInstructor}
-                onChatWithDeployment={onChatWithDeployment}
-                onDeleteDeployment={handleDeleteDeployment}
-                onViewStudentChats={async (deploymentId) => {
-                  const deployment = deployments.find(d => d.deployment_id === deploymentId);
-                  if (deployment) {
-                    setShowStudentChats({ 
-                      deploymentId, 
-                      deploymentName: deployment.workflow_name 
-                    });
-                  }
-                }}
-                onViewStudentSubmissions={(deploymentId, deploymentName) => {
-                  setShowStudentSubmissions({ deploymentId, deploymentName });
-                }}
-                onViewStudentMCQ={(deploymentId, deploymentName) => {
-                  setShowStudentMCQ({ deploymentId, deploymentName });
-                }}
-                onViewStudentPrompts={(deploymentId, deploymentName) => {
-                  setShowStudentPrompts({ deploymentId, deploymentName });
-                }}
-                onCodeWithDeployment={onCodeWithDeployment}
-                onMCQWithDeployment={onMCQWithDeployment}
-                onPromptWithDeployment={onPromptWithDeployment}
-                onPageWithDeployment={onPageWithDeployment}
-              />
+              <>
+                {showAdminPage ? (
+                  <PageDeploymentAdmin
+                    deploymentId={showAdminPage.deploymentId}
+                    deploymentName={showAdminPage.deploymentName}
+                    onBack={() => setShowAdminPage(null)}
+                  />
+                ) : (
+                  <ClassDeployments
+                    deployments={deployments}
+                    isInstructor={isInstructor}
+                    onChatWithDeployment={onChatWithDeployment}
+                    onDeleteDeployment={handleDeleteDeployment}
+                    onViewStudentChats={async (deploymentId) => {
+                      const deployment = deployments.find(d => d.deployment_id === deploymentId);
+                      if (deployment) {
+                        setShowStudentChats({ 
+                          deploymentId, 
+                          deploymentName: deployment.workflow_name 
+                        });
+                      }
+                    }}
+                    onViewStudentSubmissions={(deploymentId, deploymentName) => {
+                      setShowStudentSubmissions({ deploymentId, deploymentName });
+                    }}
+                    onViewStudentMCQ={(deploymentId, deploymentName) => {
+                      setShowStudentMCQ({ deploymentId, deploymentName });
+                    }}
+                    onViewStudentPrompts={(deploymentId, deploymentName) => {
+                      setShowStudentPrompts({ deploymentId, deploymentName });
+                    }}
+                    onAdminPageDeployment={(deploymentId, deploymentName) => {
+                      setShowAdminPage({ deploymentId, deploymentName });
+                    }}
+                    onCodeWithDeployment={onCodeWithDeployment}
+                    onMCQWithDeployment={onMCQWithDeployment}
+                    onPromptWithDeployment={onPromptWithDeployment}
+                    onPageWithDeployment={onPageWithDeployment}
+                  />
+                )}
+              </>
             )}
             {activeTab === 'members' && (
               <ClassMembers

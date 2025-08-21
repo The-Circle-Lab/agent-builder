@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useCallback, useState, useMemo } from "react";
+import React, { useEffect, useCallback, useState } from "react";
 import { ReactFlow, Edge, Background, Node, ConnectionMode } from "@xyflow/react";
 import { useFlowState } from "./hooks/useFlowState";
 import {
@@ -88,7 +88,7 @@ export default function WorkflowEditor({
     handleOpenSettings,
     handleCloseSettings,
     handleSaveSettings,
-  } = useSettingsMenu(workflowId);
+  } = useSettingsMenu(workflowId, nodes, edges, pageRelationships);
 
   // Handle node data updates
   const handleNodeDataUpdate = useCallback((nodeId: string, updatedData: NodeData) => {
@@ -112,11 +112,9 @@ export default function WorkflowEditor({
     [handleOpenSideMenu]
   );
 
-  // Dynamic node types - created once and stored in a ref to keep them stable
-  const nodeTypesRef = React.useRef<Record<string, React.ComponentType<NodeProps>> | null>(null);
-
-  if (!nodeTypesRef.current) {
-    nodeTypesRef.current = createAllNodeTypes({
+  // Dynamic node types - recreated when dependencies change to keep allNodes current
+  const nodeTypes = React.useMemo(() => {
+    return createAllNodeTypes({
       onAddNodeClick: handlePageAddNodeClick,
       edges,
       onDelete: handleDeleteNode,
@@ -129,9 +127,7 @@ export default function WorkflowEditor({
       pageRelationships,
       nodes: nodes.map(node => ({ id: node.id, type: node.type || 'unknown' })),
     });
-  }
-
-  const nodeTypes = nodeTypesRef.current;
+  }, [handlePageAddNodeClick, edges, handleDeleteNode, handleOpenSettings, handleNodeDataUpdate, workflowId, pageRelationships, nodes]);
 
   // Notify parent component of workflow changes
   useEffect(() => {
@@ -270,9 +266,9 @@ export default function WorkflowEditor({
           if (nodes.length === 0) return true;
           
           // Get all non-page and non-behaviour nodes
-          const nonContainerNodes = nodes.filter(node => node.type !== 'page' && node.type !== 'behaviour');
+          const nonContainerNodes = nodes.filter(node => node.type !== 'page' && node.type !== 'behaviour' && node.type !== 'globalVariables');
           
-          // If no non-container nodes (only pages/behaviours exist), show button
+          // If no non-container nodes (only pages/behaviours/globalVariables exist), show button
           if (nonContainerNodes.length === 0) return true;
           
           // Get all nodes that are assigned to pages or behaviours
@@ -281,10 +277,11 @@ export default function WorkflowEditor({
             nodeIds.forEach(nodeId => nodesInContainers.add(nodeId));
           });
           
-          // Check if all non-container nodes are contained in pages/behaviours
+          // Show buttons if there are unassigned nodes (need containers) OR if all nodes are properly contained (workspace is organized)
+          const hasUnassignedNodes = nonContainerNodes.some(node => !nodesInContainers.has(node.id));
           const allNodesInContainers = nonContainerNodes.every(node => nodesInContainers.has(node.id));
           
-          return allNodesInContainers;
+          return hasUnassignedNodes || allNodesInContainers;
         })();
 
         return shouldShowNewPageButton ? (
@@ -452,6 +449,10 @@ export default function WorkflowEditor({
           onClose={handleCloseSettings}
           onSave={handleSaveSettings}
           workflowId={settingsData.workflowId}
+          nodes={settingsData.nodes}
+          edges={settingsData.edges}
+          pageRelationships={settingsData.pageRelationships}
+          currentNodeId={settingsData.nodeId}
         />
       )}
     </div>

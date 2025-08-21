@@ -9,7 +9,7 @@ export class PromptNodeConfig extends BaseNodeConfig {
     ...this.createBaseProperties(),
     {
       key: "question",
-      label: "Question for students",
+      label: "Prompt for students",
       type: "textarea",
       rows: 3,
       defaultValue: "",

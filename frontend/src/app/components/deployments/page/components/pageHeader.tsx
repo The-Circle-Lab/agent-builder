@@ -15,6 +15,7 @@ interface PageHeaderProps {
   pages: PageInfo[];
   currentPage: number;
   deploymentName: string;
+  pagesAccessible: number;
   onPageChange: (pageNumber: number) => void;
   onBack?: () => void;
 }
@@ -55,7 +56,14 @@ const getDeploymentTypeInfo = (type: string) => {
   }
 };
 
-export default function PageHeader({ pages, currentPage, deploymentName, onPageChange, onBack }: PageHeaderProps) {
+export default function PageHeader({ 
+  pages, 
+  currentPage, 
+  deploymentName, 
+  pagesAccessible,
+  onPageChange, 
+  onBack 
+}: PageHeaderProps) {
   return (
     <div className="bg-white border-b border-gray-200 px-6 py-4">
       {/* Header with Back Button and Title */}
@@ -74,7 +82,17 @@ export default function PageHeader({ pages, currentPage, deploymentName, onPageC
           <div>
             <h1 className="text-2xl font-bold text-gray-900">{deploymentName}</h1>
             <p className="text-sm text-gray-500 mt-1">
-              Multi-page workflow with {pages.length} page{pages.length !== 1 ? 's' : ''}
+              Multi-page workflow with {pages.length} page{pages.length !== 1 ? 's' : ''} 
+              {pagesAccessible !== -1 && pagesAccessible < pages.length && (
+                <span className="text-orange-600 font-medium">
+                  {' '}• {pagesAccessible} of {pages.length} accessible
+                </span>
+              )}
+              {pagesAccessible === -1 && (
+                <span className="text-green-600 font-medium">
+                  {' '}• All pages accessible
+                </span>
+              )}
             </p>
           </div>
         </div>
@@ -86,19 +104,27 @@ export default function PageHeader({ pages, currentPage, deploymentName, onPageC
           const typeInfo = getDeploymentTypeInfo(page.deployment_type);
           const IconComponent = typeInfo.icon;
           const isActive = page.page_number === currentPage;
+          const pageAccessible = page.is_accessible;
 
           return (
             <button
               key={page.page_number}
-              onClick={() => onPageChange(page.page_number)}
+              onClick={() => pageAccessible && onPageChange(page.page_number)}
+              disabled={!pageAccessible}
               className={`
-                flex items-center space-x-2 px-4 py-2 rounded-lg border transition-all duration-200 whitespace-nowrap
-                ${isActive 
-                  ? typeInfo.activeColor
-                  : `${typeInfo.color} hover:bg-opacity-80`
+                flex items-center space-x-2 px-4 py-2 rounded-lg border transition-all duration-200 whitespace-nowrap relative
+                ${!pageAccessible 
+                  ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed opacity-60'
+                  : isActive 
+                    ? typeInfo.activeColor
+                    : `${typeInfo.color} hover:bg-gray-100/50 cursor-pointer`
                 }
               `}
-              title={`Page ${page.page_number} - ${page.deployment_type.toUpperCase()}`}
+              title={
+                !pageAccessible 
+                  ? page.accessibility_reason || `Page ${page.page_number} is not yet accessible.`
+                  : `Page ${page.page_number} - ${page.deployment_type.toUpperCase()}`
+              }
             >
               <IconComponent className="h-4 w-4" />
               <span className="font-medium">
@@ -106,22 +132,38 @@ export default function PageHeader({ pages, currentPage, deploymentName, onPageC
               </span>
               <span className={`
                 text-xs px-2 py-0.5 rounded uppercase font-semibold
-                ${isActive 
-                  ? 'bg-white/20' 
-                  : 'bg-black/10'
+                ${!pageAccessible
+                  ? 'bg-gray-200 text-gray-500'
+                  : isActive 
+                    ? 'bg-white/20' 
+                    : 'bg-black/10'
                 }
               `}>
                 {page.deployment_type}
               </span>
+              
+              {/* Lock icon for inaccessible pages */}
+              {!pageAccessible && (
+                <svg className="h-3 w-3 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+                </svg>
+              )}
             </button>
           );
         })}
       </div>
 
-      {/* Current Page Info */}
+      {/* Current Page Info with Accessibility Status */}
       {pages.length > 0 && (
-        <div className="mt-3 text-xs text-gray-500">
-          Currently viewing: Page {currentPage} of {pages.length}
+        <div className="mt-3 flex items-center justify-between">
+          <div className="text-xs text-gray-500">
+            Currently viewing: Page {currentPage} of {pages.length}
+          </div>
+          {pagesAccessible !== -1 && pagesAccessible < pages.length && (
+            <div className="text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded">
+              Pages {pagesAccessible + 1}-{pages.length} will be unlocked by your instructor
+            </div>
+          )}
         </div>
       )}
     </div>

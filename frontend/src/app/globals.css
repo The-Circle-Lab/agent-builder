@@ -5,7 +5,7 @@
 :root {
   /* Base Colors */
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #000000;
   
   /* Primary Brand Colors */
   --primary: #2563eb;
@@ -19,7 +19,7 @@
   --secondary-light: #f3f4f6;
   
   /* Text Colors */
-  --text-primary: #111827;
+  --text-primary: #000000;
   --text-secondary: #6b7280;
   --text-muted: #9ca3af;
   --text-light: #d1d5db;

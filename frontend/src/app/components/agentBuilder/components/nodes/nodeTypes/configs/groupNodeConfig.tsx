@@ -25,7 +25,20 @@ export class GroupNodeConfig extends BaseNodeConfig {
       defaultValue: 1,
       min: 1,
       max: 10,
-    }
+    },
+    {
+      key: "use_demographics",
+      label: "Use User Demographic Data",
+      type: "checkbox",
+      defaultValue: false,
+    },
+    {
+      key: "selected_submission_prompts",
+      label: "Submission Prompts for Grouping",
+      type: "submissionPromptSelector",
+      defaultValue: [],
+      placeholder: "Select submission prompts to use for grouping",
+    },
   ] as const satisfies readonly PropertyDefinition[];
 }
 

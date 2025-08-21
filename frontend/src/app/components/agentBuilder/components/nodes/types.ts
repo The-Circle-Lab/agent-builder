@@ -9,15 +9,16 @@ export type NodeData = BaseNodeData;
 export interface Variable {
   id: string;
   name: string;
-  type: 'text' | 'group';
+  type: 'text' | 'group' | 'list';
+  items?: string[]; // For list type variables
 }
 
 // Property definition system for generic settings forms
 export interface PropertyDefinition {
   key: string;
   label: string;
-  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions" | "submissionPrompts" | "variablesList";
-  defaultValue: string | number | boolean | string[] | TestCase[] | MultipleChoiceQuestion[] | SubmissionPrompt[] | Variable[];
+  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions" | "submissionPrompts" | "livePresentationPrompts" | "variablesList" | "submissionPromptSelector";
+  defaultValue: string | number | boolean | string[] | TestCase[] | MultipleChoiceQuestion[] | SubmissionPrompt[] | LivePresentationPrompt[] | Variable[] | string[];
   placeholder?: string;
   options?: string[]; // For select type
   min?: number; // For number and range types
@@ -75,4 +76,15 @@ export interface MultipleChoiceQuestion {
 export interface SubmissionPrompt {
   prompt: string;
   mediaType: "textarea" | "hyperlink";
+}
+
+// Live presentation prompt representation for live presentation nodes
+export interface LivePresentationPrompt {
+  id: string;
+  statement: string;
+  hasInput: boolean;
+  inputType?: "textarea" | "text";
+  inputPlaceholder?: string;
+  useRandomListItem?: boolean;
+  listVariableId?: string;
 }

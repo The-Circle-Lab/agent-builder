@@ -6,15 +6,18 @@ import { Class } from '@/lib/types';
 import { ClassAPI } from './classAPI';
 import CreateClassModal from './CreateClassModal';
 import JoinClassModal from './JoinClassModal';
+import UserDropdown from '../UserDropdown';
 import { BookOpenIcon, UserGroupIcon, AcademicCapIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 
 interface ClassesPageProps {
   user: User;
   onSelectClass: (classObj: Class) => void;
   onLogout: () => void;
+  onSettings: () => void;
+  onUserUpdate: (user: User) => void;
 }
 
-export default function ClassesPage({ user, onSelectClass, onLogout }: ClassesPageProps) {
+export default function ClassesPage({ user, onSelectClass, onLogout, onSettings, onUserUpdate }: ClassesPageProps) {
   const [classes, setClasses] = useState<Class[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -71,17 +74,11 @@ export default function ClassesPage({ user, onSelectClass, onLogout }: ClassesPa
               <AcademicCapIcon className="h-8 w-8 text-blue-600" />
               <h1 className="text-xl font-semibold text-gray-900">My Classes</h1>
             </div>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm text-gray-600">
-                {user.email} ({isInstructor ? 'Instructor' : 'Student'})
-              </span>
-              <button
-                onClick={onLogout}
-                className="text-sm text-gray-500 hover:text-gray-700"
-              >
-                Logout
-              </button>
-            </div>
+            <UserDropdown
+              user={user}
+              onSettings={onSettings}
+              onLogout={onLogout}
+            />
           </div>
         </div>
       </header>

@@ -8,6 +8,15 @@ from .chat_models import ChatConversation, ChatMessage
 from .mcq_models import MCQSession, MCQAnswer
 from .prompt_models import PromptSession, PromptSubmission
 from .grading_models import StudentDeploymentGrade
+from .page_models import PageDeploymentState, PageDeploymentVariable, BehaviorExecutionHistory
+from .grouping_models import GroupAssignment, Group, GroupMember
+from .theme_models import ThemeAssignment, Theme, ThemeKeyword, ThemeSnippet, ThemeStudentAssociation
+from .live_presentation_models import (
+    LivePresentationSession, 
+    LivePresentationStudentConnection, 
+    LivePresentationResponse, 
+    LivePresentationPrompt
+)
 
 # Export all models for backward compatibility
 __all__ = [
@@ -33,6 +42,21 @@ __all__ = [
     "MCQAnswer",
     "PromptSession",
     "PromptSubmission",
+    "PageDeploymentState",
+    "PageDeploymentVariable",
+    "BehaviorExecutionHistory",
+    "GroupAssignment",
+    "Group",
+    "GroupMember",
+    "ThemeAssignment",
+    "Theme",
+    "ThemeKeyword", 
+    "ThemeSnippet",
+    "ThemeStudentAssociation",
+    "LivePresentationSession",
+    "LivePresentationStudentConnection", 
+    "LivePresentationResponse",
+    "LivePresentationPrompt",
 ]
 
 

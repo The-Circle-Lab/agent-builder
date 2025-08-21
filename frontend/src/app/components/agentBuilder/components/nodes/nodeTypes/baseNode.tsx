@@ -11,10 +11,14 @@ type PropertyTypeMap = {
   checkbox: boolean;
   select: string;
   range: number;
+  upload: string;
   dynamicTextList: string[];
   testCases: import("../types").TestCase[];
   multipleChoiceQuestions: import("../types").MultipleChoiceQuestion[];
   submissionPrompts: import("../types").SubmissionPrompt[];
+  livePresentationPrompts: import("../types").LivePresentationPrompt[];
+  variablesList: import("../types").Variable[];
+  submissionPromptSelector: string[];
 };
 
 // Handle configuration interface
@@ -124,7 +128,7 @@ export abstract class BaseNode<
       (
         defaultData as unknown as Record<
           string,
-          string | number | boolean | string[] | import("../types").TestCase[] | import("../types").MultipleChoiceQuestion[] | import("../types").SubmissionPrompt[]
+          string | number | boolean | string[] | import("../types").TestCase[] | import("../types").MultipleChoiceQuestion[] | import("../types").SubmissionPrompt[] | import("../types").LivePresentationPrompt[] | import("../types").Variable[]
         >
       )[property.key] = property.defaultValue;
     });

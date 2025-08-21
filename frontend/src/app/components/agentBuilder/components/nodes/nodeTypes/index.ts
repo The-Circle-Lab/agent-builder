@@ -19,6 +19,9 @@ import * as pageNode from "./pageNodes/pageNode"
 import * as behaviourNode from "./pageNodes/behaviourNode"
 import * as globalVariablesNode from "./pageNodes/globalVariablesNode"
 import * as groupNode from "./behaviourNodes/groupNode"
+import * as themeCreatorNode from "./behaviourNodes/themeCreatorNode"
+import * as livePresentationNode from "./deploymentTypeNodes/livePresentationNode"
+import * as livePresentationPromptNode from "./contentNodes/livePresentationPromptNode"
 import { BaseNode, BaseNodeProps, BaseNodeData } from "./baseNode";
 
 // Base classes and interfaces
@@ -64,6 +67,9 @@ const NODE_MODULES = {
   behaviour: behaviourNode,
   globalVariables: globalVariablesNode,
   group: groupNode,
+  themeCreator: themeCreatorNode,
+  livePresentation: livePresentationNode,
+  livePresentationPrompt: livePresentationPromptNode,
 } as const;
 
 // Dynamically generate NodeTypes

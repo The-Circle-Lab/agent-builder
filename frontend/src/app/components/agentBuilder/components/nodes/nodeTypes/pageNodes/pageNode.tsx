@@ -189,7 +189,7 @@ function PageNodeComponent({
           {!hasNodesInPage && (
             <button
               onClick={handleAddNode}
-              className="w-12 h-12 bg-white bg-opacity-80 hover:bg-opacity-100 rounded-full flex items-center justify-center shadow-md transition-all duration-200 border-2 border-dashed"
+              className="w-12 h-12 bg-white/80 hover:bg-white rounded-full flex items-center justify-center shadow-md transition-all duration-200 border-2 border-dashed"
               style={{ 
                 borderColor: backgroundColor,
                 pointerEvents: 'auto', // Re-enable pointer events for plus button

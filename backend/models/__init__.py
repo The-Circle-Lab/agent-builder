@@ -7,6 +7,7 @@ from .database.code_models import Problem, TestCase, UserProblemState, Submissio
 from .database.chat_models import ChatConversation, ChatMessage
 from .database.mcq_models import MCQSession, MCQAnswer
 from .database.grading_models import StudentDeploymentGrade
+from .database.theme_models import ThemeAssignment, Theme, ThemeKeyword, ThemeSnippet, ThemeStudentAssociation
 
 __all__ = [
     "ClassRole",
@@ -29,4 +30,9 @@ __all__ = [
     "MCQSession",
     "MCQAnswer",
     "StudentDeploymentGrade",
+    "ThemeAssignment",
+    "Theme", 
+    "ThemeKeyword",
+    "ThemeSnippet",
+    "ThemeStudentAssociation",
 ] 

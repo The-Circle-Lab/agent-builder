@@ -1,5 +1,6 @@
 import { useState, useCallback } from "react";
 import { NodeData } from "../components/nodes/types";
+import { Node, Edge } from "@xyflow/react";
 
 export interface NodeSettingsData {
   nodeId: string;
@@ -7,9 +8,17 @@ export interface NodeSettingsData {
   data: NodeData;
   onSave: (updatedData: NodeData) => void;
   workflowId?: string | number;
+  nodes?: Node[];
+  edges?: Edge[];
+  pageRelationships?: Record<string, string[]>;
 }
 
-export function useSettingsMenu(workflowId?: string | number) {
+export function useSettingsMenu(
+  workflowId?: string | number,
+  nodes?: Node[],
+  edges?: Edge[],
+  pageRelationships?: Record<string, string[]>
+) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsData, setSettingsData] = useState<NodeSettingsData | null>(
     null
@@ -29,10 +38,13 @@ export function useSettingsMenu(workflowId?: string | number) {
         data,
         onSave,
         workflowId,
+        nodes,
+        edges,
+        pageRelationships,
       });
       setIsSettingsOpen(true);
     },
-    [workflowId]
+    [workflowId, nodes, edges, pageRelationships]
   );
 
   const handleCloseSettings = useCallback(() => {
