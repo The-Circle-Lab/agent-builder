@@ -35,7 +35,7 @@ function getDefaultConfig(): Config {
   return {
     api: {
       base_url:
-        process.env.NEXT_PUBLIC_API_URL || "https://score.encorelab.org/api",
+        process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000",
       timeout: 30000,
       retry_attempts: 3,
     },
