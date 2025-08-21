@@ -59,7 +59,11 @@ class BehaviorDeployment:
             # Pass through database session when available for handlers that need persistence/lookups
             if hasattr(self._behavior_handler, 'execute'):
                 try:
-                    result = self._behavior_handler.execute(input_data, db_session=db_session, prompt_context=prompt_context)
+                    # For group behaviors, pass deployment context for better auto-fetch
+                    if self.behavior_type == BehaviorType.GROUP:
+                        result = self._behavior_handler.execute(input_data, db_session=db_session, prompt_context=prompt_context, deployment_context=self.behavior_id)
+                    else:
+                        result = self._behavior_handler.execute(input_data, db_session=db_session, prompt_context=prompt_context)
                 except TypeError:
                     # Fallback for handlers not expecting all parameters
                     try:

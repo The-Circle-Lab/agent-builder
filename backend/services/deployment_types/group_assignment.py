@@ -28,7 +28,7 @@ class GroupAssignmentBehavior:
         self.label = config.get('label', 'Group Assignment')
         self.selected_submission_prompts = config.get('selected_submission_prompts', [])
     
-    def execute(self, student_data: List[Dict[str, Any]], db_session: Optional[Any] = None, prompt_context: Optional[str] = None) -> Dict[str, Any]:
+    def execute(self, student_data: List[Dict[str, Any]], db_session: Optional[Any] = None, prompt_context: Optional[str] = None, deployment_context: Optional[str] = None) -> Dict[str, Any]:
         """
         Execute group assignment with the provided student data.
         
@@ -38,6 +38,17 @@ class GroupAssignmentBehavior:
         Returns:
             Dictionary with group assignments and metadata
         """
+        print(f"🔍 GROUP ASSIGNMENT EXECUTE: Initial student_data type: {type(student_data)}")
+        print(f"🔍 GROUP ASSIGNMENT EXECUTE: student_data is None: {student_data is None}")
+        
+        # Auto-fetch student data if None but we have selected submission prompts
+        if student_data is None and self.selected_submission_prompts:
+            print(f"🔍 GROUP ASSIGNMENT EXECUTE: Auto-fetching student data from prompt pages")
+            print(f"🔍 GROUP ASSIGNMENT EXECUTE: Selected submission prompts: {self.selected_submission_prompts}")
+            print(f"🔍 GROUP ASSIGNMENT EXECUTE: Deployment context: {deployment_context}")
+            student_data = self._auto_fetch_student_data_from_prompts(db_session, deployment_context)
+            print(f"🔍 GROUP ASSIGNMENT EXECUTE: Auto-fetched {len(student_data) if student_data else 'None'} students")
+        
         # Validate input data
         self._validate_input(student_data)
         
@@ -56,9 +67,20 @@ class GroupAssignmentBehavior:
             names = [name for name, _ in students_with_vectors]
             vectors = [vec for _, vec in students_with_vectors]
 
+            # Debug the vectors and names before grouping
+            print(f"🔍 GROUPING DEBUG: Number of students: {len(names)}")
+            print(f"🔍 GROUPING DEBUG: Student names: {names}")
+            print(f"🔍 GROUPING DEBUG: Number of vectors: {len(vectors)}")
+            print(f"🔍 GROUPING DEBUG: Group size target: {self.group_size}")
+            print(f"🔍 GROUPING DEBUG: Grouping method: {self.grouping_method}")
+            
             # Perform grouping using our computed vectors
             group_indices = _hierarchical_assign(np.asarray(vectors), self.group_size, self.grouping_method)
+            print(f"🔍 GROUPING DEBUG: Raw group indices: {group_indices}")
+            print(f"🔍 GROUPING DEBUG: Number of groups created: {len(group_indices)}")
+            
             groups: Dict[str, List[str]] = {f"Group{i+1}": [names[j] for j in idxs] for i, idxs in enumerate(group_indices)}
+            print(f"🔍 GROUPING DEBUG: Final groups: {groups}")
 
             if self.include_explanations:
                 explanations = _generate_group_explanations(
@@ -134,13 +156,43 @@ class GroupAssignmentBehavior:
         Raises:
             ValueError: If input data is invalid
         """
+        print(f"🔍 GROUP ASSIGNMENT DEBUG: _validate_input called with data type: {type(student_data)}")
+        print(f"🔍 GROUP ASSIGNMENT DEBUG: student_data is None: {student_data is None}")
+        print(f"🔍 GROUP ASSIGNMENT DEBUG: student_data value: {student_data}")
+        
         if student_data is None:
-            raise ValueError(
+            error_message = (
                 "No student data provided. The group assignment behavior needs student input data. "
-                "Please ensure this behavior is connected to a page that collects student submissions "
-                "or to a variable that contains student data in the format: "
-                "[{'name': 'Student Name', 'text': 'Student response'}, ...]"
+                "DEBUGGING INFO: The behavior received None as input"
             )
+            
+            if self.selected_submission_prompts:
+                error_message += (
+                    " and auto-fetch failed. This usually means:\n"
+                    "1. No students have submitted responses to the prompt pages yet\n"
+                    "2. The selected submission prompts don't match any existing submissions\n"
+                    "3. There's an issue accessing the database or prompt submissions\n\n"
+                    "Please check:\n"
+                    "- Verify that students have actually submitted their responses to the prompt page\n"
+                    "- Ensure the prompt page is working correctly\n"
+                    "- Check that the selected submission prompts in the behavior configuration are correct"
+                )
+            else:
+                error_message += (
+                    ". This usually means:\n"
+                    "1. The behavior is not connected to a page that has student submissions\n"
+                    "2. The behavior is connected to a variable that is empty\n"
+                    "3. The connected page doesn't have any completed submissions yet\n"
+                    "4. There's a configuration issue with the behavior's input source\n\n"
+                    "Please check:\n"
+                    "- Ensure this behavior is connected to a page that collects student submissions\n"
+                    "- Or connect it to a variable that contains student data in the format: "
+                    "[{'name': 'Student Name', 'text': 'Student response'}, ...]\n"
+                    "- Verify that students have actually submitted their responses\n"
+                    "- Check the behavior's input configuration in the workflow editor"
+                )
+            
+            raise ValueError(error_message)
         
         if not isinstance(student_data, list):
             raise ValueError(
@@ -344,6 +396,107 @@ class GroupAssignmentBehavior:
             results.append((name, combined_vec))
 
         return results
+
+    def _auto_fetch_student_data_from_prompts(self, db_session: Optional[Any] = None, deployment_context: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
+        """
+        Auto-fetch student data from prompt pages when no input is provided but selected_submission_prompts exist.
+        This method tries to find the prompt page deployment based on the selected submission prompts configuration.
+        """
+        print(f"🔍 AUTO-FETCH: Starting auto-fetch of student data")
+        
+        if not self.selected_submission_prompts:
+            print(f"🔍 AUTO-FETCH: No selected submission prompts, cannot auto-fetch")
+            return None
+        
+        if not db_session:
+            print(f"🔍 AUTO-FETCH: No database session available, cannot auto-fetch")
+            return None
+        
+        try:
+            # Extract node information from selected submission prompts
+            print(f"🔍 AUTO-FETCH: Analyzing {len(self.selected_submission_prompts)} selected submission prompts")
+            
+            # Import the helper function to get submissions
+            from api.deployments.deployment_prompt_routes import get_all_prompt_submissions_for_deployment
+            from models.database.db_models import Deployment
+            from sqlmodel import select
+            
+            # Strategy 1: Look for deployments with prompt submissions
+            # Prioritize the current deployment context if available
+            
+            deployments_to_check = []
+            
+            # If we have deployment context, prioritize the corresponding page deployment
+            if deployment_context:
+                # Extract base deployment ID and look for page_1 deployment
+                # deployment_context format: "d43c7ffe-bebd-497c-8685-b8b50b86f7c2_behavior_1"
+                base_deployment_id = deployment_context.replace('_behavior_1', '')
+                target_page_deployment = f"{base_deployment_id}_page_1"
+                print(f"🔍 AUTO-FETCH: Deployment context: {deployment_context}")
+                print(f"🔍 AUTO-FETCH: Prioritizing target deployment: {target_page_deployment}")
+                
+                # Get the target deployment first
+                target_deployment = db_session.exec(
+                    select(Deployment).where(
+                        Deployment.is_active == True,
+                        Deployment.deployment_id == target_page_deployment
+                    )
+                ).first()
+                
+                if target_deployment:
+                    deployments_to_check.append(target_deployment)
+                    print(f"🔍 AUTO-FETCH: ✅ Found and prioritized target deployment: {target_page_deployment}")
+                else:
+                    print(f"🔍 AUTO-FETCH: ❌ Target deployment not found: {target_page_deployment}")
+            
+            # Get all other page deployments as fallback
+            all_page_deployments = db_session.exec(
+                select(Deployment).where(
+                    Deployment.is_active == True,
+                    Deployment.deployment_id.like('%_page_%')
+                )
+            ).all()
+            
+            # Add other deployments that aren't already in our priority list
+            for deployment in all_page_deployments:
+                if deployment not in deployments_to_check:
+                    deployments_to_check.append(deployment)
+            
+            print(f"🔍 AUTO-FETCH: Found {len(deployments_to_check)} page deployments to check")
+            
+            # Try each deployment to find one with student submissions
+            for deployment in deployments_to_check:
+                try:
+                    print(f"🔍 AUTO-FETCH: Checking deployment: {deployment.deployment_id}")
+                    result = get_all_prompt_submissions_for_deployment(deployment.deployment_id, db_session)
+                    
+                    if isinstance(result, dict):
+                        students = result.get("students", [])
+                        if students and len(students) > 0:
+                            print(f"🔍 AUTO-FETCH: Found {len(students)} students in deployment {deployment.deployment_id}")
+                            
+                            # Validate the student data format
+                            valid_students = []
+                            for student in students:
+                                if isinstance(student, dict) and 'name' in student:
+                                    valid_students.append(student)
+                            
+                            if valid_students:
+                                print(f"🔍 AUTO-FETCH: Successfully auto-fetched {len(valid_students)} valid students")
+                                return valid_students
+                    
+                except Exception as e:
+                    print(f"🔍 AUTO-FETCH: Error checking deployment {deployment.deployment_id}: {e}")
+                    continue
+            
+            print(f"🔍 AUTO-FETCH: No student submissions found in any page deployment")
+            return None
+            
+        except Exception as e:
+            print(f"🔍 AUTO-FETCH: Error during auto-fetch: {e}")
+            import traceback
+            print(f"🔍 AUTO-FETCH: Traceback: {traceback.format_exc()}")
+            return None
     
     def get_config(self) -> Dict[str, Any]:
         """Get the current configuration of the group assignment behavior."""
@@ -393,13 +546,29 @@ def _cut_to_buckets(link, group_size, strategy: str = "homogeneous"):
     
     # Get the number of students
     n = link.shape[0] + 1
+    print(f"🔍 CUT_TO_BUCKETS DEBUG: Number of students (n): {n}")
     
-    # Calculate optimal number of groups
-    num_groups = (n + group_size - 1) // group_size
+    # Calculate optimal number of groups with improved logic for small student counts
+    if n < group_size:
+        # If we have fewer students than the target group size, create smaller groups
+        # For example: 2 students with target size 4 -> create 2 groups of size 1
+        # Or 3 students with target size 4 -> create 2 groups (sizes 2 and 1)
+        num_groups = min(n, max(2, n // 2)) if n > 1 else 1  # At least 2 groups if possible, but not more than n
+        print(f"🔍 CUT_TO_BUCKETS DEBUG: Small student count - creating {num_groups} smaller groups")
+    else:
+        # Normal case: enough students for target group size
+        num_groups = (n + group_size - 1) // group_size
+        print(f"🔍 CUT_TO_BUCKETS DEBUG: Normal case - calculated {num_groups} groups")
+    
+    print(f"🔍 CUT_TO_BUCKETS DEBUG: Target group size: {group_size}")
+    print(f"🔍 CUT_TO_BUCKETS DEBUG: Final num_groups: {num_groups}")
     
     # Get cluster assignments - start with more clusters than needed
     initial_clusters = min(n, num_groups * 2)
+    print(f"🔍 CUT_TO_BUCKETS DEBUG: Initial clusters: {initial_clusters}")
+    
     clusters = fcluster(link, initial_clusters, criterion='maxclust')
+    print(f"🔍 CUT_TO_BUCKETS DEBUG: Cluster assignments: {clusters}")
     
     # Group students by cluster
     cluster_groups = {}
@@ -408,23 +577,41 @@ def _cut_to_buckets(link, group_size, strategy: str = "homogeneous"):
             cluster_groups[cluster_id] = []
         cluster_groups[cluster_id].append(i)
     
+    print(f"🔍 CUT_TO_BUCKETS DEBUG: Cluster groups: {cluster_groups}")
+    
     # Convert to list and sort by size
     groups = sorted(cluster_groups.values(), key=len, reverse=True)
+    print(f"🔍 CUT_TO_BUCKETS DEBUG: Sorted groups: {groups}")
     
     # Redistribute students to balance group sizes
     final_groups = [[] for _ in range(num_groups)]
     all_students = [student for group in groups for student in group]
+    print(f"🔍 CUT_TO_BUCKETS DEBUG: All students flattened: {all_students}")
     
     # Distribute students round-robin to balance groups
     for i, student in enumerate(all_students):
         final_groups[i % num_groups].append(student)
     
+    print(f"🔍 CUT_TO_BUCKETS DEBUG: Final groups before cleanup: {final_groups}")
+    
     # Remove empty groups
-    return [group for group in final_groups if group]
+    result = [group for group in final_groups if group]
+    print(f"🔍 CUT_TO_BUCKETS DEBUG: Final result: {result}")
+    
+    return result
 
 def _hierarchical_assign(vectors, group_size, mode):
+    print(f"🔍 HIERARCHICAL DEBUG: Input vectors shape: {np.asarray(vectors).shape}")
+    print(f"🔍 HIERARCHICAL DEBUG: Group size: {group_size}, Mode: {mode}")
+    
     link = compute_linkage(np.asarray(vectors), method="average", metric="cosine")
-    return _cut_to_buckets(link, group_size, mode)
+    print(f"🔍 HIERARCHICAL DEBUG: Linkage matrix shape: {link.shape}")
+    
+    result = _cut_to_buckets(link, group_size, mode)
+    print(f"🔍 HIERARCHICAL DEBUG: _cut_to_buckets returned: {result}")
+    print(f"🔍 HIERARCHICAL DEBUG: Number of groups from _cut_to_buckets: {len(result)}")
+    
+    return result
 
 def _generate_group_explanations(groups: dict, student_data: list, strategy: str, use_llm: bool = True, db_session: Optional[Any] = None, prompt_context: Optional[str] = None, selected_prompts: Optional[List[Dict[str, Any]]] = None) -> dict:
     """Generate explanations for why students were grouped together using LLM or simple rules."""

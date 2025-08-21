@@ -280,21 +280,37 @@ class Behavior:
         Resolve the input source for this behavior.
         Returns the actual data that should be used as input.
         """
+        print(f"🔍 BEHAVIOR DEBUG: resolve_input_source called for behavior {self.behavior_number}")
+        print(f"🔍 BEHAVIOR DEBUG: has_input={self.has_input()}, page_deployment={self._page_deployment is not None}")
+        print(f"🔍 BEHAVIOR DEBUG: input_type={self.input_type}, input_id={self.input_id}")
+        
         if not self.has_input() or not self._page_deployment:
+            print(f"🔍 BEHAVIOR DEBUG: Returning None due to no input or no page deployment")
             return None
         
         if self.is_input_from_page():
+            print(f"🔍 BEHAVIOR DEBUG: Input from page: {self.input_id}")
             # Get output data from a page
             source_page = self._page_deployment.get_page_by_number(self.input_id)
+            print(f"🔍 BEHAVIOR DEBUG: Source page found: {source_page is not None}")
             if source_page:
-                return source_page.get_output_data()
+                output_data = source_page.get_output_data()
+                print(f"🔍 BEHAVIOR DEBUG: Page output data type: {type(output_data)}")
+                print(f"🔍 BEHAVIOR DEBUG: Page output data: {output_data}")
+                return output_data
             return None
         
         elif self.is_input_from_variable():
+            print(f"🔍 BEHAVIOR DEBUG: Input from variable: {self.input_id}")
             # Get data from a variable
             variable = self._page_deployment.get_variable_by_name(self.input_id)
+            print(f"🔍 BEHAVIOR DEBUG: Variable found: {variable is not None}")
+            if variable:
+                print(f"🔍 BEHAVIOR DEBUG: Variable value type: {type(variable.variable_value)}")
+                print(f"🔍 BEHAVIOR DEBUG: Variable value: {variable.variable_value}")
             return variable.variable_value if variable else None
         
+        print(f"🔍 BEHAVIOR DEBUG: Unknown input type, returning None")
         return None
     
     def execute_with_resolved_input(self) -> Dict[str, Any]:
@@ -1143,16 +1159,28 @@ class PageDeployment:
         Get the output data for a specific page.
         This method retrieves actual data based on the page's node types and configuration.
         """
+        print(f"🔍 PAGE OUTPUT DEBUG: get_page_output_data called for page {page_number}")
+        
         page = self.get_page_by_number(page_number)
+        print(f"🔍 PAGE OUTPUT DEBUG: Page found: {page is not None}")
+        if page:
+            print(f"🔍 PAGE OUTPUT DEBUG: Page has_output: {page.has_output()}")
+            print(f"🔍 PAGE OUTPUT DEBUG: Page output_node: {page.output_node}")
+        
         if not page or not page.has_output() or not page.output_node:
+            print(f"🔍 PAGE OUTPUT DEBUG: Returning None - page conditions not met")
             return None
         
         # Get the primary node type to determine how to retrieve data
         primary_node_type = page.get_primary_node_type()
+        print(f"🔍 PAGE OUTPUT DEBUG: Primary node type: {primary_node_type}")
         
         if primary_node_type == "prompt":
+            print(f"🔍 PAGE OUTPUT DEBUG: Getting prompt page submissions")
             # For prompt pages, get all user submissions
-            return self._get_prompt_page_submissions(page)
+            submissions = self._get_prompt_page_submissions(page)
+            print(f"🔍 PAGE OUTPUT DEBUG: Retrieved {len(submissions) if submissions else 'None'} submissions")
+            return submissions
         
         # Add other node types as needed
         # elif primary_node_type == "mcq":
@@ -1171,21 +1199,29 @@ class PageDeployment:
         Returns:
             List of dictionaries with 'name' and 'text' keys for behavior input
         """
+        print(f"🔍 SUBMISSION DEBUG: _get_prompt_page_submissions called for page {page.page_number}")
+        
         try:
             # Import the helper function
             from api.deployments.deployment_prompt_routes import get_all_prompt_submissions_for_deployment
             
             # Get the page's deployment ID from its agent deployment
             page_deployment_id = page.get_agent_deployment().deployment_id
+            print(f"🔍 SUBMISSION DEBUG: Page deployment ID: {page_deployment_id}")
             
             # Use the injected database session if available, otherwise create a new one
             if hasattr(self, '_db_session') and self._db_session:
+                print(f"🔍 SUBMISSION DEBUG: Using injected database session")
                 result = get_all_prompt_submissions_for_deployment(page_deployment_id, self._db_session)
             else:
+                print(f"🔍 SUBMISSION DEBUG: Creating new database session")
                 # Fallback to creating a new session
                 from database.database import get_session
                 with get_session() as db_session:
                     result = get_all_prompt_submissions_for_deployment(page_deployment_id, db_session)
+            
+            print(f"🔍 SUBMISSION DEBUG: Raw result type: {type(result)}")
+            print(f"🔍 SUBMISSION DEBUG: Raw result: {result}")
             
             # Extract student data and store prompt context for behavior use
             if isinstance(result, dict):
