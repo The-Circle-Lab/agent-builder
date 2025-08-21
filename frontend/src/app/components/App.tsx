@@ -5,12 +5,13 @@ import { AuthAPI, User } from "../../lib/authAPI";
 import LoginPage from "./LoginPage";
 import ClassesPage from "./classes/ClassesPage";
 import ClassDetailPage from "./classes/ClassDetailPage";
+import WorkflowEditorPage from "./WorkflowEditorPage";
+import SettingsPage from "./SettingsPage";
 import ChatInterface from "./deployments/chat/chatInterface";
 import CodeInterface from "./deployments/code/codeInterface";
 import { MCQInterface } from "./deployments/mcq";
 import { PromptInterface } from "./deployments/prompt";
 import { PageInterface } from "./deployments/page";
-import WorkflowEditorPage from "./WorkflowEditorPage";
 import { APP_STATES, type AppState } from "@/lib/constants";
 import { Class } from "@/lib/types";
 
@@ -111,13 +112,19 @@ export default function App() {
     setAppState(APP_STATES.MCQ);
   };
 
-  const handlePromptWithDeployment = (deploymentId: string, deploymentName: string) => {
+  const handlePromptWithDeployment = (
+    deploymentId: string,
+    deploymentName: string
+  ) => {
     setCurrentDeploymentId(deploymentId);
     setCurrentDeploymentName(deploymentName);
     setAppState(APP_STATES.PROMPT);
   };
 
-  const handlePageWithDeployment = (deploymentId: string, deploymentName: string) => {
+  const handlePageWithDeployment = (
+    deploymentId: string,
+    deploymentName: string
+  ) => {
     setCurrentDeploymentId(deploymentId);
     setCurrentDeploymentName(deploymentName);
     setAppState(APP_STATES.PAGE);
@@ -146,6 +153,25 @@ export default function App() {
   const handleBackFromPage = () => {
     setCurrentDeploymentId(null);
     setAppState(APP_STATES.CLASS_DETAIL);
+  };
+
+  const handleSettings = () => {
+    setAppState(APP_STATES.SETTINGS);
+  };
+
+  const handleBackFromSettings = async () => {
+    // Refresh user data to ensure updated profile is reflected
+    try {
+      const user = await AuthAPI.getCurrentUser();
+      setCurrentUser(user);
+    } catch (err) {
+      console.error('Failed to refresh user data:', err);
+    }
+    setAppState(APP_STATES.CLASSES);
+  };
+
+  const handleUserUpdate = (updatedUser: User) => {
+    setCurrentUser(updatedUser);
   };
 
   // Loading state
@@ -189,6 +215,8 @@ export default function App() {
         user={currentUser}
         onSelectClass={handleSelectClass}
         onLogout={handleLogout}
+        onSettings={handleSettings}
+        onUserUpdate={handleUserUpdate}
       />
     );
   }
@@ -198,6 +226,7 @@ export default function App() {
     return (
       <ClassDetailPage
         classObj={currentClass}
+        user={currentUser}
         onBack={handleBackToClasses}
         onEditWorkflow={handleEditWorkflow}
         onChatWithDeployment={handleChatWithDeployment}
@@ -205,6 +234,8 @@ export default function App() {
         onMCQWithDeployment={handleMCQWithDeployment}
         onPromptWithDeployment={handlePromptWithDeployment}
         onPageWithDeployment={handlePageWithDeployment}
+        onSettings={handleSettings}
+        onLogout={handleLogout}
       />
     );
   }
@@ -274,12 +305,25 @@ export default function App() {
     );
   }
 
+  // Settings page
+  if (appState === APP_STATES.SETTINGS) {
+    return (
+      <SettingsPage
+        user={currentUser}
+        onBack={handleBackFromSettings}
+        onUserUpdate={handleUserUpdate}
+      />
+    );
+  }
+
   // Default to classes page
   return (
     <ClassesPage
       user={currentUser}
       onSelectClass={handleSelectClass}
       onLogout={handleLogout}
+      onSettings={handleSettings}
+      onUserUpdate={handleUserUpdate}
     />
   );
 }

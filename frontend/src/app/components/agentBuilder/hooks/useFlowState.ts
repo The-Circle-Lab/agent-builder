@@ -34,15 +34,15 @@ export function useFlowState(
     initialPageRelationships || {}
   );
   
-  // Track previous page positions to detect movement
+  // Track previous container positions to detect movement
   const previousPagePositions = useRef<Record<string, { x: number; y: number }>>({});
 
-    // Helper function to find which page a node belongs to
+    // Helper function to find which page/behaviour container a node belongs to
   const findNodePage = useCallback(
     (nodeId: string): Node | null => {
       for (const [pageId, childIds] of Object.entries(pageRelationships)) {
         if (childIds.includes(nodeId)) {
-          return nodes.find((n) => n.id === pageId && n.type === "page") || null;
+          return nodes.find((n) => n.id === pageId && (n.type === "page" || n.type === "behaviour")) || null;
         }
       }
       return null;
@@ -82,10 +82,10 @@ export function useFlowState(
           change.type === "position" && change.position !== undefined
       );
 
-      // Handle page movements (both during drag and after drag)
+      // Handle page and behaviour movements (both during drag and after drag)
       positionChanges.forEach((change) => {
         const node = nodes.find((n) => n.id === change.id);
-        if (node?.type === "page" && change.position) {
+        if ((node?.type === "page" || node?.type === "behaviour") && change.position) {
           const prevPosition = previousPagePositions.current[change.id];
           
           // Initialize previous position if it doesn't exist
@@ -192,9 +192,9 @@ export function useFlowState(
 
   const handleDeleteNode = useCallback(
     (nodeId: string) => {
-      // If deleting a page, also delete all nodes in that page
+      // If deleting a page or behaviour, also delete all nodes in that container
       const nodeToDelete = nodes.find((node) => node.id === nodeId);
-      if (nodeToDelete?.type === "page") {
+      if (nodeToDelete?.type === "page" || nodeToDelete?.type === "behaviour") {
         const nodesInPage = pageRelationships[nodeId] || [];
         // Delete all nodes in the page
         setNodes((nds: Node[]) =>

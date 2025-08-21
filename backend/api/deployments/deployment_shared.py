@@ -121,13 +121,61 @@ async def get_deployment_and_check_access(
     return db_deployment
 
 async def ensure_deployment_loaded(deployment_id: str, user_id: int, db: DBSession) -> Dict[str, Any]:
-    if not await load_deployment_on_demand(deployment_id, user_id, db):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Deployment not found or failed to initialize",
-        )
+    """
+    Ensure that a deployment is loaded in memory and return it.
     
-    return get_active_deployment(deployment_id)
+    Args:
+        deployment_id: ID of the deployment to load
+        user_id: ID of the user requesting the deployment
+        db: Database session
+        
+    Returns:
+        Dictionary containing the deployment info
+        
+    Raises:
+        HTTPException: If deployment is not found or cannot be loaded
+    """
+    from services.pages_manager import load_page_deployment_on_demand, get_active_page_deployment
+    
+    # First check if deployment is already loaded
+    deployment_info = get_active_deployment(deployment_id)
+    if deployment_info:
+        # Check if this is a page-based deployment that needs database session
+        if deployment_info.get("is_page_based") and "page_deployment" in deployment_info:
+            page_deployment = deployment_info["page_deployment"]
+            if hasattr(page_deployment, 'set_db_session'):
+                page_deployment.set_db_session(db)
+        return deployment_info
+    
+    # Check if this is a page-based deployment
+    parent_deployment_id = deployment_id
+    if "_page_" in deployment_id:
+        parent_deployment_id = deployment_id.split("_page_")[0]
+        
+        # Try to load the page deployment
+        if await load_page_deployment_on_demand(parent_deployment_id, user_id, db):
+            # Set database session on the page deployment for data access
+            page_deployment_info = get_active_page_deployment(parent_deployment_id)
+            if page_deployment_info and "page_deployment" in page_deployment_info:
+                page_deployment = page_deployment_info["page_deployment"]
+                page_deployment.set_db_session(db)
+            
+            # Now check if the specific deployment is available
+            deployment_info = get_active_deployment(deployment_id)
+            if deployment_info:
+                return deployment_info
+    
+    # If page loading failed, try regular deployment loading
+    if await load_deployment_on_demand(deployment_id, user_id, db):
+        deployment_info = get_active_deployment(deployment_id)
+        if deployment_info:
+            return deployment_info
+    
+    # If we get here, deployment couldn't be loaded
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Deployment not found or access denied"
+    )
 
 def validate_deployment_type(deployment: Deployment, expected_type: DeploymentType):
     if deployment.type != expected_type:

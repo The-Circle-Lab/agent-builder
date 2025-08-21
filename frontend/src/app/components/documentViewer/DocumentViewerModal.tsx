@@ -43,7 +43,7 @@ const DocumentViewerModal: React.FC<DocumentViewerModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
       onClick={handleBackdropClick}
     >
       <div className="bg-white rounded-lg shadow-xl max-w-5xl max-h-[90vh] w-full flex flex-col">

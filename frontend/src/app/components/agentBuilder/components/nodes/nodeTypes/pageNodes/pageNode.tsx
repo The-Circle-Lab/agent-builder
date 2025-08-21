@@ -1,5 +1,5 @@
 import React, { useCallback } from "react";
-import { NodeProps, NodeResizer } from "@xyflow/react";
+import { NodeProps, NodeResizer, Handle, Position } from "@xyflow/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrash, faGears } from "@fortawesome/free-solid-svg-icons";
 import { BaseNode, BaseNodeProps, BaseNodeData } from "../baseNode";
@@ -189,7 +189,7 @@ function PageNodeComponent({
           {!hasNodesInPage && (
             <button
               onClick={handleAddNode}
-              className="w-12 h-12 bg-white bg-opacity-80 hover:bg-opacity-100 rounded-full flex items-center justify-center shadow-md transition-all duration-200 border-2 border-dashed"
+              className="w-12 h-12 bg-white/80 hover:bg-white rounded-full flex items-center justify-center shadow-md transition-all duration-200 border-2 border-dashed"
               style={{ 
                 borderColor: backgroundColor,
                 pointerEvents: 'auto', // Re-enable pointer events for plus button
@@ -213,6 +213,44 @@ function PageNodeComponent({
             </button>
           )}
         </div>
+
+        {/* Input Handle - Left side, vertically centered */}
+        <Handle
+          type="target"
+          position={Position.Left}
+          id="input"
+          className="page-input-handle"
+          style={{ 
+            top: "50%", 
+            left: "-1.25%", 
+            transform: "translateY(-50%)",
+            backgroundColor: backgroundColor,
+            border: `2px solid ${backgroundColor}`,
+            width: "12px",
+            height: "12px",
+            pointerEvents: 'auto',
+            zIndex: 10
+          }}
+        />
+
+        {/* Output Handle - Right side, vertically centered */}
+        <Handle
+          type="source"
+          position={Position.Right}
+          id="output"
+          className="page-output-handle"
+          style={{ 
+            top: "50%", 
+            right: "-1.25%", 
+            transform: "translateY(-50%)",
+            backgroundColor: backgroundColor,
+            border: `2px solid ${backgroundColor}`,
+            width: "12px",
+            height: "12px",
+            pointerEvents: 'auto',
+            zIndex: 10
+          }}
+        />
       </div>
     </div>
   );
@@ -223,6 +261,26 @@ export class PageNodeClass extends BaseNode<BaseNodeProps, PageNodeData> {
   static nodeType = "base" as const;
   static canAddNode = true;
   static defaultHandlerID = "Starter";
+
+  // Handle configurations for this node type
+  static handleConfigs = {
+    "input": {
+      maxConnections: -1,
+      compatibleWith: ["output", "chat-output", "variable-output"],
+    },
+    "output": {
+      maxConnections: -1,
+      compatibleWith: ["input", "agent-input", "result-input", "output-page", "variable-input"],
+    },
+    "page-input": {
+      maxConnections: -1,
+      compatibleWith: ["output", "chat-output", "variable-output"],
+    },
+    "page-output": {
+      maxConnections: -1,
+      compatibleWith: ["input", "agent-input", "result-input", "output-page", "variable-input"],
+    },
+  };
 
   static getSideMenuInfo() {
     return {

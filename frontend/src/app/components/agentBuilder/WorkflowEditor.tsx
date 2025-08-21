@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useCallback, useState } from "react";
-import { ReactFlow, Edge, Background, Node } from "@xyflow/react";
+import { ReactFlow, Edge, Background, Node, ConnectionMode } from "@xyflow/react";
 import { useFlowState } from "./hooks/useFlowState";
 import {
   createAllNodeTypes,
@@ -94,7 +94,7 @@ export default function WorkflowEditor({
     handleOpenSettings,
     handleCloseSettings,
     handleSaveSettings,
-  } = useSettingsMenu(workflowId);
+  } = useSettingsMenu(workflowId, nodes, edges, pageRelationships);
 
   // Handle node data updates
   const handleNodeDataUpdate = useCallback(
@@ -121,19 +121,22 @@ export default function WorkflowEditor({
     [handleOpenSideMenu]
   );
 
-  // Dynamic node types - automatically discovers all available node types
-  const nodeTypes = createAllNodeTypes({
-    onAddNodeClick: handlePageAddNodeClick,
-    edges,
-    onDelete: handleDeleteNode,
-    onSettings: (nodeId, nodeType, data) =>
-      handleOpenSettings(nodeId, nodeType, data, (updatedData) =>
-        handleNodeDataUpdate(nodeId, updatedData)
-      ),
-    workflowId,
-    pageRelationships,
-    nodes: nodes.map((node) => ({ id: node.id, type: node.type || "unknown" })),
-  });
+  // Dynamic node types - recreated when dependencies change to keep allNodes current
+  const nodeTypes = React.useMemo(() => {
+    return createAllNodeTypes({
+      onAddNodeClick: handlePageAddNodeClick,
+      edges,
+      onDelete: handleDeleteNode,
+      onSettings: (nodeId, nodeType, data) =>
+        handleOpenSettings(nodeId, nodeType, data, (updatedData) =>
+          handleNodeDataUpdate(nodeId, updatedData)
+        ),
+      onDataUpdate: handleNodeDataUpdate,
+      workflowId,
+      pageRelationships,
+      nodes: nodes.map(node => ({ id: node.id, type: node.type || 'unknown' })),
+    });
+  }, [handlePageAddNodeClick, edges, handleDeleteNode, handleOpenSettings, handleNodeDataUpdate, workflowId, pageRelationships, nodes]);
 
   // Notify parent component of workflow changes
   useEffect(() => {
@@ -270,6 +273,8 @@ export default function WorkflowEditor({
         snapToGrid={true}
         snapGrid={[15, 15]}
         style={{ backgroundColor: "#374151" }}
+        connectOnClick={false}
+        connectionMode={ConnectionMode.Loose}
       >
         <Background gap={12} size={1} color="#6B7280" />
       </ReactFlow>
@@ -300,80 +305,133 @@ export default function WorkflowEditor({
         </div>
       )}
 
-      {/* Create Page Button - Bottom Left (only show if no nodes or all nodes are in pages) */}
+      {/* Create Page and Behaviour Buttons - Bottom Left */}
       {(() => {
-        // Check if we should show the New Page button
+        // Check if we should show the New Page/Behaviour buttons
         const shouldShowNewPageButton = (() => {
           // If no nodes at all, show button
           if (nodes.length === 0) return true;
-
-          // Get all non-page nodes
-          const nonPageNodes = nodes.filter((node) => node.type !== "page");
-
-          // If no non-page nodes (only pages exist), show button
-          if (nonPageNodes.length === 0) return true;
-
-          // Get all nodes that are assigned to pages
-          const nodesInPages = new Set();
-          Object.values(pageRelationships).forEach((nodeIds) => {
-            nodeIds.forEach((nodeId) => nodesInPages.add(nodeId));
+          
+          // Get all non-page and non-behaviour nodes
+          const nonContainerNodes = nodes.filter(node => node.type !== 'page' && node.type !== 'behaviour' && node.type !== 'globalVariables');
+          
+          // If no non-container nodes (only pages/behaviours/globalVariables exist), show button
+          if (nonContainerNodes.length === 0) return true;
+          
+          // Get all nodes that are assigned to pages or behaviours
+          const nodesInContainers = new Set();
+          Object.values(pageRelationships).forEach(nodeIds => {
+            nodeIds.forEach(nodeId => nodesInContainers.add(nodeId));
           });
-
-          // Check if all non-page nodes are contained in pages
-          const allNodesInPages = nonPageNodes.every((node) =>
-            nodesInPages.has(node.id)
-          );
-
-          return allNodesInPages;
+          
+          // Show buttons if there are unassigned nodes (need containers) OR if all nodes are properly contained (workspace is organized)
+          const hasUnassignedNodes = nonContainerNodes.some(node => !nodesInContainers.has(node.id));
+          const allNodesInContainers = nonContainerNodes.every(node => nodesInContainers.has(node.id));
+          
+          return hasUnassignedNodes || allNodesInContainers;
         })();
 
         return shouldShowNewPageButton ? (
           <div className="absolute bottom-6 left-6 z-10">
-            <button
-              onClick={() => {
-                // Find the highest page number among existing pages
-                const existingPageNumbers = nodes
-                  .filter((n) => n.type === "page")
-                  .map((n) => n.data?.pageNumber || 1)
-                  .filter((num) => typeof num === "number");
+            <div className="flex flex-col space-y-3">
+              {/* New Variable List Button */}
+              <button
+                onClick={() => {
+                  const newGlobalVariables: Node = {
+                    id: `globalvariables-${Date.now()}`,
+                    position: { x: 100, y: 100 },
+                    data: { 
+                      label: 'Global Variables',
+                      backgroundColor: '#10B981',
+                      opacity: 0.15,
+                      width: 250,
+                      variables: []
+                    },
+                    type: "globalVariables",
+                  };
+                  setNodes((nds: Node[]) => [...nds, newGlobalVariables]);
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium shadow-lg transition duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-2"
+                title="Create new variable list"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                <span>New Variable List</span>
+              </button>
 
-                const nextPageNumber =
-                  existingPageNumbers.length > 0
-                    ? Math.max(...existingPageNumbers) + 1
+              {/* New Behaviour Button */}
+              <button
+                onClick={() => {
+                  // Find the highest behaviour number among existing behaviours
+                  const existingBehaviourNumbers = nodes
+                    .filter(n => n.type === 'behaviour')
+                    .map(n => n.data?.pageNumber || 1)
+                    .filter(num => typeof num === 'number');
+                  
+                  const nextBehaviourNumber = existingBehaviourNumbers.length > 0 
+                    ? Math.max(...existingBehaviourNumbers) + 1 
                     : 1;
 
-                const newPage: Node = {
-                  id: `page-${Date.now()}`,
-                  position: { x: 200, y: 200 },
-                  data: {
-                    pageNumber: nextPageNumber,
-                    backgroundColor: "#3B82F6",
-                    opacity: 0.15,
-                    width: 300,
-                    height: 200,
-                  },
-                  type: "page",
-                };
-                setNodes((nds: Node[]) => [...nds, newPage]);
-              }}
-              className="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium shadow-lg transition duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-2"
-              title="Create new page"
-            >
-              <svg
-                className="w-5 h-5"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+                  const newBehaviour: Node = {
+                    id: `behaviour-${Date.now()}`,
+                    position: { x: 300, y: 300 },
+                    data: { 
+                      pageNumber: nextBehaviourNumber,
+                      backgroundColor: '#8B5CF6',
+                      opacity: 0.15,
+                      width: 300,
+                      height: 200
+                    },
+                    type: "behaviour",
+                  };
+                  setNodes((nds: Node[]) => [...nds, newBehaviour]);
+                }}
+                className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-lg font-medium shadow-lg transition duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-2"
+                title="Create new behaviour"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M12 6v6m0 0v6m0-6h6m-6 0H6"
-                />
-              </svg>
-              <span>New Page</span>
-            </button>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                <span>New Behaviour</span>
+              </button>
+
+              {/* New Page Button */}
+              <button
+                onClick={() => {
+                  // Find the highest page number among existing pages
+                  const existingPageNumbers = nodes
+                    .filter(n => n.type === 'page')
+                    .map(n => n.data?.pageNumber || 1)
+                    .filter(num => typeof num === 'number');
+                  
+                  const nextPageNumber = existingPageNumbers.length > 0 
+                    ? Math.max(...existingPageNumbers) + 1 
+                    : 1;
+
+                  const newPage: Node = {
+                    id: `page-${Date.now()}`,
+                    position: { x: 200, y: 200 },
+                    data: { 
+                      pageNumber: nextPageNumber,
+                      backgroundColor: '#3B82F6',
+                      opacity: 0.15,
+                      width: 300,
+                      height: 200
+                    },
+                    type: "page",
+                  };
+                  setNodes((nds: Node[]) => [...nds, newPage]);
+                }}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium shadow-lg transition duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-2"
+                title="Create new page"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                <span>New Page</span>
+              </button>
+            </div>
           </div>
         ) : null;
       })()}
@@ -452,6 +510,10 @@ export default function WorkflowEditor({
           onClose={handleCloseSettings}
           onSave={handleSaveSettings}
           workflowId={settingsData.workflowId}
+          nodes={settingsData.nodes}
+          edges={settingsData.edges}
+          pageRelationships={settingsData.pageRelationships}
+          currentNodeId={settingsData.nodeId}
         />
       )}
     </div>

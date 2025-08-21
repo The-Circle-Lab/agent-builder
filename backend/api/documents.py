@@ -114,7 +114,7 @@ async def upload_documents(
             
             # Check file size
             file_content = await file.read()
-            max_file_size_mb = config.get("document_processing", {}).get("max_file_size_mb", 10)
+            max_file_size_mb = config.get("document_processing", {}).get("max_file_size_mb", 20)
             max_file_size = max_file_size_mb * 1024 * 1024
             if len(file_content) > max_file_size:
                 raise HTTPException(

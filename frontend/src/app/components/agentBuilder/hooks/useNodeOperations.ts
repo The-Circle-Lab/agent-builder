@@ -110,18 +110,18 @@ export function useNodeOperations(
       // Calculate position based on source node and handle
       let position = { x: Math.random() * 400, y: Math.random() * 400 }; // fallback
 
-      // If adding to a page, calculate position within the page
+      // If adding to a page or behaviour, calculate position within the container
       if (targetPageId) {
-        const pageNode = nodes.find((node) => node.id === targetPageId && node.type === "page");
-        if (pageNode) {
-          // Position node within the page bounds - use actual node dimensions if available
-          const pageWidth = pageNode.width || pageNode.data?.width || 300;
-          const pageHeight = pageNode.height || pageNode.data?.height || 200;
-          const margin = 50; // Keep nodes away from page edges
+        const containerNode = nodes.find((node) => node.id === targetPageId && (node.type === "page" || node.type === "behaviour"));
+        if (containerNode) {
+          // Position node within the container bounds - use actual node dimensions if available
+          const containerWidth = containerNode.width || containerNode.data?.width || 300;
+          const containerHeight = containerNode.height || containerNode.data?.height || 200;
+          const margin = 50; // Keep nodes away from container edges
           
           position = {
-            x: pageNode.position.x + margin + Math.random() * (Number(pageWidth) - 2 * margin - 100),
-            y: pageNode.position.y + 50 + Math.random() * (Number(pageHeight) - 100 - margin), // Account for page header
+            x: containerNode.position.x + margin + Math.random() * (Number(containerWidth) - 2 * margin - 100),
+            y: containerNode.position.y + 50 + Math.random() * (Number(containerHeight) - 100 - margin), // Account for container header
           };
         }
       } else if (

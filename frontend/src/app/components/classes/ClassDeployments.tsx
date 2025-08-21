@@ -14,7 +14,8 @@ import {
   LockOpenIcon,
   ClipboardDocumentCheckIcon,
   PencilSquareIcon,
-  DocumentIcon
+  DocumentIcon,
+  CogIcon
 } from '@heroicons/react/24/outline';
 import { API_CONFIG } from '@/lib/constants';
 
@@ -185,6 +186,7 @@ interface ClassDeploymentsProps {
   onViewStudentMCQ?: (deploymentId: string, deploymentName: string) => void;
   onViewStudentPrompts?: (deploymentId: string, deploymentName: string) => void;
   onViewStudentPages?: (deploymentId: string, deploymentName: string) => void;
+  onAdminPageDeployment?: (deploymentId: string, deploymentName: string) => void;
   // Add new deployment handler props here as needed
 }
 
@@ -279,7 +281,8 @@ export default function ClassDeployments({
   onViewStudentSubmissions,
   onViewStudentMCQ,
   onViewStudentPrompts,
-  onViewStudentPages
+  onViewStudentPages,
+  onAdminPageDeployment
 }: ClassDeploymentsProps) {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deploymentTypes, setDeploymentTypes] = useState<Record<string,string>>({});
@@ -675,6 +678,16 @@ export default function ClassDeployments({
                         >
                           <TrashIcon className="h-4 w-4" />
                         </button>
+
+                        {isPageBasedDeployment(deployment, deploymentType) && (
+                          <button
+                            onClick={() => onAdminPageDeployment?.(deployment.deployment_id, deployment.workflow_name)}
+                            className="p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-50"
+                            title="Admin Page"
+                          >
+                            <CogIcon className="h-4 w-4" />
+                          </button>
+                        )}
                       </>
                     )}
                   </div>

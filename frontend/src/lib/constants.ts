@@ -14,7 +14,8 @@ export const ROUTES = {
     LOGIN: '/auth/login',
     REGISTER: '/auth/register',
     LOGOUT: '/auth/logout',
-    ME: '/me',
+    ME: '/auth/me',
+    PROFILE: '/auth/profile',
   },
   CLASSES: '/api/classes',
   WORKFLOWS: '/api/workflows',
@@ -78,6 +79,7 @@ export const APP_STATES = {
   MCQ: 'mcq',
   PROMPT: 'prompt',
   PAGE: 'page',
+  SETTINGS: 'settings',
 } as const;
 
 export type AppState = typeof APP_STATES[keyof typeof APP_STATES]; 

@@ -1,11 +1,13 @@
 "use client";
 
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { PageInfo } from '../types';
 import { ChatInterface } from '../../chat';
 import { CodeInterface } from '../../code';
 import { MCQInterface } from '../../mcq';
 import { PromptInterface } from '../../prompt';
+import { LivePresentationInterface } from '../../livePresentation';
+import { AuthAPI, User } from '@/lib/authAPI';
 
 interface PageContentProps {
   pageInfo: PageInfo | null;
@@ -15,6 +17,24 @@ interface PageContentProps {
 }
 
 export default function PageContent({ pageInfo, deploymentName, loading, error }: PageContentProps) {
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [userLoading, setUserLoading] = useState(true);
+
+  // Get current user information for live presentation
+  useEffect(() => {
+    const fetchUser = async () => {
+      try {
+        const user = await AuthAPI.getCurrentUser();
+        setCurrentUser(user);
+      } catch (err) {
+        console.error('Failed to get current user:', err);
+      } finally {
+        setUserLoading(false);
+      }
+    };
+
+    fetchUser();
+  }, []);
   // Loading state
   if (loading) {
     return (
@@ -29,6 +49,31 @@ export default function PageContent({ pageInfo, deploymentName, loading, error }
 
   // Error state
   if (error) {
+    // Check if this is a page accessibility error
+    const isAccessibilityError = error.includes('not yet accessible') || error.includes('wait until your instructor');
+    
+    if (isAccessibilityError) {
+      return (
+        <div className="flex-1 flex items-center justify-center bg-gray-50">
+          <div className="text-center max-w-md">
+            <div className="bg-orange-100 rounded-full h-16 w-16 flex items-center justify-center mx-auto">
+              <svg className="h-8 w-8 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+              </svg>
+            </div>
+            <h3 className="mt-4 text-lg font-medium text-gray-900">Page Not Yet Accessible</h3>
+            <p className="mt-2 text-sm text-gray-600">{error}</p>
+            <div className="mt-4 p-3 bg-blue-50 rounded-lg">
+              <p className="text-xs text-blue-700">
+                <strong>Note:</strong> Your instructor controls when new pages become available. 
+                Check back later or contact your instructor for more information.
+              </p>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    
     return (
       <div className="flex-1 flex items-center justify-center bg-gray-50">
         <div className="text-center max-w-md">
@@ -105,6 +150,32 @@ export default function PageContent({ pageInfo, deploymentName, loading, error }
             deploymentId={pageInfo.deployment_id}
             deploymentName={pageDeploymentName}
             onClose={() => {}} // No-op since we're embedded in page
+          />
+        );
+      
+      case 'livePresentation':
+        // Show loading if user data is not yet available
+        if (userLoading || !currentUser) {
+          return (
+            <div className="flex-1 flex items-center justify-center bg-gray-50">
+              <div className="text-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600 mx-auto mb-4"></div>
+                <p className="text-gray-600">Loading user information...</p>
+              </div>
+            </div>
+          );
+        }
+
+        // Generate user name from available data
+        const userName = currentUser.first_name && currentUser.last_name
+          ? `${currentUser.first_name} ${currentUser.last_name}`
+          : currentUser.email;
+
+        return (
+          <LivePresentationInterface 
+            deploymentId={pageInfo.deployment_id}
+            userId={currentUser.id.toString()}
+            userName={userName}
           />
         );
       

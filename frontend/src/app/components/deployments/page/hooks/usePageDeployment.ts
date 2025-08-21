@@ -7,14 +7,17 @@ export interface UsePageDeploymentReturn {
   currentPage: number;
   currentPageInfo: PageInfo | null;
   totalPages: number;
+  pagesAccessible: number;
   loading: boolean;
   error: string | null;
   setCurrentPage: (pageNumber: number) => void;
   refreshPages: () => Promise<void>;
+  isPageAccessible: (pageNumber: number) => boolean;
 }
 
 export function usePageDeployment(deploymentId: string): UsePageDeploymentReturn {
   const [pages, setPages] = useState<PageInfo[]>([]);
+  const [pagesAccessible, setPagesAccessible] = useState<number>(1);
   const [currentPage, setCurrentPage] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +44,7 @@ export function usePageDeployment(deploymentId: string): UsePageDeploymentReturn
 
       const data: PageListResponse = await response.json();
       setPages(data.pages);
+      setPagesAccessible(data.pages_accessible);
       
       // Set current page to first page if not already set
       if (data.pages.length > 0 && currentPage === 1) {
@@ -60,6 +64,28 @@ export function usePageDeployment(deploymentId: string): UsePageDeploymentReturn
     await fetchPages();
   }, [fetchPages]);
 
+  const isPageAccessible = useCallback((pageNumber: number): boolean => {
+    const page = pages.find(p => p.page_number === pageNumber);
+    return page ? page.is_accessible : false;
+  }, [pages]);
+
+  const handleSetCurrentPage = useCallback((pageNumber: number) => {
+    const page = pages.find(p => p.page_number === pageNumber);
+    
+    if (!page) {
+      setError(`Page ${pageNumber} does not exist. Available pages: 1-${pages.length}`);
+      return;
+    }
+    
+    if (!page.is_accessible) {
+      setError(page.accessibility_reason || `Page ${pageNumber} is not yet accessible.`);
+      return;
+    }
+    
+    setError(null);
+    setCurrentPage(pageNumber);
+  }, [pages]);
+
   useEffect(() => {
     fetchPages();
   }, [fetchPages]);
@@ -72,9 +98,11 @@ export function usePageDeployment(deploymentId: string): UsePageDeploymentReturn
     currentPage,
     currentPageInfo,
     totalPages,
+    pagesAccessible,
     loading,
     error,
-    setCurrentPage,
+    setCurrentPage: handleSetCurrentPage,
     refreshPages,
+    isPageAccessible,
   };
 } 

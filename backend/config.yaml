@@ -44,7 +44,7 @@ google_cloud:
 
 # Document Processing Configuration
 document_processing:
-  max_file_size_mb: 10
+  max_file_size_mb: 20
   max_files_per_upload: 10
   allowed_extensions: [".pdf", ".docx", ".doc"]
   allowed_mime_types:

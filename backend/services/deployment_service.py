@@ -7,6 +7,7 @@ from services.config_service import parse_agent_config
 from services.deployment_types.code_executor import CodeDeployment
 from services.deployment_types.mcq import MCQDeployment
 from services.deployment_types.prompt import PromptDeployment
+from services.deployment_types.live_presentation import LivePresentationDeployment
 
 class AgentDeployment:
     _services: AgentNodeList
@@ -15,6 +16,7 @@ class AgentDeployment:
     _code_service: "CodeDeployment | None" = None
     _mcq_service: "MCQDeployment | None" = None
     _prompt_service: "PromptDeployment | None" = None
+    _live_presentation_service: "LivePresentationDeployment | None" = None
 
     def __init__(
         self,
@@ -62,6 +64,10 @@ class AgentDeployment:
                 self._deployment_type = DeploymentType.PROMPT
                 self._prompt_service = PromptDeployment.from_config(config)
                 self._services.append(AgentNode(self._prompt_service))
+            case 'livePresentation':
+                self._deployment_type = DeploymentType.LIVE_PRESENTATION
+                self._live_presentation_service = LivePresentationDeployment.from_config(config, deployment_id)
+                self._services.append(AgentNode(self._live_presentation_service))
             case _:
                 raise ValueError(f"Invalid deployment type: {config['1']['type']}")
         
@@ -85,7 +91,7 @@ class AgentDeployment:
         if (self._services.count == 0):
             if (self._deployment_type == DeploymentType.CHAT):
                 raise ValueError("No agents found in the workflow")
-        if (self._services.count == 1 and (self._deployment_type == DeploymentType.CODE or self._deployment_type == DeploymentType.PROMPT)):
+        if (self._services.count == 1 and (self._deployment_type == DeploymentType.CODE or self._deployment_type == DeploymentType.PROMPT or self._deployment_type == DeploymentType.LIVE_PRESENTATION)):
             self._contains_chat = False
         print("contains chat: ", self._contains_chat)
 
@@ -165,6 +171,32 @@ class AgentDeployment:
         if self._deployment_type != DeploymentType.PROMPT or self._prompt_service is None:
             return {"valid": False, "error": "Not a prompt deployment"}
         return self._prompt_service.validate_submission(index, response)
+
+    # Live Presentation related methods
+    def get_live_presentation_service(self) -> Optional["LivePresentationDeployment"]:
+        if self._deployment_type != DeploymentType.LIVE_PRESENTATION:
+            return None
+        return self._live_presentation_service
+    
+    def set_database_session(self, db_session):
+        """Set database session for persistence - used for page-based deployments"""
+        if self._live_presentation_service:
+            self._live_presentation_service.set_database_session(db_session)
+    
+    async def restore_live_presentation_state(self):
+        """Restore live presentation state from database - used for page-based deployments"""
+        if self._live_presentation_service:
+            await self._live_presentation_service.restore_from_database()
+
+    def get_live_presentation_info(self) -> Optional[Dict[str, Any]]:
+        if self._deployment_type != DeploymentType.LIVE_PRESENTATION or self._live_presentation_service is None:
+            return None
+        return {
+            "deployment_id": self._live_presentation_service.deployment_id,
+            "title": self._live_presentation_service.title,
+            "description": self._live_presentation_service.description,
+            "saved_prompts": [prompt.to_dict() for prompt in self._live_presentation_service.saved_prompts]
+        }
 
     @staticmethod
     def _convert_value(value: Any) -> Any:

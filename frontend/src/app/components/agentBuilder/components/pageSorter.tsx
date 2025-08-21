@@ -12,7 +12,7 @@ export default function PageSorter({ nodes, setNodes }: PageSorterProps) {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
-  // Get all page nodes, sorted by page number
+  // Get all page nodes (excluding behaviour nodes), sorted by page number
   const pageNodes = nodes
     .filter(node => node.type === 'page')
     .map(node => ({
