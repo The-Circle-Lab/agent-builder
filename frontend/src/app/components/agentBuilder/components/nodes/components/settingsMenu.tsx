@@ -4,7 +4,7 @@ import { faTimes } from "@fortawesome/free-solid-svg-icons";
 import { NodeData, Variable } from "../types";
 import { getNodeConfig } from "../nodeRegistry";
 import { PropertyDefinition } from "../types";
-import DocumentManager from "./documentManager";
+import DocumentManager from "./DocumentManager";
 import { Node, Edge } from "@xyflow/react";
 import { getAvailableSubmissionPrompts } from "../../../scripts/nodeHelpers";
 
