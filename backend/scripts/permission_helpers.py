@@ -77,6 +77,7 @@ def user_can_modify_deployment(user: User, deployment: Deployment, db: DBSession
 # Check if user can access deployment (member of the class)
 def user_can_access_deployment(user: User, deployment: Deployment, db: DBSession) -> bool:
     # Check if user is a member (student or instructor) of the deployment's class
+    print(f"🔍 DEBUG: Checking deployment access for user {user.id} ({user.email}) to deployment class {deployment.class_id}")
     membership = db.exec(
         select(ClassMembership).where(
             ClassMembership.user_id == user.id,
@@ -84,6 +85,20 @@ def user_can_access_deployment(user: User, deployment: Deployment, db: DBSession
             ClassMembership.is_active == True
         )
     ).first()
+    
+    if membership:
+        print(f"🔍 DEBUG: Found membership: user {user.id} has role {membership.role} in class {deployment.class_id}")
+    else:
+        print(f"🔍 DEBUG: No membership found for user {user.id} in class {deployment.class_id}")
+        # Let's also check what memberships this user does have
+        all_memberships = db.exec(
+            select(ClassMembership).where(
+                ClassMembership.user_id == user.id,
+                ClassMembership.is_active == True
+            )
+        ).all()
+        print(f"🔍 DEBUG: User {user.id} has memberships in classes: {[m.class_id for m in all_memberships]}")
+    
     return membership is not None
 
 

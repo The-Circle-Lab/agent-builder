@@ -5,7 +5,7 @@ from typing import Dict, Any, Optional
 from database.database import get_session, engine
 from api.auth import get_current_user
 from models.database.db_models import User
-from .deployment_shared import _load_deployment_for_user
+from .deployment_shared import _load_deployment_for_user, _authenticate_websocket_user
 
 router = APIRouter()
 
@@ -22,32 +22,14 @@ async def websocket_student_endpoint(
         # Accept the connection first
         await websocket.accept()
         
-        # Wait for authentication message
-        auth_message = await websocket.receive_text()
-        auth_data = json.loads(auth_message)
-        
-        user_id = auth_data.get("user_id")
-        user_name = auth_data.get("user_name")
-        access_token = auth_data.get("access_token")
-        
-        if not all([user_id, user_name, access_token]):
-            await websocket.send_text(json.dumps({
-                "type": "error",
-                "message": "Missing authentication data"
-            }))
-            await websocket.close()
-            return
-        
-        # Verify the user (you might want to add proper token validation here)
-        print(f"🎤 Student connecting: {user_name} ({user_id}) to {deployment_id}")
-        
-        # Get the deployment - we need to create a dummy user object for authentication
-        # In a real implementation, you'd properly validate the access_token
+        # Authenticate user using session cookie (same as chat WebSocket)
         db = Session(engine)
         try:
-            # Create a temporary user object for deployment loading
-            # This is a simplified approach - you should validate the token properly
-            user = User(id=int(user_id), email=user_name, role="student")
+            user, db_deployment = await _authenticate_websocket_user(websocket, deployment_id, db)
+            print(f"🎤 Student authenticated: {user.email} ({user.id}) to {deployment_id}")
+            print(f"🎤 DB deployment class_id: {db_deployment.class_id}, user_id: {user.id}")
+            
+            # Load deployment for the authenticated user
             deployment = await _load_deployment_for_user(deployment_id, user, db)
             
             if not deployment:
@@ -68,7 +50,7 @@ async def websocket_student_endpoint(
                 live_presentation_service.set_database_session(db)
                 
         except HTTPException as http_exc:
-            # Handle HTTPException from _load_deployment_for_user
+            # Handle HTTPException from _authenticate_websocket_user or _load_deployment_for_user
             db.close()
             await websocket.send_text(json.dumps({
                 "type": "error",
@@ -84,6 +66,7 @@ async def websocket_student_endpoint(
             }))
             await websocket.close()
             return
+        
         if not live_presentation_service:
             await websocket.send_text(json.dumps({
                 "type": "error",
@@ -92,8 +75,8 @@ async def websocket_student_endpoint(
             await websocket.close()
             return
         
-        # Connect the student
-        success = await live_presentation_service.connect_student(user_id, user_name, websocket)
+        # Connect the student using the authenticated user info
+        success = await live_presentation_service.connect_student(str(user.id), user.email, websocket)
         if not success:
             await websocket.send_text(json.dumps({
                 "type": "error",
@@ -107,11 +90,11 @@ async def websocket_student_endpoint(
             while True:
                 data = await websocket.receive_text()
                 message = json.loads(data)
-                await live_presentation_service.handle_student_message(user_id, message)
+                await live_presentation_service.handle_student_message(str(user.id), message)
                 
         except WebSocketDisconnect:
-            print(f"🎤 Student disconnected: {user_name} ({user_id})")
-            await live_presentation_service.disconnect_student(user_id)
+            print(f"🎤 Student disconnected: {user.email} ({user.id})")
+            await live_presentation_service.disconnect_student(str(user.id))
         finally:
             # Close the database session when WebSocket connection ends
             db.close()
@@ -133,28 +116,23 @@ async def websocket_teacher_endpoint(
         # Accept the connection first
         await websocket.accept()
         
-        # Wait for authentication message
-        auth_message = await websocket.receive_text()
-        auth_data = json.loads(auth_message)
-        
-        access_token = auth_data.get("access_token")
-        user_role = auth_data.get("user_role")
-        
-        if not access_token or user_role != "instructor":
-            await websocket.send_text(json.dumps({
-                "type": "error",
-                "message": "Unauthorized - instructors only"
-            }))
-            await websocket.close()
-            return
-        
-        print(f"🎤 Teacher connecting to {deployment_id}")
-        
-        # Get the deployment
+        # Authenticate user using session cookie (same as chat WebSocket)
         db = Session(engine)
         try:
-            # Create a temporary instructor user object for deployment loading
-            user = User(id=1, email="instructor", role="instructor")
+            user, db_deployment = await _authenticate_websocket_user(websocket, deployment_id, db)
+            print(f"🎤 Teacher authenticated: {user.email} ({user.id}) to {deployment_id}")
+            print(f"🎤 DB deployment class_id: {db_deployment.class_id}, user_id: {user.id}")
+            
+            # Verify user is an instructor
+            if user.role != "instructor":
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": "Unauthorized - instructors only"
+                }))
+                await websocket.close()
+                return
+            
+            # Load deployment for the authenticated user
             deployment = await _load_deployment_for_user(deployment_id, user, db)
             
             if not deployment:
@@ -174,7 +152,7 @@ async def websocket_teacher_endpoint(
                 live_presentation_service.set_database_session(db)
                 
         except HTTPException as http_exc:
-            # Handle HTTPException from _load_deployment_for_user
+            # Handle HTTPException from _authenticate_websocket_user or _load_deployment_for_user
             db.close()
             await websocket.send_text(json.dumps({
                 "type": "error",
@@ -190,6 +168,7 @@ async def websocket_teacher_endpoint(
             }))
             await websocket.close()
             return
+        
         if not live_presentation_service:
             await websocket.send_text(json.dumps({
                 "type": "error",

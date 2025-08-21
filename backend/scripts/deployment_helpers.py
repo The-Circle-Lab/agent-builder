@@ -72,9 +72,15 @@ async def _authenticate_websocket_user(
         raise WebSocketDisconnect()
 
     # Check deployment + access rights
+    # For page deployments (e.g., "deployment_id_page_2"), we need to look up the parent deployment
+    lookup_deployment_id = deployment_id
+    if "_page_" in deployment_id:
+        lookup_deployment_id = deployment_id.split("_page_")[0]
+        print(f"🔍 DEBUG: Page deployment detected. Looking up parent deployment: {lookup_deployment_id}")
+    
     db_deployment = db.exec(
         select(Deployment).where(
-            Deployment.deployment_id == deployment_id,
+            Deployment.deployment_id == lookup_deployment_id,
             Deployment.is_active == True,  # noqa: E712 – SQLModel literal True
         )
     ).first()
@@ -135,9 +141,15 @@ async def _load_deployment_for_user(
     user: User,
     db: DBSession,
 ) -> Dict[str, Any]:
+    # For page deployments (e.g., "deployment_id_page_2"), we need to look up the parent deployment
+    lookup_deployment_id = deployment_id
+    if "_page_" in deployment_id:
+        lookup_deployment_id = deployment_id.split("_page_")[0]
+        print(f"🔍 DEBUG: Page deployment detected in load. Looking up parent deployment: {lookup_deployment_id}")
+    
     db_deployment = db.exec(
         select(Deployment).where(
-            Deployment.deployment_id == deployment_id,
+            Deployment.deployment_id == lookup_deployment_id,
             Deployment.is_active == True,  # noqa: E712 – SQLModel literal True
         )
     ).first()
