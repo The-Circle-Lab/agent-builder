@@ -134,7 +134,7 @@ class Page:
             return False
         if not self._page_deployment:
             return False
-        variable = self._page_deployment.get_variable_by_name(self.input_id)
+        variable = self._page_deployment.get_variable_by_id_or_name(self.input_id)
         result = variable and variable.variable_type == VariableType.GROUP
         return result
 
@@ -174,7 +174,7 @@ class Page:
         if self.is_input_from_variable():
             print(f"🔍 Input from variable: {self.input_id}")
             # Get data from a variable
-            variable = self._page_deployment.get_variable_by_name(self.input_id)
+            variable = self._page_deployment.get_variable_by_id_or_name(self.input_id)
             print(f"🔍 Variable found: {variable is not None}")
             if variable:
                 print(f"🔍 Variable value: {variable.variable_value}")
@@ -303,7 +303,7 @@ class Behavior:
         elif self.is_input_from_variable():
             print(f"🔍 BEHAVIOR DEBUG: Input from variable: {self.input_id}")
             # Get data from a variable
-            variable = self._page_deployment.get_variable_by_name(self.input_id)
+            variable = self._page_deployment.get_variable_by_id_or_name(self.input_id)
             print(f"🔍 BEHAVIOR DEBUG: Variable found: {variable is not None}")
             if variable:
                 print(f"🔍 BEHAVIOR DEBUG: Variable value type: {type(variable.variable_value)}")
@@ -335,7 +335,7 @@ class Behavior:
                             f"or produces output data before running this behavior."
                         )
                 elif self.is_input_from_variable():
-                    variable = self._page_deployment.get_variable_by_name(self.input_id) if self._page_deployment else None
+                    variable = self._page_deployment.get_variable_by_id_or_name(self.input_id) if self._page_deployment else None
                     if not variable:
                         raise ValueError(
                             f"Behavior {self.behavior_number} is configured to get input from variable '{self.input_id}', "
@@ -477,7 +477,7 @@ class Behavior:
                 )
         
         elif self.is_input_from_variable():
-            variable = self._page_deployment.get_variable_by_name(self.input_id) if self._page_deployment else None
+            variable = self._page_deployment.get_variable_by_id_or_name(self.input_id) if self._page_deployment else None
             if variable:
                 diagnosis["input_source_exists"] = True
                 if variable.variable_value is not None:
@@ -762,21 +762,47 @@ class PageDeployment:
     
     def is_page_accessible(self, page_number: int) -> bool:
         """Check if a specific page number is accessible"""
+        print(f"🔍 Checking accessibility for page {page_number}")
+        
         # Check if page exists
         if page_number > len(self.page_list) or page_number < 1:
+            print(f"❌ Page {page_number} does not exist (total pages: {len(self.page_list)})")
             return False
         
         # First check basic accessibility (if pages_accessible is -1, all pages are accessible)
         if self.pages_accessible != -1 and page_number > self.pages_accessible:
+            print(f"❌ Page {page_number} not accessible due to pages_accessible limit ({self.pages_accessible})")
             return False
         
         # Check if page depends on variables that are empty
         page = self.page_list[page_number - 1]  # Convert to 0-based index
-        if page.is_input_from_variable() and page.input_id:
-            variable = self.get_variable_by_name(page.input_id)
-            if variable and variable.is_empty():
-                return False
+        print(f"🔍 Page {page_number} has input: {page.has_input()}")
+        print(f"🔍 Page {page_number} is input from variable: {page.is_input_from_variable() if page.has_input() else 'N/A'}")
         
+        if page.is_input_from_variable() and page.input_id:
+            print(f"🔍 Page {page_number} depends on variable: '{page.input_id}'")
+            
+            # Use get_variable_by_id_or_name to handle both IDs and names
+            variable = self.get_variable_by_id_or_name(page.input_id)
+            
+            if variable:
+                is_empty = variable.is_empty()
+                print(f"🔍 Variable '{page.input_id}' found - empty: {is_empty}")
+                print(f"🔍 Variable value type: {type(variable.variable_value)}")
+                print(f"🔍 Variable value preview: {str(variable.variable_value)[:100] if variable.variable_value else 'None'}")
+                
+                if is_empty:
+                    print(f"❌ Page {page_number} not accessible - required variable '{page.input_id}' is empty")
+                    return False
+                else:
+                    print(f"✅ Page {page_number} variable dependency satisfied")
+            else:
+                print(f"❌ Page {page_number} depends on variable '{page.input_id}' which was not found")
+                return False
+        else:
+            print(f"🔍 Page {page_number} has no variable dependencies")
+        
+        print(f"✅ Page {page_number} is accessible")
         return True
 
     def get_deployment_list(self) -> List[AgentDeployment]:
@@ -816,7 +842,7 @@ class PageDeployment:
                 # Check if it's due to empty variable dependency
                 page = self.page_list[index]
                 if page.is_input_from_variable() and page.input_id:
-                    variable = self.get_variable_by_name(page.input_id)
+                    variable = self.get_variable_by_id_or_name(page.input_id)
                     if variable and variable.is_empty():
                         raise ValueError(f"Page {page_number} is not yet accessible. This page depends on the variable '{page.input_id}' which has not been populated yet.")
                 raise ValueError(f"Page {page_number} is not yet accessible.")
@@ -845,7 +871,7 @@ class PageDeployment:
                 # Check if it's due to empty variable dependency
                 page = self.page_list[index]
                 if page.is_input_from_variable() and page.input_id:
-                    variable = self.get_variable_by_name(page.input_id)
+                    variable = self.get_variable_by_id_or_name(page.input_id)
                     if variable and variable.is_empty():
                         raise ValueError(f"Page {page_number} is not yet accessible. This page depends on the variable '{page.input_id}' which has not been populated yet.")
                 raise ValueError(f"Page {page_number} is not yet accessible.")
@@ -1374,7 +1400,7 @@ class PageDeployment:
                 }
                 
                 if page.has_input() and page.is_input_from_variable():
-                    variable = self.get_variable_by_name(page.input_id)
+                    variable = self.get_variable_by_id_or_name(page.input_id)
                     if variable:
                         page_info["variable_exists"] = True
                         page_info["variable_value"] = variable.variable_value
