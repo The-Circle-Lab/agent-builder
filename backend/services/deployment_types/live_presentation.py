@@ -939,6 +939,10 @@ class LivePresentationDeployment:
         """Connect a student to the live presentation"""
         try:
             # WebSocket is already accepted in the route handler
+            print(f"🎤 LivePresentationDeployment.connect_student called")
+            print(f"🎤 Instance ID: {id(self)}")
+            print(f"🎤 Current students in this instance: {len(self.students)}")
+            print(f"🎤 Student names in this instance: {[s.user_name for s in self.students.values()]}")
             
             # Try to auto-detect group variables if we don't have data yet
             print(f"🔍 DEBUG: input_variable_data is None: {self.input_variable_data is None}")
@@ -1033,6 +1037,11 @@ class LivePresentationDeployment:
         """Connect a teacher to the live presentation"""
         try:
             # WebSocket is already accepted in the route handler
+            print(f"🎤 LivePresentationDeployment.connect_teacher called")
+            print(f"🎤 Instance ID: {id(self)}")
+            print(f"🎤 Current students in this instance: {len(self.students)}")
+            print(f"🎤 Student names in this instance: {[s.user_name for s in self.students.values()]}")
+            print(f"🎤 Current teachers in this instance: {len(self.teacher_websockets)}")
             self.teacher_websockets.add(websocket)
             
             # Send current stats

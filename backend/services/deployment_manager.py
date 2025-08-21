@@ -16,6 +16,7 @@ ACTIVE_DEPLOYMENTS: Dict[str, Dict[str, Any]] = {}
 
 async def load_deployment_on_demand(deployment_id: str, user_id: int, db: DBSession) -> bool:
     if deployment_id in ACTIVE_DEPLOYMENTS:
+        print(f"🎤 Deployment {deployment_id} already loaded in ACTIVE_DEPLOYMENTS")
         return True  # Already loaded
     
     try:
@@ -60,24 +61,31 @@ async def load_deployment_on_demand(deployment_id: str, user_id: int, db: DBSess
             # Also register individual page deployments in ACTIVE_DEPLOYMENTS for compatibility
             page_deployment = page_deployment_info["page_deployment"]
             for page_idx, page_deploy in enumerate(page_deployment.get_deployment_list()):
-                # Set up database persistence for Live Presentation pages
-                if page_deploy.get_deployment_type() == "livePresentation":
-                    page_deploy.set_database_session(db)
-                    await page_deploy.restore_live_presentation_state()
-                    print(f"🎤 Set up persistence for Live Presentation page {page_idx + 1}")
+                page_deployment_id = page_deploy.deployment_id
                 
-                add_active_deployment(page_deploy.deployment_id, {
-                    "user_id": db_deployment.user_id,
-                    "workflow_name": f"{db_deployment.workflow_name} - Page {page_idx + 1}",
-                    "config": db_deployment.config,
-                    "mcp_deployment": page_deploy,
-                    "created_at": db_deployment.created_at.isoformat(),
-                    "chat_history": [],
-                    "type": page_deploy.get_deployment_type(),
-                    "is_page_based": True,
-                    "parent_deployment_id": db_deployment.deployment_id,
-                    "page_number": page_idx + 1
-                })
+                # Check if this specific page deployment is already registered
+                if page_deployment_id not in ACTIVE_DEPLOYMENTS:
+                    # Set up database persistence for Live Presentation pages
+                    if page_deploy.get_deployment_type() == "livePresentation":
+                        page_deploy.set_database_session(db)
+                        await page_deploy.restore_live_presentation_state()
+                        print(f"🎤 Set up persistence for Live Presentation page {page_idx + 1}: {page_deployment_id}")
+                    
+                    add_active_deployment(page_deployment_id, {
+                        "user_id": db_deployment.user_id,
+                        "workflow_name": f"{db_deployment.workflow_name} - Page {page_idx + 1}",
+                        "config": db_deployment.config,
+                        "mcp_deployment": page_deploy,
+                        "created_at": db_deployment.created_at.isoformat(),
+                        "chat_history": [],
+                        "type": page_deploy.get_deployment_type(),
+                        "is_page_based": True,
+                        "parent_deployment_id": db_deployment.deployment_id,
+                        "page_number": page_idx + 1
+                    })
+                    print(f"🎤 Registered page deployment {page_deployment_id} in ACTIVE_DEPLOYMENTS")
+                else:
+                    print(f"🎤 Page deployment {page_deployment_id} already registered in ACTIVE_DEPLOYMENTS")
         elif db_deployment.type == "livePresentation":
             # Handle Live Presentation deployment with persistence
             from services.deployment_types.live_presentation import LivePresentationDeployment
@@ -142,11 +150,13 @@ def get_active_deployment(deployment_id: str) -> Dict[str, Any]:
     # Check regular deployments first
     deployment = ACTIVE_DEPLOYMENTS.get(deployment_id)
     if deployment:
+        print(f"🎤 Found deployment {deployment_id} in ACTIVE_DEPLOYMENTS")
         return deployment
     
-    # Check page deployments
+    # Check page deployments  
     page_deployment = get_active_page_deployment(deployment_id)
     if page_deployment:
+        print(f"🎤 Found deployment {deployment_id} in ACTIVE_PAGE_DEPLOYMENTS, converting format")
         # Convert page deployment format to match regular deployment format
         return {
             "user_id": page_deployment["user_id"],
@@ -160,6 +170,7 @@ def get_active_deployment(deployment_id: str) -> Dict[str, Any]:
             "page_count": page_deployment.get("page_count", 0)
         }
     
+    print(f"🎤 Deployment {deployment_id} not found in either ACTIVE_DEPLOYMENTS or ACTIVE_PAGE_DEPLOYMENTS")
     return None
 
 # add deployment to active deployments

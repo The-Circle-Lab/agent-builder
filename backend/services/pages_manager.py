@@ -69,26 +69,33 @@ async def load_page_deployment_on_demand(deployment_id: str, user_id: int, db: D
         }
         
         # Also register individual page deployments in ACTIVE_DEPLOYMENTS for compatibility
-        from services.deployment_manager import add_active_deployment
+        from services.deployment_manager import add_active_deployment, is_deployment_active
         for page_idx, page_deploy in enumerate(page_deployment.get_deployment_list()):
-            # Set up database persistence for Live Presentation pages
-            if page_deploy.get_deployment_type() == "livePresentation":
-                page_deploy.set_database_session(db)
-                await page_deploy.restore_live_presentation_state()
-                print(f"🎤 Set up persistence for Live Presentation page {page_idx + 1}")
+            page_deployment_id = page_deploy.deployment_id
             
-            add_active_deployment(page_deploy.deployment_id, {
-                "user_id": db_deployment.user_id,
-                "workflow_name": f"{db_deployment.workflow_name} - Page {page_idx + 1}",
-                "config": db_deployment.config,
-                "mcp_deployment": page_deploy,
-                "created_at": db_deployment.created_at.isoformat(),
-                "chat_history": [],
-                "type": page_deploy.get_deployment_type(),
-                "is_page_based": True,
-                "parent_deployment_id": db_deployment.deployment_id,
-                "page_number": page_idx + 1
-            })
+            # Only register if not already active to prevent duplicate registrations
+            if not is_deployment_active(page_deployment_id):
+                # Set up database persistence for Live Presentation pages
+                if page_deploy.get_deployment_type() == "livePresentation":
+                    page_deploy.set_database_session(db)
+                    await page_deploy.restore_live_presentation_state()
+                    print(f"🎤 Set up persistence for Live Presentation page {page_idx + 1}: {page_deployment_id}")
+                
+                add_active_deployment(page_deployment_id, {
+                    "user_id": db_deployment.user_id,
+                    "workflow_name": f"{db_deployment.workflow_name} - Page {page_idx + 1}",
+                    "config": db_deployment.config,
+                    "mcp_deployment": page_deploy,
+                    "created_at": db_deployment.created_at.isoformat(),
+                    "chat_history": [],
+                    "type": page_deploy.get_deployment_type(),
+                    "is_page_based": True,
+                    "parent_deployment_id": db_deployment.deployment_id,
+                    "page_number": page_idx + 1
+                })
+                print(f"🎤 Registered page deployment {page_deployment_id} in ACTIVE_DEPLOYMENTS via pages_manager")
+            else:
+                print(f"🎤 Page deployment {page_deployment_id} already active, skipping registration in pages_manager")
         
         print(f"Loaded page deployment {deployment_id} with restored state for user {user_id}")
         print(f"Registered {page_deployment.get_page_count()} individual page deployments")

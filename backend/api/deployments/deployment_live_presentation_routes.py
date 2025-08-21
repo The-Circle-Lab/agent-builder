@@ -29,7 +29,7 @@ async def websocket_student_endpoint(
             print(f"🎤 Student authenticated: {user.email} ({user.id}) to {deployment_id}")
             print(f"🎤 DB deployment class_id: {db_deployment.class_id}, user_id: {user.id}")
             
-            # Load deployment for the authenticated user
+            # Load deployment for the authenticated user with proper instance sharing
             deployment = await _load_deployment_for_user(deployment_id, user, db)
             
             if not deployment:
@@ -44,10 +44,19 @@ async def websocket_student_endpoint(
             mcp_deployment = deployment["mcp_deployment"]
             live_presentation_service = mcp_deployment.get_live_presentation_service()
             
+            if not live_presentation_service:
+                print(f"🎤 No live presentation service found in mcp_deployment")
+                print(f"🎤 mcp_deployment type: {type(mcp_deployment)}")
+                print(f"🎤 mcp_deployment methods: {[m for m in dir(mcp_deployment) if not m.startswith('_')]}")
+            
             # Set up a fresh database session for the live presentation service
             # Don't close the db session yet - we need it for the WebSocket connection
             if live_presentation_service:
                 live_presentation_service.set_database_session(db)
+                print(f"🎤 Database session set for live presentation service - Student {user.email}")
+                print(f"🎤 Current students in service: {len(live_presentation_service.students)}")
+                print(f"🎤 Service deployment_id: {live_presentation_service.deployment_id}")
+                print(f"🎤 Requested deployment_id: {deployment_id}")
                 
         except HTTPException as http_exc:
             # Handle HTTPException from _authenticate_websocket_user or _load_deployment_for_user
@@ -76,6 +85,10 @@ async def websocket_student_endpoint(
             return
         
         # Connect the student using the authenticated user info
+        print(f"🎤 About to connect student {user.email} to live presentation service")
+        print(f"🎤 Live presentation service deployment_id: {live_presentation_service.deployment_id}")
+        print(f"🎤 Current students before connection: {len(live_presentation_service.students)}")
+        
         success = await live_presentation_service.connect_student(str(user.id), user.email, websocket)
         if not success:
             await websocket.send_text(json.dumps({
@@ -84,6 +97,8 @@ async def websocket_student_endpoint(
             }))
             await websocket.close()
             return
+        
+        print(f"🎤 Student connection successful. Current students after connection: {len(live_presentation_service.students)}")
         
         try:
             # Handle incoming messages
@@ -133,7 +148,7 @@ async def websocket_teacher_endpoint(
                 await websocket.close()
                 return
             
-            # Load deployment for the authenticated user
+            # Load deployment for the authenticated user with proper instance sharing
             deployment = await _load_deployment_for_user(deployment_id, user, db)
             
             if not deployment:
@@ -148,9 +163,19 @@ async def websocket_teacher_endpoint(
             mcp_deployment = deployment["mcp_deployment"]
             live_presentation_service = mcp_deployment.get_live_presentation_service()
             
+            if not live_presentation_service:
+                print(f"🎤 No live presentation service found in mcp_deployment")
+                print(f"🎤 mcp_deployment type: {type(mcp_deployment)}")
+                print(f"🎤 mcp_deployment methods: {[m for m in dir(mcp_deployment) if not m.startswith('_')]}")
+            
             # Set up a fresh database session for the live presentation service
             if live_presentation_service:
                 live_presentation_service.set_database_session(db)
+                print(f"🎤 Database session set for live presentation service - Teacher {user.email}")
+                print(f"🎤 Current students in service: {len(live_presentation_service.students)}")
+                print(f"🎤 Current teacher websockets: {len(live_presentation_service.teacher_websockets)}")
+                print(f"🎤 Service deployment_id: {live_presentation_service.deployment_id}")
+                print(f"🎤 Requested deployment_id: {deployment_id}")
                 
         except HTTPException as http_exc:
             # Handle HTTPException from _authenticate_websocket_user or _load_deployment_for_user
@@ -179,6 +204,11 @@ async def websocket_teacher_endpoint(
             return
         
         # Connect the teacher
+        print(f"🎤 About to connect teacher to live presentation service")
+        print(f"🎤 Live presentation service deployment_id: {live_presentation_service.deployment_id}")
+        print(f"🎤 Current students before teacher connection: {len(live_presentation_service.students)}")
+        print(f"🎤 Current teachers before connection: {len(live_presentation_service.teacher_websockets)}")
+        
         success = await live_presentation_service.connect_teacher(websocket)
         if not success:
             await websocket.send_text(json.dumps({
@@ -187,6 +217,9 @@ async def websocket_teacher_endpoint(
             }))
             await websocket.close()
             return
+        
+        print(f"🎤 Teacher connection successful. Current students: {len(live_presentation_service.students)}")
+        print(f"🎤 Current teachers after connection: {len(live_presentation_service.teacher_websockets)}")
         
         try:
             # Handle incoming messages
