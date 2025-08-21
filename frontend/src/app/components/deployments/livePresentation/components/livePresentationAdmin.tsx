@@ -26,11 +26,6 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'control' | 'responses'>('control');
 
-  // Get access token - in a real implementation, you'd get this from auth context
-  const getAccessToken = () => {
-    return `teacher-${Date.now()}`;
-  };
-
   const {
     isConnected,
     connectionStatus,
@@ -46,8 +41,7 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
     manualReconnect
   } = useLivePresentationWebSocket({
     deploymentId,
-    isTeacher: true,
-    accessToken: getAccessToken()
+    isTeacher: true
   });
 
   // Fetch deployment info

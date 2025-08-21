@@ -23,12 +23,6 @@ export default function LivePresentationInterface({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Get access token from cookies or generate a temporary one
-  const getAccessToken = () => {
-    // In a real implementation, you'd get this from cookies or auth context
-    return `student-${userId}-${Date.now()}`;
-  };
-
   const {
     isConnected,
     connectionStatus,
@@ -48,8 +42,7 @@ export default function LivePresentationInterface({
     deploymentId,
     isTeacher: false,
     userId,
-    userName,
-    accessToken: getAccessToken()
+    userName
   });
 
   // Fetch deployment info

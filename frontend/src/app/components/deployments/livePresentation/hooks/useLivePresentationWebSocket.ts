@@ -16,7 +16,6 @@ interface UseLivePresentationWebSocketProps {
   isTeacher: boolean;
   userId?: string;
   userName?: string;
-  accessToken?: string;
 }
 
 interface WebSocketState {
@@ -29,8 +28,7 @@ export const useLivePresentationWebSocket = ({
   deploymentId,
   isTeacher,
   userId,
-  userName,
-  accessToken
+  userName
 }: UseLivePresentationWebSocketProps) => {
   const [socketState, setSocketState] = useState<WebSocketState>({
     isConnected: false,
@@ -275,19 +273,8 @@ export const useLivePresentationWebSocket = ({
 
         reconnectAttempts.current = 0;
 
-        // Send authentication
-        const authMessage = isTeacher 
-          ? {
-              access_token: accessToken || 'teacher-token',
-              user_role: 'instructor'
-            }
-          : {
-              user_id: userId,
-              user_name: userName,
-              access_token: accessToken || 'student-token'
-            };
-
-        ws.send(JSON.stringify(authMessage));
+        // No need to send authentication - WebSocket uses session cookies
+        console.log('🎤 WebSocket authenticated via session cookies');
       };
 
       ws.onmessage = (event) => {
@@ -345,7 +332,7 @@ export const useLivePresentationWebSocket = ({
         error: 'Failed to connect'
       }));
     }
-  }, [deploymentId, isTeacher, userId, userName, accessToken, handleMessage, socketState.connectionStatus]);
+  }, [deploymentId, isTeacher, userId, userName, handleMessage, socketState.connectionStatus]);
 
   const disconnect = useCallback(() => {
     console.log('🎤 Disconnecting WebSocket');
