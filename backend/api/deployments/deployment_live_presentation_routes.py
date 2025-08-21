@@ -124,7 +124,8 @@ async def websocket_teacher_endpoint(
             print(f"🎤 DB deployment class_id: {db_deployment.class_id}, user_id: {user.id}")
             
             # Verify user is an instructor
-            if user.role != "instructor":
+            from scripts.permission_helpers import user_is_instructor
+            if not user_is_instructor(user, db):
                 await websocket.send_text(json.dumps({
                     "type": "error",
                     "message": "Unauthorized - instructors only"
@@ -241,7 +242,8 @@ async def get_live_presentation_stats(
 ):
     """Get current statistics for a live presentation (teachers only)"""
     # Check if user is instructor
-    if current_user.role != "instructor":
+    from scripts.permission_helpers import user_is_instructor
+    if not user_is_instructor(current_user, db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only instructors can view live presentation stats"
@@ -274,7 +276,8 @@ async def get_live_presentation_responses(
 ):
     """Get student responses for a live presentation (teachers only)"""
     # Check if user is instructor
-    if current_user.role != "instructor":
+    from scripts.permission_helpers import user_is_instructor
+    if not user_is_instructor(current_user, db):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only instructors can view student responses"
