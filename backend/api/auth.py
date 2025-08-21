@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status, Cookie
 from passlib.context import CryptContext
 from datetime import timedelta, datetime as dt, timezone
 from pydantic import BaseModel
+from datetime import date
 from sqlmodel import select, Session as DBSession
 from models.database.db_models import User, AuthSession
 from database.database import get_session
@@ -32,6 +33,13 @@ class RegisterRequest(BaseModel):
     password: str
     key: str
     is_instructor: bool = False  # Changed from student to is_instructor for clarity
+
+
+class UpdateProfileRequest(BaseModel):
+    first_name: str | None = None
+    last_name: str | None = None
+    about_me: str | None = None
+    birthday: date | None = None
 
 
 def get_current_user(sid: str | None = Cookie(None),
@@ -137,5 +145,38 @@ def get_me(current_user: User = Depends(get_current_user), db: DBSession = Depen
     return {
         "id": current_user.id,
         "email": current_user.email,
-        "student": is_student
+        "student": is_student,
+        "first_name": current_user.first_name,
+        "last_name": current_user.last_name,
+        "about_me": current_user.about_me,
+        "birthday": current_user.birthday,
+    }
+
+
+@router.patch("/profile")
+def update_profile(
+    request: UpdateProfileRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    if request.first_name is not None:
+        current_user.first_name = request.first_name.strip() if request.first_name.strip() else None
+    if request.last_name is not None:
+        current_user.last_name = request.last_name.strip() if request.last_name.strip() else None
+    if request.about_me is not None:
+        current_user.about_me = request.about_me.strip() if request.about_me.strip() else None
+    if request.birthday is not None:
+        current_user.birthday = request.birthday if request.birthday else None
+
+    db.add(current_user)
+    db.commit()
+    db.refresh(current_user)
+
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "first_name": current_user.first_name,
+        "last_name": current_user.last_name,
+        "about_me": current_user.about_me,
+        "birthday": current_user.birthday,
     }

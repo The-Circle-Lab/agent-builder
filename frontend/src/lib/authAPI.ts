@@ -18,6 +18,17 @@ export interface User {
   id: number;
   email: string;
   student: boolean;
+  first_name?: string;
+  last_name?: string;
+  about_me?: string;
+  birthday?: string; // ISO date string
+}
+
+export interface UpdateProfileRequest {
+  first_name?: string;
+  last_name?: string;
+  about_me?: string;
+  birthday?: string; // ISO date string
 }
 
 export class AuthAPI {
@@ -94,5 +105,19 @@ export class AuthAPI {
     } catch {
       return false;
     }
+  }
+
+  static async updateProfile(profileData: UpdateProfileRequest): Promise<User> {
+    const response = await apiClient.patch<User>(ROUTES.AUTH.PROFILE, profileData);
+    
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.data) {
+      throw new Error('No profile data received');
+    }
+
+    return response.data;
   }
 } 

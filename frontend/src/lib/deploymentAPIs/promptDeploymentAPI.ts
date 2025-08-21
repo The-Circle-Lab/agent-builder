@@ -1,7 +1,14 @@
 // Prompt deployment specific interfaces and functionality
 export interface PromptSubmissionRequirement {
   prompt: string;
-  mediaType: 'textarea' | 'hyperlink';
+  mediaType: 'textarea' | 'hyperlink' | 'pdf';
+}
+
+export interface GroupInfo {
+  group_name: string;
+  group_members: string[];
+  member_count: number;
+  explanation?: string;
 }
 
 export interface PromptInfo {
@@ -9,12 +16,13 @@ export interface PromptInfo {
   main_question: string;
   submission_requirements: PromptSubmissionRequirement[];
   total_submissions: number;
+  group_info?: GroupInfo;
 }
 
 export interface PromptSubmissionResponse {
   submission_index: number;
   prompt_text: string;
-  media_type: 'textarea' | 'hyperlink';
+  media_type: 'textarea' | 'hyperlink' | 'pdf';
   user_response: string;
   submitted_at: string;
 }
@@ -29,6 +37,7 @@ export interface PromptSession {
   completed_at?: string;
   is_completed: boolean;
   submitted_responses?: PromptSubmissionResponse[];
+  group_info?: GroupInfo;
 }
 
 export interface PromptSubmissionRequest {
@@ -128,6 +137,37 @@ export class PromptDeploymentAPI {
       },
       credentials: 'include',
       body: JSON.stringify(submissionRequest),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText);
+    }
+
+    return await response.json();
+  }
+
+  // Submit a PDF file for a specific submission requirement
+  static async submitPdf(
+    deploymentId: string,
+    submissionIndex: number,
+    file: File
+  ): Promise<PromptSubmissionResult> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+    if (!(file instanceof File)) {
+      throw new Error('A PDF file is required');
+    }
+
+    const form = new FormData();
+    form.append('submission_index', String(submissionIndex));
+    form.append('file', file);
+
+    const response = await fetch(`${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/prompt/submit_pdf`, {
+      method: 'POST',
+      credentials: 'include',
+      body: form,
     });
 
     if (!response.ok) {

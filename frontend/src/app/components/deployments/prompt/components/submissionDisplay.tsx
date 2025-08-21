@@ -1,6 +1,7 @@
 import React from 'react';
-import { CheckCircleIcon, XCircleIcon, ArrowRightIcon, ArrowLeftIcon, LinkIcon, PencilIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XCircleIcon, ArrowRightIcon, ArrowLeftIcon, LinkIcon, PencilIcon, PaperClipIcon } from '@heroicons/react/24/outline';
 import { PromptSession, PromptSubmissionResponse } from '@/lib/deploymentAPIs/promptDeploymentAPI';
+import { API_CONFIG } from '@/lib/constants';
 
 interface SubmissionDisplayProps {
   session: PromptSession;
@@ -12,6 +13,8 @@ interface SubmissionDisplayProps {
   onResponseChange: (submissionIndex: number, value: string) => void;
   onSubmitResponse: () => void;
   onNavigateToSubmission: (index: number) => void;
+  selectedPdfFile?: File | null;
+  onPdfSelect?: (file: File | null) => void;
 }
 
 export default function SubmissionDisplay({
@@ -23,11 +26,14 @@ export default function SubmissionDisplay({
   error,
   onResponseChange,
   onSubmitResponse,
-  onNavigateToSubmission
+  onNavigateToSubmission,
+  selectedPdfFile,
+  onPdfSelect,
 }: SubmissionDisplayProps) {
   const currentRequirement = session.submission_requirements[submissionIndex];
   const isSubmitted = !!submittedResponse;
   const isLinkType = currentRequirement.mediaType === 'hyperlink';
+  const isPdfType = currentRequirement.mediaType === 'pdf';
 
   const handleInputChange = (value: string) => {
     onResponseChange(submissionIndex, value);
@@ -58,11 +64,18 @@ export default function SubmissionDisplay({
               Requirement {submissionIndex + 1} of {session.total_submissions}
             </h2>
             <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-              isLinkType 
-                ? 'bg-purple-100 text-purple-800' 
-                : 'bg-blue-100 text-blue-800'
+              isPdfType
+                ? 'bg-red-100 text-red-800'
+                : isLinkType 
+                  ? 'bg-purple-100 text-purple-800' 
+                  : 'bg-blue-100 text-blue-800'
             }`}>
-              {isLinkType ? (
+              {isPdfType ? (
+                <>
+                  <PaperClipIcon className="w-3 h-3 mr-1" />
+                  PDF Upload
+                </>
+              ) : isLinkType ? (
                 <>
                   <LinkIcon className="w-3 h-3 mr-1" />
                   Link Required
@@ -96,7 +109,22 @@ export default function SubmissionDisplay({
             <CheckCircleIcon className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <h3 className="text-sm font-medium text-green-900 mb-2">Your Submitted Response:</h3>
-              {isLinkType ? (
+              {isPdfType ? (
+                (() => {
+                  const docId = submittedResponse.user_response;
+                  const viewUrl = `${API_CONFIG.BASE_URL}/api/files/view/${docId}`;
+                  return (
+                    <a
+                      href={viewUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-blue-600 hover:text-blue-800 underline break-all"
+                    >
+                      View PDF (Document #{docId})
+                    </a>
+                  );
+                })()
+              ) : isLinkType ? (
                 <a
                   href={submittedResponse.user_response}
                   target="_blank"
@@ -123,7 +151,16 @@ export default function SubmissionDisplay({
             Your Response {isLinkType && <span className="text-red-500">*</span>}
           </label>
           
-          {isLinkType ? (
+          {isPdfType ? (
+            <input
+              id={`response-${submissionIndex}`}
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => onPdfSelect?.(e.target.files && e.target.files[0] ? e.target.files[0] : null)}
+              className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+              disabled={submitting}
+            />
+          ) : isLinkType ? (
             <input
               id={`response-${submissionIndex}`}
               type="url"
@@ -185,9 +222,9 @@ export default function SubmissionDisplay({
           {!isSubmitted && (
             <button
               onClick={onSubmitResponse}
-              disabled={submitting || !submissionResponse.trim()}
+              disabled={submitting || (isPdfType ? !selectedPdfFile : !submissionResponse.trim())}
               className={`inline-flex items-center px-6 py-2 border border-transparent text-sm font-medium rounded-md text-white ${
-                submitting || !submissionResponse.trim()
+                submitting || (isPdfType ? !selectedPdfFile : !submissionResponse.trim())
                   ? 'bg-gray-400 cursor-not-allowed'
                   : 'bg-blue-600 hover:bg-blue-700'
               }`}

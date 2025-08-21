@@ -1,6 +1,7 @@
 import React from 'react';
-import { CheckCircleIcon, XMarkIcon, LinkIcon, PencilIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XMarkIcon, LinkIcon, PencilIcon, PaperClipIcon } from '@heroicons/react/24/outline';
 import { PromptSession, PromptSubmissionResponse } from '@/lib/deploymentAPIs/promptDeploymentAPI';
+import { API_CONFIG } from '@/lib/constants';
 
 interface CompletionViewProps {
   session: PromptSession;
@@ -87,6 +88,7 @@ export default function CompletionView({
             {session.submission_requirements.map((requirement, index) => {
               const submittedResponse = submittedResponses[index];
               const isLinkType = requirement.mediaType === 'hyperlink';
+              const isPdfType = requirement.mediaType === 'pdf';
               
               if (!submittedResponse) return null;
               
@@ -94,7 +96,9 @@ export default function CompletionView({
                 <div key={index} className="border border-gray-200 rounded-lg p-4">
                   <div className="flex items-start space-x-3">
                     <div className="flex-shrink-0 mt-1">
-                      {isLinkType ? (
+                      {isPdfType ? (
+                        <PaperClipIcon className="h-5 w-5 text-red-600" />
+                      ) : isLinkType ? (
                         <LinkIcon className="h-5 w-5 text-purple-600" />
                       ) : (
                         <PencilIcon className="h-5 w-5 text-blue-600" />
@@ -107,11 +111,13 @@ export default function CompletionView({
                           Requirement {index + 1}
                         </h3>
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          isLinkType 
-                            ? 'bg-purple-100 text-purple-800' 
-                            : 'bg-blue-100 text-blue-800'
+                          isPdfType
+                            ? 'bg-red-100 text-red-800'
+                            : isLinkType 
+                              ? 'bg-purple-100 text-purple-800' 
+                              : 'bg-blue-100 text-blue-800'
                         }`}>
-                          {isLinkType ? 'Link' : 'Text'}
+                          {isPdfType ? 'PDF' : isLinkType ? 'Link' : 'Text'}
                         </span>
                       </div>
                       
@@ -121,7 +127,21 @@ export default function CompletionView({
                       
                       <div className="p-3 bg-gray-50 rounded border">
                         <p className="text-xs text-gray-500 mb-1">Your Response:</p>
-                        {isLinkType ? (
+                        {isPdfType ? (
+                          (() => {
+                            const viewUrl = `${API_CONFIG.BASE_URL}/api/files/view/${submittedResponse.user_response}`;
+                            return (
+                              <a
+                                href={viewUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-blue-600 hover:text-blue-800 underline break-all"
+                              >
+                                View PDF (Document #{submittedResponse.user_response})
+                              </a>
+                            );
+                          })()
+                        ) : isLinkType ? (
                           <a
                             href={submittedResponse.user_response}
                             target="_blank"
@@ -131,7 +151,7 @@ export default function CompletionView({
                             {submittedResponse.user_response}
                           </a>
                         ) : (
-                          <p className="text-gray-800 whitespace-pre-wrap">
+                          <p className="text-black whitespace-pre-wrap">
                             {submittedResponse.user_response}
                           </p>
                         )}

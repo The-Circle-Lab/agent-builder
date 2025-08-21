@@ -186,7 +186,7 @@ export function createWorkflowJSON(nodes: Node[], edges: Edge[], pageRelationshi
         const node = nodes.find(n => n.id === nodeId);
         if (node && node.type !== 'page') {
           // Get node configuration
-          const config = getNodeConfig(node);
+          const config = getNodeConfig(node, edges, nodes, pageRelationships);
           
           // Get attachments for specific node types
           const attachments = getNodeAttachments(node, edges, nodes);
@@ -311,7 +311,7 @@ export function createWorkflowJSON(nodes: Node[], edges: Edge[], pageRelationshi
         const node = nodes.find(n => n.id === nodeId);
         if (node && node.type !== 'behaviour') {
           // Get node configuration
-          const config = getNodeConfig(node);
+          const config = getNodeConfig(node, edges, nodes, pageRelationships);
           
           // Get attachments for specific node types
           const attachments = getNodeAttachments(node, edges, nodes);
@@ -376,7 +376,7 @@ export function createWorkflowJSON(nodes: Node[], edges: Edge[], pageRelationshi
       visitedNodes.add(currentNode.id);
 
       // Get node configuration
-      const config = getNodeConfig(currentNode);
+      const config = getNodeConfig(currentNode, edges, nodes);
 
       // Get attachments for specific node types
       const attachments = getNodeAttachments(currentNode, edges, nodes);

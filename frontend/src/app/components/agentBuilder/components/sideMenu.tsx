@@ -37,6 +37,7 @@ const objectTypeFilters: Record<string, string[]> = {
   Questions: ["questions"],
   Submission: ["submission"],
   Behaviour: ["behaviour"],
+  LivePresentationPrompt: ["content"],
 };
 
 export function SideMenu({

@@ -2,7 +2,7 @@ from typing import Dict, Any, List, Optional
 
 
 class PromptDeployment:
-    def __init__(self, main_question: str, submission_requirements: List[Dict[str, Any]]):
+    def __init__(self, main_question: str, submission_requirements: List[Dict[str, Any]], group_data: Optional[Dict[str, Any]] = None):
         """
         Initialize prompt deployment with the main question and submission requirements
         
@@ -11,16 +11,20 @@ class PromptDeployment:
             submission_requirements: List of submission prompts with their media types
                                    Each item should have 'prompt' and 'mediaType' keys
                                    Can be empty for question-only prompts
+            group_data: Optional group data if this prompt is connected to a group variable
         """
         self.main_question = main_question
         self.submission_requirements = submission_requirements
+        self.group_data = group_data
         
         # Validate submission requirements (only if they exist)
         for i, req in enumerate(submission_requirements):
             if 'prompt' not in req or 'mediaType' not in req:
                 raise ValueError(f"Submission requirement {i} missing 'prompt' or 'mediaType'")
-            if req['mediaType'] not in ['textarea', 'hyperlink']:
-                raise ValueError(f"Invalid mediaType '{req['mediaType']}' in requirement {i}. Must be 'textarea' or 'hyperlink'")
+            if req['mediaType'] not in ['textarea', 'hyperlink', 'pdf']:
+                raise ValueError(
+                    f"Invalid mediaType '{req['mediaType']}' in requirement {i}. Must be 'textarea', 'hyperlink' or 'pdf'"
+                )
 
     def get_main_question(self) -> str:
         """Get the main prompt question"""
@@ -43,6 +47,60 @@ class PromptDeployment:
     def is_question_only(self) -> bool:
         """Check if this is a question-only prompt (no submissions required)"""
         return len(self.submission_requirements) == 0
+
+    def has_group_data(self) -> bool:
+        """Check if this prompt has group data to display"""
+        return self.group_data is not None
+
+    def get_user_group_info(self, user_email: str) -> Optional[Dict[str, Any]]:
+        """
+        Get group information for a specific user
+        
+        Args:
+            user_email: Email of the user to find group info for
+            
+        Returns:
+            Dictionary with group information or None if user not found
+        """
+        if not self.group_data:
+            return None
+        
+        # The group_data should contain group assignments from the group behavior
+        # Format: {"Group 1": ["user1@email.com", "user2@email.com"], ...}
+        for group_name, members in self.group_data.items():
+            if isinstance(members, list) and user_email in members:
+                return {
+                    "group_name": group_name,
+                    "group_members": members,
+                    "member_count": len(members)
+                }
+        
+        return None
+
+    def get_user_group_info_with_explanation(self, user_email: str, explanations: Optional[Dict[str, str]] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get group information for a specific user including explanation
+        
+        Args:
+            user_email: Email of the user to find group info for
+            explanations: Optional dictionary mapping group names to explanations
+            
+        Returns:
+            Dictionary with group information including explanation or None if user not found
+        """
+        group_info = self.get_user_group_info(user_email)
+        if not group_info:
+            return None
+        
+        # Add explanation if available
+        if explanations and group_info["group_name"] in explanations:
+            group_info["explanation"] = explanations[group_info["group_name"]]
+        
+        return group_info
+
+    def set_group_data(self, group_data: Dict[str, Any]) -> None:
+        """Set group data for this prompt deployment"""
+        self.group_data = group_data
 
     def validate_submission(self, index: int, response: str) -> Dict[str, Any]:
         """
@@ -78,6 +136,13 @@ class PromptDeployment:
                     "valid": False,
                     "error": "Please provide a valid URL (must start with http:// or https://)"
                 }
+        elif media_type == 'pdf':
+            # PDF submissions should be handled via the dedicated file upload endpoint.
+            # Reject validation here to guide clients to the correct flow.
+            return {
+                "valid": False,
+                "error": "This submission requires a PDF upload. Use the PDF upload endpoint."
+            }
         
         return {
             "valid": True,
@@ -98,20 +163,27 @@ class PromptDeployment:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert deployment to dictionary representation"""
-        return {
+        result = {
             "main_question": self.main_question,
             "submission_requirements": self.submission_requirements,
             "submission_count": len(self.submission_requirements),
             "is_question_only": self.is_question_only(),
+            "has_group_data": self.has_group_data()
         }
+        
+        if self.group_data:
+            result["group_data"] = self.group_data
+        
+        return result
 
     @staticmethod
-    def from_config(config: Dict[str, Any]) -> 'PromptDeployment':
+    def from_config(config: Dict[str, Any], group_data: Optional[Dict[str, Any]] = None) -> 'PromptDeployment':
         """
         Create PromptDeployment from workflow configuration
         
         Args:
             config: Full workflow configuration dict
+            group_data: Optional group data if this prompt is connected to a group variable
             
         Returns:
             PromptDeployment instance
@@ -136,5 +208,5 @@ class PromptDeployment:
                 # Even if submission node exists but has no prompts, treat as question-only
                 submission_prompts = []
         
-        # Create deployment with main question and submission requirements (empty if none)
-        return PromptDeployment(main_question, submission_prompts) 
+        # Create deployment with main question, submission requirements, and group data
+        return PromptDeployment(main_question, submission_prompts, group_data) 

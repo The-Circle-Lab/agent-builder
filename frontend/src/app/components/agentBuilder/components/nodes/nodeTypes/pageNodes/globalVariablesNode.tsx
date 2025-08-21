@@ -117,7 +117,7 @@ function GlobalVariablesNodeComponent({
           {variables.map((variable) => (
             <div 
               key={variable.id}
-              className="relative flex items-center justify-between p-2 mx-2 my-1 bg-white bg-opacity-90 rounded border"
+              className="relative flex items-center justify-between p-2 mx-2 my-1 bg-white/90 rounded border"
               style={{ height: variableHeight - 10 }}
             >
               {/* Variable Info */}
@@ -178,7 +178,7 @@ function GlobalVariablesNodeComponent({
               e.stopPropagation();
               handleSettings();
             }}
-            className="w-full flex items-center justify-center p-2 bg-white bg-opacity-80 hover:bg-opacity-100 rounded border-2 border-dashed transition-all duration-200"
+            className="w-full flex items-center justify-center p-2 bg-white/80 hover:bg-white rounded border-2 border-dashed transition-all duration-200"
             style={{ 
               borderColor: backgroundColor,
             }}

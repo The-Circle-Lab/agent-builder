@@ -11,6 +11,12 @@ class User(SQLModel, table=True):
     is_active: bool = True
     is_global_instructor: bool = False  # Global instructor flag for bootstrapping
     
+    # Profile fields
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    about_me: Optional[str] = None
+    birthday: Optional[dt.date] = None
+    
     # Authentication relationships
     auth_sessions: List["AuthSession"] = Relationship(back_populates="user", sa_relationship_kwargs={"cascade": "all, delete"})
     

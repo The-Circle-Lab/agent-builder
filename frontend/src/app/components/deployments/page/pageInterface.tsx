@@ -10,6 +10,7 @@ export default function PageInterface({ deploymentId, deploymentName, onBack }: 
     pages,
     currentPage,
     currentPageInfo,
+    pagesAccessible,
     loading,
     error,
     setCurrentPage,
@@ -22,6 +23,7 @@ export default function PageInterface({ deploymentId, deploymentName, onBack }: 
         pages={pages}
         currentPage={currentPage}
         deploymentName={deploymentName}
+        pagesAccessible={pagesAccessible}
         onPageChange={setCurrentPage}
         onBack={onBack}
       />

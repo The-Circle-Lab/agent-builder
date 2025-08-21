@@ -10,6 +10,14 @@ from api.classes import router as class_router
 from api.file_storage import router as file_storage_router
 from services.deployment_manager import cleanup_all_deployments
 from models.database.db_models import User
+# Import theme models and their dependencies to ensure they're registered for database creation
+from models.database.theme_models import ThemeAssignment, Theme, ThemeKeyword, ThemeSnippet, ThemeStudentAssociation
+from models.database.page_models import PageDeploymentState, PageDeploymentVariable, BehaviorExecutionHistory
+from models.database.grouping_models import GroupAssignment, Group, GroupMember
+from models.database.live_presentation_models import (
+    LivePresentationSession, LivePresentationStudentConnection, 
+    LivePresentationResponse, LivePresentationPrompt
+)
 from contextlib import asynccontextmanager
 import logging
 from datetime import datetime
