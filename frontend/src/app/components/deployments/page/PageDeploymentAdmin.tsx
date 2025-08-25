@@ -197,6 +197,7 @@ export default function PageDeploymentAdmin({
     execution_time?: string;
     output_written_to_variable?: string;
     groups?: Record<string, string[]>;
+    explanations?: Record<string, string>;
     themes?: ThemeInfo[];
     warning?: string;
     error?: string;
@@ -331,6 +332,7 @@ export default function PageDeploymentAdmin({
             execution_time: status.result?.execution_time,
             output_written_to_variable: status.result?.output_written_to_variable,
             groups: status.result?.groups,
+            explanations: status.result?.explanations,
             themes: status.result?.themes,
             warning: status.result?.warning,
             error: status.result?.error
@@ -1230,6 +1232,22 @@ export default function PageDeploymentAdmin({
                             <p className="font-medium text-sm">{groupName}</p>
                             <p className="text-xs text-gray-600">
                               {Array.isArray(members) ? members.join(', ') : String(members)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {lastExecution.explanations && (
+                    <div className="mt-4">
+                      <p className="text-sm text-gray-500 mb-2">Group Explanations:</p>
+                      <div className="grid grid-cols-1 gap-3 text-black">
+                        {Object.entries(lastExecution.explanations).map(([groupName, explanation]) => (
+                          <div key={groupName} className="bg-blue-50 rounded p-4 border border-blue-200">
+                            <p className="font-medium text-sm text-blue-900 mb-2">{groupName}</p>
+                            <p className="text-sm text-blue-800 leading-relaxed">
+                              {explanation}
                             </p>
                           </div>
                         ))}
