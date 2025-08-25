@@ -102,43 +102,47 @@ export function getNodeConfig(node: Node, edges?: Edge[], nodes?: Node[]) {
     }
   }
 
-  // Special handling for live presentation prompt nodes: convert selected list variable names to backend format
+  // Special handling for live presentation prompt nodes: convert list variable IDs in prompts to backend format
   if (node.type === 'livePresentationPrompt' && edges && nodes) {
-    const selectedListVariableNames = config['selected_list_variables'] as string[] || [];
+    const savedPrompts = config['saved_prompts'] as Array<{
+      id: string;
+      statement: string;
+      hasInput: boolean;
+      inputType?: string;
+      inputPlaceholder?: string;
+      useRandomListItem?: boolean;
+      listVariableId?: string;
+    }> || [];
     
-    if (selectedListVariableNames.length > 0) {
-      // Get all list variables from behaviors in the workflow
-      const behaviorListVars = getListVariablesFromBehaviors(nodes, edges);
-      
-      // Convert variable names to backend format with details
-      const selectedListVariableDetails: Array<{
-        id: string;
-        variableName: string;
-        origin: string;
-        origin_type: string;
-        type: string;
-        page: number;
-        index: number;
-      }> = [];
-      
-      selectedListVariableNames.forEach(variableName => {
-        const variable = behaviorListVars.find(v => v.name === variableName);
+    // Get all list variables from behaviors in the workflow for lookup
+    const behaviorListVars = getListVariablesFromBehaviors(nodes, edges);
+    
+    // Process each prompt to convert listVariableId to full variable details
+    const processedPrompts = savedPrompts.map(prompt => {
+      if (prompt.useRandomListItem && prompt.listVariableId) {
+        // Find the variable details for this listVariableId
+        const variable = behaviorListVars.find(v => v.name === prompt.listVariableId);
         if (variable) {
-          selectedListVariableDetails.push({
-            id: variable.name, // Use variable name as ID
-            variableName: variable.name,
-            origin: variable.origin,
-            origin_type: variable.origin_type,
-            type: variable.type,
-            page: variable.page,
-            index: variable.index,
-          });
+          return {
+            ...prompt,
+            // Replace listVariableId with full variable details for the backend
+            listVariable: {
+              id: variable.name,
+              variableName: variable.name,
+              origin: variable.origin,
+              origin_type: variable.origin_type,
+              type: variable.type,
+              page: variable.page,
+              index: variable.index,
+            }
+          };
         }
-      });
-      
-      // Replace the variable name array with full variable details for the backend
-      config['selected_list_variables'] = selectedListVariableDetails;
-    }
+      }
+      return prompt;
+    });
+    
+    // Update the config with processed prompts
+    config['saved_prompts'] = processedPrompts;
   }
 
   return config;
