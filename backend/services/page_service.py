@@ -1276,29 +1276,48 @@ class PageDeployment:
                         print(f"   Theme count: {len(result.get('themes', []))}")
                         print(f"   Student data count: {len(captured_input_data) if captured_input_data else 0}")
                     
-                    loop = asyncio.get_event_loop()
-                    # Create and immediately schedule the task to run
-                    task = loop.create_task(self._save_behavior_execution(
-                        behavior_number=behavior_number,
-                        behavior_type=behavior_type,
-                        executed_by_user_id=executed_by_user_id,
-                        success=result.get("success", False),
-                        execution_time_seconds=execution_time,
-                        execution_result=result,
-                        error_message=result.get("error") if not result.get("success", False) else None,
-                        student_data=captured_input_data if behavior_type in ["group", "themeCreator"] else None
-                    ))
+                    # For group behaviors, log what we're saving
+                    if behavior_type == "group":
+                        print(f"🎯 PREPARING TO SAVE GROUP EXECUTION:")
+                        print(f"   Behavior: {behavior_number}")
+                        print(f"   Success: {result.get('success', False)}")
+                        print(f"   Has groups: {'groups' in result}")
+                        print(f"   Has explanations: {'explanations' in result}")
                     
-                    # For theme creator, try to ensure the task completes
-                    if behavior_type == "themeCreator":
-                        print(f"🎯 Theme creator task created, attempting to ensure completion...")
+                    try:
+                        # Try to get existing event loop
+                        loop = asyncio.get_running_loop()
+                        # Create and await the task in the existing loop
+                        task = loop.create_task(self._save_behavior_execution(
+                            behavior_number=behavior_number,
+                            behavior_type=behavior_type,
+                            executed_by_user_id=executed_by_user_id,
+                            success=result.get("success", False),
+                            execution_time_seconds=execution_time,
+                            execution_result=result,
+                            error_message=result.get("error") if not result.get("success", False) else None,
+                            student_data=captured_input_data if behavior_type in ["group", "themeCreator"] else None
+                        ))
+                        print(f"✅ Scheduled {behavior_type} behavior save task")
+                    except RuntimeError:
+                        # No running event loop, create a new one and run the coroutine
+                        print(f"🔄 No running event loop, creating new one for {behavior_type} save...")
+                        asyncio.run(self._save_behavior_execution(
+                            behavior_number=behavior_number,
+                            behavior_type=behavior_type,
+                            executed_by_user_id=executed_by_user_id,
+                            success=result.get("success", False),
+                            execution_time_seconds=execution_time,
+                            execution_result=result,
+                            error_message=result.get("error") if not result.get("success", False) else None,
+                            student_data=captured_input_data if behavior_type in ["group", "themeCreator"] else None
+                        ))
+                        print(f"✅ Completed synchronous {behavior_type} behavior save")
                         
-                except RuntimeError:
-                    # No event loop running, try to run synchronously 
-                    print(f"⚠️  No event loop running, attempting synchronous save for {behavior_type}")
-                    if behavior_type == "themeCreator":
-                        print(f"🎯 Attempting synchronous theme save...")
-                    pass
+                except Exception as save_error:
+                    # Handle any saving errors gracefully
+                    print(f"⚠️  Failed to save {behavior_type} behavior execution: {save_error}")
+                    print(f"   Behavior will still return results, but execution won't be saved to database")
             
             return result
             
