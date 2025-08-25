@@ -13,13 +13,6 @@ export class LivePresentationPromptNodeConfig extends BaseNodeConfig {
       type: "livePresentationPrompts",
       defaultValue: [],
       placeholder: "Configure prompts that can display random items from connected list variables alongside the prompt text",
-    },
-    {
-      key: "selected_list_variables",
-      label: "List Variables for Random Items",
-      type: "listVariableSelector",
-      defaultValue: [],
-      placeholder: "Select list variables from behaviors (groups, themes) to use for random item display",
     }
   ] as const satisfies readonly PropertyDefinition[];
 }

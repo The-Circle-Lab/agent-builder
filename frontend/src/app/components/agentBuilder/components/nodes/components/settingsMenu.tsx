@@ -6,7 +6,7 @@ import { getNodeConfig } from "../nodeRegistry";
 import { PropertyDefinition } from "../types";
 import DocumentManager from "./DocumentManager";
 import { Node, Edge } from "@xyflow/react";
-import { getAvailableSubmissionPrompts } from "../../../scripts/nodeHelpers";
+import { getAvailableSubmissionPrompts, getListVariablesFromBehaviors } from "../../../scripts/nodeHelpers";
 
 export * from "../../../hooks/useSettingsMenu";
 
@@ -74,10 +74,25 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
 
     if (!hasLivePresentationNode) return [];
 
-    // Find global variables connected to this page with list variables
+    // Get all list variables from behaviors and global variables in the workflow
     const connectedListVariables: { id: string; name: string; items: string[] }[] = [];
     
-    // Find edges connecting to this page
+    try {
+      // Get behavior-generated list variables
+      const behaviorListVars = getListVariablesFromBehaviors(nodes, edges);
+      
+      behaviorListVars.forEach(variable => {
+        connectedListVariables.push({
+          id: variable.name, // Use variable name as ID
+          name: variable.name,
+          items: [] // Behavior variables don't have predefined items - they're generated at runtime
+        });
+      });
+    } catch (error) {
+      console.warn('Error getting behavior list variables:', error);
+    }
+    
+    // Also check for global variables connected to this page (for backward compatibility)
     const pageEdges = edges.filter(edge => edge.target === currentPageId);
     
     pageEdges.forEach(edge => {
@@ -90,16 +105,21 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
           if (variable.type === 'list') {
             // Check if this variable's handle is connected
             if (edge.sourceHandle === `${variable.id}-output`) {
-              connectedListVariables.push({
-                id: variable.id,
-                name: variable.name,
-                items: variable.items || [] // Allow empty lists
-              });
+              // Only add if not already present from behaviors
+              const exists = connectedListVariables.some(v => v.id === variable.id);
+              if (!exists) {
+                connectedListVariables.push({
+                  id: variable.id,
+                  name: variable.name,
+                  items: variable.items || [] // Allow empty lists
+                });
+              }
             }
           }
         });
       }
     });
+    
     return connectedListVariables;
   }, [nodes, edges, pageRelationships, currentNodeId]);
 
