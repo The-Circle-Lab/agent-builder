@@ -118,15 +118,7 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// Registry of available node types (dynamically generated from NodeClasses)
-export const AVAILABLE_NODE_TYPES = Object.values(NodeClasses).map(
-  (NodeClass) => {
-    const tempInstance = new (NodeClass as NodeClassConstructor)({
-      id: "temp",
-      data: {},
-    });
-    return tempInstance.getNodeType();
-  }
-);
+// Registry of available node types 
+export const AVAILABLE_NODE_TYPES = Object.keys(NODE_MODULES) as (keyof typeof NODE_MODULES)[];
 
 export type AvailableNodeType = (typeof AVAILABLE_NODE_TYPES)[number];

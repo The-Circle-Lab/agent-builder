@@ -2,7 +2,7 @@ import React from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPalette } from "@fortawesome/free-solid-svg-icons";
 import { Handle, Position, Edge, Node } from "@xyflow/react";
-import { NodePropertyConfig, NodeData } from "../../types";
+import { NodePropertyConfig, NodeData, Var } from "../../types";
 import { BaseNode, BaseNodeProps, NodeDataFromConfig, HandleConfig, SideMenuInfo } from "../baseNode";
 import { themeCreatorNodeConfig, ThemeCreatorNodeConfig } from "../configs/themeCreatorNodeConfig";
 
@@ -96,7 +96,7 @@ export class ThemeCreatorNodeClass extends BaseNode<ThemeCreatorNodeProps, Theme
 
     // Find the edge connected to the output handle
     const outputEdge = edges.find(
-      (edge) => edge.source === id && edge.sourceHandle === "output"
+      (edge) => edge.source === id && edge.sourceHandle === "theme-output"
     );
 
     if (!outputEdge) return null;
@@ -104,6 +104,22 @@ export class ThemeCreatorNodeClass extends BaseNode<ThemeCreatorNodeProps, Theme
     // Find and return the target node
     const targetNode = nodes.find((node) => node.id === outputEdge.target);
     return targetNode || null;
+  }
+
+  public nodeVariables(_nodes?: Node[]): Var[] {
+    if (!_nodes) return [];
+
+    const pageNumber = this.getCurrentPageId(); 
+    const _var: Var = {
+      name: "theme_" + pageNumber,
+      origin_type: "behaviour",
+      origin: "theme",
+      type: "list",
+      page: parseInt(pageNumber || "0"),
+      index: 0,
+    }
+
+    return [_var];
   }
 }
 

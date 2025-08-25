@@ -33,6 +33,12 @@ export class GroupNodeConfig extends BaseNodeConfig {
       defaultValue: false,
     },
     {
+      key: "include_explanations",
+      label: "Generate AI Explanations",
+      type: "checkbox",
+      defaultValue: true,
+    },
+    {
       key: "selected_submission_prompts",
       label: "Submission Prompts for Grouping",
       type: "submissionPromptSelector",

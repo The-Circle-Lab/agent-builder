@@ -1,7 +1,8 @@
 import React, { Component } from "react";
 import { NodeProps, Edge, Node } from "@xyflow/react";
 import { NodeContainer } from "../components/nodeContainer";
-import { NodePropertyConfig, NodeData, PropertyDefinition } from "../types";
+import { NodePropertyConfig, NodeData, PropertyDefinition, Var } from "../types";
+import { getGlobalNodeContext } from "../nodeContext";
 
 // Utility type to map PropertyDefinition types to TypeScript types
 type PropertyTypeMap = {
@@ -67,6 +68,8 @@ export interface BaseNodeProps {
   data?: BaseNodeData;
   onDelete?: () => void;
   onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void;
+  pageRelationships?: Record<string, string[]>;
+  nodes?: { id: string; type: string }[];
 }
 
 export abstract class BaseNode<
@@ -103,6 +106,8 @@ export abstract class BaseNode<
       edges?: Edge[];
       onDelete?: (nodeId: string) => void;
       onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void;
+      pageRelationships?: Record<string, string[]>;
+      nodes?: { id: string; type: string }[];
     }
   ) {
     const NodeTypeComponent = (props: NodeProps) => (
@@ -112,6 +117,8 @@ export abstract class BaseNode<
         edges={handlers.edges}
         onDelete={() => handlers.onDelete?.(props.id)}
         onSettings={handlers.onSettings}
+        pageRelationships={handlers.pageRelationships}
+        nodes={handlers.nodes}
       />
     );
     NodeTypeComponent.displayName = `NodeType(${
@@ -189,6 +196,61 @@ export abstract class BaseNode<
     // Base implementation - override in subclasses to use nodes parameter
     return null;
   }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  public nodeVariables(_nodes?: Node[]): Var[] {
+    return [];
+  }
+
+  public getCurrentPage(): { id: string; type: string } | null {
+    const { id } = this.props;
+    let { pageRelationships, nodes } = this.props;
+    
+    // If props don't have the data, get it from global context
+    if (!pageRelationships || !nodes) {
+      const globalContext = getGlobalNodeContext();
+      pageRelationships = pageRelationships || globalContext.getCurrentPageRelationships();
+      nodes = nodes || globalContext.getCurrentNodes();
+    }
+    
+    if (!id || !pageRelationships || !nodes) {
+      return null;
+    }
+
+    // Look through all page relationships to find which page contains this node
+    for (const [pageId, childIds] of Object.entries(pageRelationships)) {
+      if (childIds.includes(id)) {
+        // Find the actual page node in the nodes array
+        const pageNode = nodes.find((n) => n.id === pageId && (n.type === "page" || n.type === "behaviour"));
+        if (pageNode) {
+          return { id: pageNode.id, type: pageNode.type };
+        }
+      }
+    }
+    return null;
+  }
+
+  public getCurrentPageId(): string | null {
+    const currentPage = this.getCurrentPage();
+    if (!currentPage) return null;
+
+    // Get the full nodes to access page data including pageNumber
+    const globalContext = getGlobalNodeContext();
+    const fullNodes = globalContext.getCurrentFullNodes();
+    
+    // Find the page node in the full nodes array to get its data
+    const pageNode = fullNodes.find(n => n.id === currentPage.id);
+    if (pageNode && pageNode.data && typeof (pageNode.data as Record<string, unknown>).pageNumber !== 'undefined') {
+      return String((pageNode.data as Record<string, unknown>).pageNumber);
+    }
+    
+    // Fallback to page ID if pageNumber not found
+    return currentPage.id;
+  }
+
+  public isInPage(): boolean {
+    return this.getCurrentPage() !== null;
+  }
 }
 
 // Abstract base class for node configurations
@@ -215,5 +277,11 @@ export abstract class BaseNodeConfig {
       displayName: this.displayName,
       properties: [...this.properties], // Convert readonly array to mutable for compatibility
     };
+  }
+
+  // Helper method to get available submission prompt variables
+  // This will be overridden in configs that need to provide dynamic options
+  protected getSubmissionPromptOptions(): string[] {
+    return [];
   }
 }

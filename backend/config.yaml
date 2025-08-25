@@ -76,6 +76,13 @@ file_storage:
   base_directory: "./uploads"
   max_file_age_days: 365  # Keep files for 1 year
 
+# Celery Configuration (uses environment variables)
+celery:
+  broker_url: "${CELERY_BROKER_URL:redis://localhost:6379/0}"
+  result_backend: "${CELERY_RESULT_BACKEND:redis://localhost:6379/0}"
+  task_soft_time_limit: 300  # 5 minutes
+  task_time_limit: 600       # 10 minutes
+
 # File paths
 paths:
   logs_dir: "./logs"

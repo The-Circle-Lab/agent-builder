@@ -10,6 +10,7 @@ from services.pages_manager import (
     get_behavior_execution_history,
     set_pages_accessible
 )
+from services.celery_tasks import execute_behavior_task, check_task_status
 
 router = APIRouter()
 
@@ -192,6 +193,7 @@ class PageChatRequest(BaseModel):
 
 class BehaviorTriggerRequest(BaseModel):
     behavior_number: str
+    async_execution: Optional[bool] = True  # Default to async execution
 
 class BehaviorExecutionResponse(BaseModel):
     behavior_number: str
@@ -205,7 +207,22 @@ class BehaviorExecutionResponse(BaseModel):
     warning: Optional[str] = None
     error: Optional[str] = None
 
-@router.post("/{deployment_id}/behaviors/trigger", response_model=BehaviorExecutionResponse)
+class AsyncBehaviorExecutionResponse(BaseModel):
+    behavior_number: str
+    task_id: str
+    status: str
+    message: str
+    
+class TaskStatusResponse(BaseModel):
+    task_id: str
+    state: str
+    status: str
+    progress: int
+    stage: str
+    result: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None
+
+@router.post("/{deployment_id}/behaviors/trigger")
 async def trigger_behavior_execution(
     deployment_id: str,
     request: BehaviorTriggerRequest,
@@ -215,6 +232,7 @@ async def trigger_behavior_execution(
     """
     Trigger execution of a specific behavior for instructors.
     The behavior will automatically resolve its input sources and execute.
+    Supports both synchronous and asynchronous execution.
     """
     
     # Validate deployment access and require instructor role
@@ -259,39 +277,210 @@ async def trigger_behavior_execution(
             detail=f"Behavior {request.behavior_number} not found"
         )
     
+    # Get behavior configuration for task
+    behavior_config = behavior.get_behavior_deployment().get_config()
+    behavior_config['behavior_type'] = behavior.get_behavior_deployment().get_behavior_type()
+    
+    # Check if this is a heavy operation that should run async by default
+    heavy_behaviors = ['group_assignment', 'theme_creator']
+    is_heavy_behavior = behavior_config.get('behavior_type') in heavy_behaviors
+    
+    # Use async execution if requested or if it's a heavy behavior
+    use_async = request.async_execution if request.async_execution is not None else is_heavy_behavior
+    
+    if use_async:
+        try:
+            print(f"🚀 Starting async behavior execution: {request.behavior_number}")
+            print(f"   Deployment: {deployment_id}")
+            print(f"   Behavior type: {behavior_config.get('behavior_type')}")
+            
+            # Start async task
+            task = execute_behavior_task.delay(
+                deployment_id=deployment_id,
+                behavior_number=request.behavior_number,
+                executed_by_user_id=current_user.id,
+                behavior_config=behavior_config
+            )
+            
+            return AsyncBehaviorExecutionResponse(
+                behavior_number=request.behavior_number,
+                task_id=task.id,
+                status="PENDING",
+                message=f"Behavior execution started. Use task ID {task.id} to check progress."
+            )
+            
+        except Exception as e:
+            print(f"❌ Failed to start async behavior execution: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to start async behavior execution: {str(e)}"
+            )
+    else:
+        # Synchronous execution (legacy mode)
+        try:
+            from datetime import datetime
+            start_time = datetime.now()
+            
+            print(f"⚡ Starting sync behavior execution: {request.behavior_number}")
+            
+            # Execute behavior with resolved input and track execution
+            result = page_deployment.execute_behavior_with_resolved_input(
+                request.behavior_number, 
+                executed_by_user_id=current_user.id
+            )
+            
+            end_time = datetime.now()
+            execution_time = str(end_time - start_time)
+            
+            # Format response
+            response = BehaviorExecutionResponse(
+                behavior_number=request.behavior_number,
+                success=result.get("success", False),
+                execution_time=execution_time,
+                groups=result.get("groups"),
+                explanations=result.get("explanations"),
+                themes=result.get("themes"),  # Add theme support
+                metadata=result.get("metadata"),
+                output_written_to_variable=result.get("output_written_to_variable"),
+                warning=result.get("warning"),
+                error=result.get("error")
+            )
+            
+            return response
+            
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Behavior execution failed: {str(e)}"
+            )
+
+@router.get("/{deployment_id}/behaviors/tasks/{task_id}", response_model=TaskStatusResponse)
+async def get_behavior_task_status(
+    deployment_id: str,
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """
+    Get the status of an async behavior execution task.
+    """
+    
+    # Validate deployment access and require instructor role
+    db_deployment = await get_deployment_and_check_access(
+        deployment_id, current_user, db, require_instructor=True
+    )
+    
+    if not db_deployment.is_page_based:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This deployment is not page-based and does not support behaviors"
+        )
+    
     try:
-        from datetime import datetime
-        start_time = datetime.now()
+        from celery.result import AsyncResult
+        from services.celery_tasks import celery_app
         
-        # Execute behavior with resolved input and track execution
-        result = page_deployment.execute_behavior_with_resolved_input(
-            request.behavior_number, 
-            executed_by_user_id=current_user.id
-        )
+        # Check task status
+        result = AsyncResult(task_id, app=celery_app)
         
-        end_time = datetime.now()
-        execution_time = str(end_time - start_time)
-        
-        # Format response
-        response = BehaviorExecutionResponse(
-            behavior_number=request.behavior_number,
-            success=result.get("success", False),
-            execution_time=execution_time,
-            groups=result.get("groups"),
-            explanations=result.get("explanations"),
-            themes=result.get("themes"),  # Add theme support
-            metadata=result.get("metadata"),
-            output_written_to_variable=result.get("output_written_to_variable"),
-            warning=result.get("warning"),
-            error=result.get("error")
-        )
+        if result.state == 'PENDING':
+            response = TaskStatusResponse(
+                task_id=task_id,
+                state=result.state,
+                status='Task is waiting to be processed...',
+                progress=0,
+                stage='pending'
+            )
+        elif result.state == 'PROGRESS':
+            info = result.info or {}
+            response = TaskStatusResponse(
+                task_id=task_id,
+                state=result.state,
+                status=info.get('status', 'Processing...'),
+                progress=info.get('progress', 0),
+                stage=info.get('stage', 'processing')
+            )
+        elif result.state == 'SUCCESS':
+            success_result = result.result or {}
+            behavior_result = success_result.get('result', {})
+            response = TaskStatusResponse(
+                task_id=task_id,
+                state=result.state,
+                status='Task completed successfully',
+                progress=100,
+                stage='completed',
+                result=behavior_result
+            )
+        elif result.state == 'FAILURE':
+            error_info = result.info or {}
+            if isinstance(error_info, dict):
+                error_msg = error_info.get('error', str(error_info))
+            else:
+                error_msg = str(error_info)
+            
+            response = TaskStatusResponse(
+                task_id=task_id,
+                state=result.state,
+                status=f"Task failed: {error_msg}",
+                progress=0,
+                stage='failed',
+                error=error_msg
+            )
+        else:
+            response = TaskStatusResponse(
+                task_id=task_id,
+                state=result.state,
+                status=f'Unknown state: {result.state}',
+                progress=0,
+                stage='unknown'
+            )
         
         return response
         
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Behavior execution failed: {str(e)}"
+            detail=f"Failed to get task status: {str(e)}"
+        )
+
+@router.post("/{deployment_id}/behaviors/tasks/{task_id}/cancel")
+async def cancel_behavior_task(
+    deployment_id: str,
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """
+    Cancel a running async behavior execution task.
+    """
+    
+    # Validate deployment access and require instructor role
+    db_deployment = await get_deployment_and_check_access(
+        deployment_id, current_user, db, require_instructor=True
+    )
+    
+    if not db_deployment.is_page_based:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This deployment is not page-based and does not support behaviors"
+        )
+    
+    try:
+        from services.celery_tasks import celery_app
+        
+        # Revoke/cancel the task
+        celery_app.control.revoke(task_id, terminate=True)
+        
+        return {
+            "message": f"Task {task_id} has been cancelled",
+            "task_id": task_id,
+            "cancelled": True
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel task: {str(e)}"
         )
 
 @router.get("/{deployment_id}/behaviors", response_model=List[Dict[str, Any]])
@@ -389,8 +578,8 @@ async def get_deployment_variables(
     page_deployment = deployment_info["page_deployment"]
     page_deployment.set_database_session(db)
     
-    # Get variable summary
-    return page_deployment.get_variable_summary()
+    # Get variable summary (behavior variables only for admin)
+    return page_deployment.get_variable_summary(behavior_variables_only=True)
 
 @router.post("/{deployment_id}/pages/chat", response_model=ChatResponse)
 async def chat_with_page(
@@ -558,8 +747,8 @@ async def get_deployment_analytics(
             last_activity=stats.get("last_activity")
         ))
     
-    # Get variable summary
-    variable_summary = page_deployment.get_variable_summary()
+    # Get variable summary (behavior variables only for admin analytics)
+    variable_summary = page_deployment.get_variable_summary(behavior_variables_only=True)
     
     # Get behavior execution history (mock for now - would need to implement proper tracking)
     behavior_history = []  # TODO: Implement behavior execution tracking
@@ -1035,10 +1224,15 @@ async def get_theme_assignments(
         ).first()
         
         if not page_state:
-            print(f"🔍 No page deployment state found for deployment {deployment_id}")
+            print(f"🔍 THEME API: No page deployment state found for deployment {deployment_id}")
+            # Check if there are any page deployment states at all
+            all_page_states = db.exec(select(PageDeploymentState)).all()
+            print(f"🔍 THEME API: Total page deployment states in database: {len(all_page_states)}")
+            for ps in all_page_states:
+                print(f"   - {ps.deployment_id} (active: {ps.is_active})")
             return []
         
-        print(f"🔍 Found page deployment state {page_state.id} for deployment {deployment_id}")
+        print(f"🔍 THEME API: Found page deployment state {page_state.id} for deployment {deployment_id}")
         
         # Build query for theme assignments
         query = select(ThemeAssignment).where(
@@ -1055,7 +1249,14 @@ async def get_theme_assignments(
         
         theme_assignments = db.exec(query).all()
         
-        print(f"🔍 Found {len(theme_assignments)} theme assignments in database")
+        print(f"🔍 THEME API: Found {len(theme_assignments)} theme assignments in database for page_deployment_id {page_state.id}")
+        
+        # If no theme assignments found, check if there are any theme assignments at all
+        if not theme_assignments:
+            all_theme_assignments = db.exec(select(ThemeAssignment)).all()
+            print(f"🔍 THEME API: Total theme assignments in database: {len(all_theme_assignments)}")
+            for ta in all_theme_assignments:
+                print(f"   - Assignment {ta.id}: page_deployment_id={ta.page_deployment_id}, execution_id={ta.execution_id}, active={ta.is_active}")
         
         result = []
         for assignment in theme_assignments:

@@ -37,9 +37,11 @@ const NODE_FACTORY_MAP: Record<
       const creator = NodeCreators[nodeType] as (
         onDelete?: (nodeId: string) => void,
         onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void,
-        workflowId?: string | number
+        workflowId?: string | number,
+        pageRelationships?: Record<string, string[]>,
+        nodes?: { id: string; type: string }[]
       ) => React.ComponentType<NodeProps>;
-      return creator(handlers.onDelete, handlers.onSettings, handlers.workflowId) as React.ComponentType<NodeProps>;
+      return creator(handlers.onDelete, handlers.onSettings, handlers.workflowId, handlers.pageRelationships, handlers.nodes) as React.ComponentType<NodeProps>;
     } else if (nodeType === "page") {
       // Page node gets special handling for pageRelationships and nodes
       const creator = NodeCreators[nodeType] as (
@@ -77,12 +79,14 @@ const NODE_FACTORY_MAP: Record<
         handlers.nodes
       ) as React.ComponentType<NodeProps>;
     } else if (nodeType === "globalVariables") {
-      // Global Variables node gets simpler handling - no page relationships needed
+      // Global Variables node gets simpler handling but still needs page relationships
       const creator = NodeCreators[nodeType] as (
         onDelete?: (nodeId: string) => void,
         onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void,
+        pageRelationships?: Record<string, string[]>,
+        nodes?: { id: string; type: string }[]
       ) => React.ComponentType<NodeProps>;
-      return creator(handlers.onDelete, handlers.onSettings) as React.ComponentType<NodeProps>;
+      return creator(handlers.onDelete, handlers.onSettings, handlers.pageRelationships, handlers.nodes) as React.ComponentType<NodeProps>;
     } else if (NodeClasses[nodeType as keyof typeof NodeClasses].canAddNode) {
       // Nodes that can add nodes get special handler mapping
       return (
@@ -93,15 +97,19 @@ const NODE_FACTORY_MAP: Record<
         handlers.onAddNodeClick,
         handlers.edges || [],
         handlers.onDelete,
-        handlers.onSettings
+        handlers.onSettings,
+        handlers.pageRelationships,
+        handlers.nodes
       ) as React.ComponentType<NodeProps>;
     } else {
-      // All other nodes get default handler mapping
+      // All other nodes get default handler mapping with pageRelationships and nodes
       const creator = NodeCreators[nodeType as keyof typeof NodeCreators] as (
         onDelete?: (nodeId: string) => void,
-        onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void
+        onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void,
+        pageRelationships?: Record<string, string[]>,
+        nodes?: { id: string; type: string }[]
       ) => React.ComponentType<NodeProps>;
-      return creator(handlers.onDelete, handlers.onSettings) as React.ComponentType<NodeProps>;
+      return creator(handlers.onDelete, handlers.onSettings, handlers.pageRelationships, handlers.nodes) as React.ComponentType<NodeProps>;
     }
   };
   return map;

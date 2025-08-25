@@ -2,10 +2,11 @@ import React from "react";
 import { Edge, Handle, Position, Node } from "@xyflow/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPen } from "@fortawesome/free-solid-svg-icons";
-import { NodePropertyConfig, NodeData } from "../../types";
+import { NodePropertyConfig, NodeData, Var } from "../../types";
 import { BaseNode, BaseNodeProps, NodeDataFromConfig, HandleConfig, SideMenuInfo } from "../baseNode";
 import { PromptNodeConfig, promptNodeConfig } from "../configs/promptNodeConfig";
 import { PlusButton } from "../../components/plusButton";
+import { useNodeContext } from "../../nodeContext";
 
 export { promptNodeConfig };
 
@@ -118,11 +119,70 @@ export class PromptNodeClass extends BaseNode<PromptNodeProps, PromptNodeData> {
     const targetNode = _nodes.find((node) => node.id === outputEdge.target);
     return targetNode || null;
   }
+
+  public nodeVariables(_nodes?: Node[]): Var[] {
+    if (!_nodes) return [];
+
+    const { edges = [], id } = this.props;
+
+    const outputEdge = edges.find(
+      (edge) => edge.source === id && edge.sourceHandle === "prompt-output"
+    );
+
+    if (!outputEdge) return [];
+
+    const targetNode = _nodes.find((node) => node.id === outputEdge.target);
+
+    if (targetNode) {
+      if (targetNode.data) {
+        const currentValue = targetNode.data["submission_prompts"];
+        console.log("currentValue", currentValue);
+        console.log("page number", this.getCurrentPageId());
+        console.log("in page", this.isInPage());
+        const pageNumber = this.getCurrentPageId();
+
+        const res: Var[] = [];
+        if (currentValue instanceof Array) {
+          for (const i in currentValue) {
+            let type = currentValue[i]["mediaType"] || "text";
+            if (type === "textarea") type = "text";
+            const name = "prompt_" + pageNumber + "_" + type + "_" + i;
+
+            const route: Var = {
+              name: name,
+              origin_type: "student",
+              origin: "prompt",
+              type: type,
+              page: parseInt(pageNumber || "0"),
+              index: parseInt(i || "0"),
+            }
+
+            console.log("route", route);
+            res.push(route);
+          }
+        }
+
+        return res;
+      }
+      
+    }
+    
+    return [];
+  }
 }
 
-// Functional component wrapper
+// Functional component wrapper that provides context data
 export function PromptNode(props: PromptNodeProps) {
-  return <PromptNodeClass {...props} />;
+  const { pageRelationships, nodes } = useNodeContext();
+  
+  // Merge context data with props, prioritizing props if they exist
+  const enhancedProps = {
+    ...props,
+    pageRelationships: props.pageRelationships || pageRelationships,
+    nodes: props.nodes || nodes,
+  };
+  
+  return <PromptNodeClass {...enhancedProps} />;
 }
 
 // Node type factory for ReactFlow
@@ -130,11 +190,15 @@ export const createPromptNodeType = (
   onAddNodeClick?: (objectType?: string, sourceNodeId?: string) => void,
   edges: Edge[] = [],
   onDelete?: (nodeId: string) => void,
-  onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void
+  onSettings?: (nodeId: string, nodeType: string, data: NodeData) => void,
+  pageRelationships?: Record<string, string[]>,
+  nodes?: { id: string; type: string }[]
 ) =>
   BaseNode.createNodeType(PromptNode, {
     onAddNodeClick,
     edges,
     onDelete,
     onSettings,
+    pageRelationships,
+    nodes,
   });

@@ -5,6 +5,15 @@ import { BaseNodeData } from "./nodeTypes/baseNode";
 
 export type NodeData = BaseNodeData;
 
+export interface Var {
+  name: string;
+  origin_type: "student" | "behaviour";
+  origin: "prompt" | "group" | "theme" | "live_presentation" | "global"
+  type: "text" | "pdf" | "group" | "list";
+  page: number;
+  index: number;
+}
+
 // Variable interface for Global Variables node
 export interface Variable {
   id: string;
@@ -17,7 +26,7 @@ export interface Variable {
 export interface PropertyDefinition {
   key: string;
   label: string;
-  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions" | "submissionPrompts" | "livePresentationPrompts" | "variablesList" | "submissionPromptSelector";
+  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions" | "submissionPrompts" | "livePresentationPrompts" | "variablesList" | "submissionPromptSelector" | "listVariableSelector";
   defaultValue: string | number | boolean | string[] | TestCase[] | MultipleChoiceQuestion[] | SubmissionPrompt[] | LivePresentationPrompt[] | Variable[] | string[];
   placeholder?: string;
   options?: string[]; // For select type

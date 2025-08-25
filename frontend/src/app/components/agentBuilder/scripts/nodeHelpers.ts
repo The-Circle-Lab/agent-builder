@@ -1,6 +1,6 @@
 import { Node, Edge } from "@xyflow/react";
 import { NodeClasses, NodeConfigs } from "../components/nodes/nodeTypes";
-import { PropertyDefinition } from "../components/nodes/types";
+import { PropertyDefinition, Var } from "../components/nodes/types";
 
 // Type for node configuration with optional nested attachments
 interface NodeConfigWithAttachments {
@@ -47,7 +47,7 @@ export function getConnectedNodes(
 }
 
 // Helper function to get node configuration with data
-export function getNodeConfig(node: Node, edges?: Edge[], nodes?: Node[], pageRelationships?: Record<string, string[]>) {
+export function getNodeConfig(node: Node, edges?: Edge[], nodes?: Node[]) {
   const nodeConfig = NodeConfigs[node.type as keyof typeof NodeConfigs] as unknown as NodeConfigStructure;
   if (!nodeConfig) return {};
 
@@ -63,41 +63,81 @@ export function getNodeConfig(node: Node, edges?: Edge[], nodes?: Node[], pageRe
     config[property.key] = value;
   });
 
-  // Special handling for group nodes: expand selected_submission_prompts from IDs to full prompt details
-  if (node.type === 'group' && edges && nodes && pageRelationships) {
-    const selectedPromptIds = config['selected_submission_prompts'] as string[] || [];
+  // Special handling for group and theme creator nodes: convert selected variable names to backend format
+  if ((node.type === 'group' || node.type === 'themeCreator') && edges && nodes) {
+    const selectedPromptVariableNames = config['selected_submission_prompts'] as string[] || [];
     
-    if (selectedPromptIds.length > 0) {
-      // Get all available submission prompts
-      const availablePrompts = getAvailableSubmissionPrompts(node.id, edges, nodes, pageRelationships);
+    if (selectedPromptVariableNames.length > 0) {
+      // Get all submission prompt variables from the workflow
+      const submissionPromptVars = getSubmissionPromptVariables(nodes, edges);
       
-      // Find the full prompt details for each selected ID
+      // Convert variable names to backend format with details
       const selectedPromptDetails: Array<{
         id: string;
-        prompt: string;
-        mediaType: string;
-        nodeId: string;
-        nodeLabel: string;
+        variableName: string;
+        origin: string;
+        origin_type: string;
+        type: string;
+        page: number;
+        index: number;
       }> = [];
       
-      selectedPromptIds.forEach(selectedId => {
-        availablePrompts.forEach(nodeInfo => {
-          nodeInfo.prompts.forEach(prompt => {
-            if (prompt.id === selectedId) {
-              selectedPromptDetails.push({
-                id: prompt.id,
-                prompt: prompt.prompt,
-                mediaType: prompt.mediaType,
-                nodeId: nodeInfo.nodeId,
-                nodeLabel: nodeInfo.nodeLabel
-              });
-            }
+      selectedPromptVariableNames.forEach(variableName => {
+        const variable = submissionPromptVars.find(v => v.name === variableName);
+        if (variable) {
+          selectedPromptDetails.push({
+            id: variable.name, // Use variable name as ID
+            variableName: variable.name,
+            origin: variable.origin,
+            origin_type: variable.origin_type,
+            type: variable.type,
+            page: variable.page,
+            index: variable.index,
           });
-        });
+        }
       });
       
-      // Replace the ID array with full prompt details for the backend
+      // Replace the variable name array with full variable details for the backend
       config['selected_submission_prompts'] = selectedPromptDetails;
+    }
+  }
+
+  // Special handling for live presentation prompt nodes: convert selected list variable names to backend format
+  if (node.type === 'livePresentationPrompt' && edges && nodes) {
+    const selectedListVariableNames = config['selected_list_variables'] as string[] || [];
+    
+    if (selectedListVariableNames.length > 0) {
+      // Get all list variables from behaviors in the workflow
+      const behaviorListVars = getListVariablesFromBehaviors(nodes, edges);
+      
+      // Convert variable names to backend format with details
+      const selectedListVariableDetails: Array<{
+        id: string;
+        variableName: string;
+        origin: string;
+        origin_type: string;
+        type: string;
+        page: number;
+        index: number;
+      }> = [];
+      
+      selectedListVariableNames.forEach(variableName => {
+        const variable = behaviorListVars.find(v => v.name === variableName);
+        if (variable) {
+          selectedListVariableDetails.push({
+            id: variable.name, // Use variable name as ID
+            variableName: variable.name,
+            origin: variable.origin,
+            origin_type: variable.origin_type,
+            type: variable.type,
+            page: variable.page,
+            index: variable.index,
+          });
+        }
+      });
+      
+      // Replace the variable name array with full variable details for the backend
+      config['selected_list_variables'] = selectedListVariableDetails;
     }
   }
 
@@ -344,4 +384,118 @@ export function getNodeAttachments(
   }
 
   return undefined;
+}
+
+// Helper function to get all variables from all nodes in the workflow using nodeVariables method
+export function getAllVariables(nodes: Node[], edges: Edge[]): Var[] {
+  const allVariables: Var[] = [];
+  
+  nodes.forEach((node) => {
+    try {
+      const nodeType = node.type;
+      const NodeClass = nodeType ? NodeClasses[nodeType as keyof typeof NodeClasses] : null;
+      
+      if (NodeClass) {
+        // Create a temporary instance with the node's props
+        const nodeInstance = new (NodeClass as new (props: { id: string; data: unknown; edges: Edge[] }) => { nodeVariables: (nodes: Node[]) => Var[] })({
+          id: node.id,
+          data: node.data,
+          edges: edges,
+        });
+        
+        // Call the nodeVariables method
+        const variables = nodeInstance.nodeVariables(nodes);
+        allVariables.push(...variables);
+      }
+    } catch (error) {
+      console.error(`Error getting variables from node ${node.id}:`, error);
+    }
+  });
+  
+  return allVariables;
+}
+
+// Helper function to get submission prompt variables (origin: "prompt", origin_type: "student")
+export function getSubmissionPromptVariables(nodes: Node[], edges: Edge[]): Var[] {
+  const allVariables = getAllVariables(nodes, edges);
+  
+  return allVariables.filter(variable => 
+    variable.origin === "prompt" && variable.origin_type === "student"
+  );
+}
+
+// Helper function to get list variables from behaviors (origin_type: "behaviour", type: "list")
+export function getListVariablesFromBehaviors(nodes: Node[], edges: Edge[]): Var[] {
+  const allVariables = getAllVariables(nodes, edges);
+  
+  return allVariables.filter(variable => 
+    variable.origin_type === "behaviour" && variable.type === "list"
+  );
+}
+
+// Create an index of variable names output by each behavior and page
+export function createVariableIndex(nodes: Node[], edges: Edge[]): {
+  behaviors: Record<number, string[]>;
+  pages: Record<number, string[]>;
+} {
+  const allVariables = getAllVariables(nodes, edges);
+  
+  const behaviorIndex: Record<number, string[]> = {};
+  const pageIndex: Record<number, string[]> = {};
+  
+  // Get all behavior and page nodes to understand the structure
+  const behaviorNodes = nodes.filter(node => node.type === 'behaviour');
+  const pageNodes = nodes.filter(node => node.type === 'page');
+  
+  // Initialize indexes with empty arrays for all behavior and page numbers
+  behaviorNodes.forEach(node => {
+    const pageNumber = (node.data as { pageNumber?: number })?.pageNumber || 1;
+    if (!behaviorIndex[pageNumber]) {
+      behaviorIndex[pageNumber] = [];
+    }
+  });
+  
+  pageNodes.forEach(node => {
+    const pageNumber = (node.data as { pageNumber?: number })?.pageNumber || 1;
+    if (!pageIndex[pageNumber]) {
+      pageIndex[pageNumber] = [];
+    }
+  });
+  
+  // Group variables by their page numbers and origin types
+  allVariables.forEach(variable => {
+    const pageNumber = variable.page;
+    
+    if (variable.origin_type === "behaviour") {
+      // This variable is output by a behavior
+      if (!behaviorIndex[pageNumber]) {
+        behaviorIndex[pageNumber] = [];
+      }
+      if (!behaviorIndex[pageNumber].includes(variable.name)) {
+        behaviorIndex[pageNumber].push(variable.name);
+      }
+    } else if (variable.origin_type === "student") {
+      // This variable is output by a page (student submissions)
+      if (!pageIndex[pageNumber]) {
+        pageIndex[pageNumber] = [];
+      }
+      if (!pageIndex[pageNumber].includes(variable.name)) {
+        pageIndex[pageNumber].push(variable.name);
+      }
+    }
+  });
+  
+  // Sort variable names within each index for consistency
+  Object.keys(behaviorIndex).forEach(pageNum => {
+    behaviorIndex[parseInt(pageNum)].sort();
+  });
+  
+  Object.keys(pageIndex).forEach(pageNum => {
+    pageIndex[parseInt(pageNum)].sort();
+  });
+  
+  return {
+    behaviors: behaviorIndex,
+    pages: pageIndex
+  };
 }

@@ -1,12 +1,15 @@
 import { Node, Edge } from "@xyflow/react";
+import { Var } from "../components/nodes/types";
 import { NodeClasses } from "../components/nodes/nodeTypes";
 import {
   findStartingNode,
   getNodeConfig,
   getNodeAttachments,
+  getAllVariables,
+  createVariableIndex,
 } from "./nodeHelpers";
 
-// Helper function to extract variable name from variable handle ID
+// Helper function to extract variable name from variable handle ID (for backward compatibility)
 function getVariableNameFromHandle(handleId: string, globalVariablesNodes: Node[]): string | null {
   // Extract variable ID from handle (format: var-XXX-input or var-XXX-output)
   const variableIdMatch = handleId.match(/^(var-[^-]+-[^-]+)/);
@@ -24,6 +27,35 @@ function getVariableNameFromHandle(handleId: string, globalVariablesNodes: Node[
   }
   
   return null;
+}
+
+// Extract all variables using the new nodeVariables approach
+function extractAllVariables(nodes: Node[], edges: Edge[]): Var[] {
+  const variables: Var[] = [];
+  
+  // Get all variables from all nodes using the new approach
+  const allVariables = getAllVariables(nodes, edges);
+  variables.push(...allVariables);
+  
+  // Also include global variables for backward compatibility
+  const globalVariablesNodes = nodes.filter(node => node.type === 'globalVariables');
+  globalVariablesNodes.forEach(node => {
+    const globalVars = (node.data as { variables?: Array<{ name: string; type: string; id: string }> })?.variables || [];
+    globalVars.forEach(variable => {
+      // Convert global variables to Var format
+      const globalVar: Var = {
+        name: variable.name,
+        origin_type: "behaviour", // Global variables are treated as behavior-type
+        origin: "global",
+        type: variable.type as "text" | "pdf" | "group" | "list",
+        page: 0, // Global variables don't belong to a specific page
+        index: 0,
+      };
+      variables.push(globalVar);
+    });
+  });
+  
+  return variables;
 }
 
 // Creates a JSON representation of the workflow for export to backend
@@ -44,7 +76,11 @@ export function createWorkflowJSON(nodes: Node[], edges: Edge[], pageRelationshi
     const workflow: {
       pagesExist: boolean;
       behavioursExist: boolean;
-      variables: Record<string, string>;
+      variables: Var[];
+      variableIndex: {
+        behaviors: Record<number, string[]>;
+        pages: Record<number, string[]>;
+      };
       pages: Record<number, {
         input_type: string | null;
         input_id: string | null;
@@ -74,19 +110,23 @@ export function createWorkflowJSON(nodes: Node[], edges: Edge[], pageRelationshi
     } = {
       pagesExist,
       behavioursExist,
-      variables: {},
+      variables: [],
+      variableIndex: {
+        behaviors: {},
+        pages: {}
+      },
       pages: {},
       behaviours: {},
     };
 
-    // Extract all variables from globalVariables nodes
+    // Extract all variables using the new approach
+    workflow.variables = extractAllVariables(nodes, edges);
+
+    // Create variable index for behaviors and pages
+    workflow.variableIndex = createVariableIndex(nodes, edges);
+
+    // Get global variables nodes for connection handling
     const globalVariablesNodes = nodes.filter(node => node.type === 'globalVariables');
-    globalVariablesNodes.forEach(node => {
-      const variables = (node.data as { variables?: Array<{ name: string; type: string }> })?.variables || [];
-      variables.forEach(variable => {
-        workflow.variables[variable.name] = variable.type;
-      });
-    });
 
     // Get all page nodes and sort by page number
     const pageNodes = nodes
@@ -188,7 +228,7 @@ export function createWorkflowJSON(nodes: Node[], edges: Edge[], pageRelationshi
         const node = nodes.find(n => n.id === nodeId);
         if (node && node.type !== 'page') {
           // Get node configuration
-          const config = getNodeConfig(node, edges, nodes, pageRelationships);
+          const config = getNodeConfig(node, edges, nodes);
           
           // Get attachments for specific node types
           const attachments = getNodeAttachments(node, edges, nodes);
@@ -313,7 +353,7 @@ export function createWorkflowJSON(nodes: Node[], edges: Edge[], pageRelationshi
         const node = nodes.find(n => n.id === nodeId);
         if (node && node.type !== 'behaviour') {
           // Get node configuration
-          const config = getNodeConfig(node, edges, nodes, pageRelationships);
+          const config = getNodeConfig(node, edges, nodes);
           
           // Get attachments for specific node types
           const attachments = getNodeAttachments(node, edges, nodes);
@@ -344,7 +384,11 @@ export function createWorkflowJSON(nodes: Node[], edges: Edge[], pageRelationshi
     const workflow: {
       pagesExist: boolean;
       behavioursExist: boolean;
-      variables: Record<string, string>;
+      variables: Var[];
+      variableIndex: {
+        behaviors: Record<number, string[]>;
+        pages: Record<number, string[]>;
+      };
       nodes: Record<
         number,
         {
@@ -356,18 +400,19 @@ export function createWorkflowJSON(nodes: Node[], edges: Edge[], pageRelationshi
     } = {
       pagesExist,
       behavioursExist,
-      variables: {},
+      variables: [],
+      variableIndex: {
+        behaviors: {},
+        pages: {}
+      },
       nodes: {},
     };
 
-    // Extract all variables from globalVariables nodes
-    const globalVariablesNodes = nodes.filter(node => node.type === 'globalVariables');
-    globalVariablesNodes.forEach(node => {
-      const variables = (node.data as { variables?: Array<{ name: string; type: string }> })?.variables || [];
-      variables.forEach(variable => {
-        workflow.variables[variable.name] = variable.type;
-      });
-    });
+    // Extract all variables using the new approach
+    workflow.variables = extractAllVariables(nodes, edges);
+
+    // Create variable index for behaviors and pages
+    workflow.variableIndex = createVariableIndex(nodes, edges);
 
     // Start from the starting node and traverse the workflow
     let currentNode = findStartingNode(nodes);

@@ -24,11 +24,17 @@ from datetime import datetime
 from pathlib import Path
 from scripts.config import load_config
 import os
-from services.celery_tasks import celery_app as task_app
 from api.summary_routes import router as summary_router
 
 # Load config
 config = load_config()
+
+# Set Celery environment variables to connect to Docker Redis
+os.environ.setdefault("CELERY_BROKER_URL", "redis://localhost:6379/0")
+os.environ.setdefault("CELERY_RESULT_BACKEND", "redis://localhost:6379/0")
+
+# Import celery_app AFTER setting environment variables
+from services.celery_tasks import celery_app as task_app
 
 # Setup logging
 logs_dir = Path(__file__).parent / config.get("paths", {}).get("logs_dir", "logs")
@@ -53,10 +59,17 @@ async def lifespan(app: FastAPI):
 
     # Verify Celery broker connectivity (non-blocking)
     try:
+        broker_url = os.environ.get("CELERY_BROKER_URL", "redis://localhost:6379/0")
+        logger.info(f"Attempting to connect to Celery broker: {broker_url}")
+        
         broker_ping = task_app.control.ping(timeout=2.0)
-        logger.info(f"Celery broker reachable: {bool(broker_ping)} - ping={broker_ping}")
+        if broker_ping:
+            logger.info(f"✅ Celery broker connected successfully: {broker_ping}")
+        else:
+            logger.warning("⚠️ Celery broker ping returned empty response")
     except Exception as ping_exc:
-        logger.warning(f"Celery broker not reachable: {ping_exc}")
+        logger.warning(f"❌ Celery broker not reachable: {ping_exc}")
+        logger.info("💡 Make sure Docker Redis container is running: docker ps | grep redis-broker")
     
     yield
     # Shutdown

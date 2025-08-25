@@ -2,7 +2,7 @@ import React from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faUserGroup } from "@fortawesome/free-solid-svg-icons";
 import { Handle, Position, Edge, Node } from "@xyflow/react";
-import { NodePropertyConfig, NodeData } from "../../types";
+import { NodePropertyConfig, NodeData, Var } from "../../types";
 import { BaseNode, BaseNodeProps, NodeDataFromConfig, HandleConfig, SideMenuInfo } from "../baseNode";
 import { groupNodeConfig, GroupNodeConfig } from "../configs/groupNodeConfig";
 
@@ -96,7 +96,7 @@ export class GroupNodeClass extends BaseNode<GroupNodeProps, GroupNodeData> {
 
     // Find the edge connected to the output handle
     const outputEdge = edges.find(
-      (edge) => edge.source === id && edge.sourceHandle === "output"
+      (edge) => edge.source === id && edge.sourceHandle === "group-output"
     );
 
     if (!outputEdge) return null;
@@ -104,6 +104,21 @@ export class GroupNodeClass extends BaseNode<GroupNodeProps, GroupNodeData> {
     // Find and return the target node
     const targetNode = nodes.find((node) => node.id === outputEdge.target);
     return targetNode || null;
+  }
+
+  public nodeVariables(_nodes?: Node[]): Var[] {
+    if (!_nodes) return [];
+
+    const _var: Var = {
+      name: "group_" + this.getCurrentPageId(),
+      origin_type: "behaviour",
+      origin: "group",
+      type: "group",
+      page: parseInt(this.getCurrentPageId() || "0"),
+      index: 0,
+    }
+
+    return [_var];
   }
 }
 

@@ -100,7 +100,11 @@ interface BehaviorExecutionHistory {
 
 interface VariableInfo {
   name: string;
+  origin_type: string;
+  origin: string;
   type: string;
+  page: number;
+  index: number;
   is_empty: boolean;
   has_value: boolean;
   value_type?: string;
@@ -116,6 +120,7 @@ interface DeploymentAnalytics {
   page_statistics: PageStatistics[];
   variable_summary: {
     total_variables: number;
+    behavior_variables_only: boolean;
     variables: VariableInfo[];
   };
   behavior_history: BehaviorExecutionHistory[];
@@ -184,6 +189,8 @@ export default function PageDeploymentAdmin({
 
   const [loading, setLoading] = useState(true);
   const [executingBehavior, setExecutingBehavior] = useState<string | null>(null);
+  const [behaviorTasks, setBehaviorTasks] = useState<Map<string, string>>(new Map()); // behavior_number -> task_id
+  const [taskStatus, setTaskStatus] = useState<Map<string, {progress: number, stage: string}>>(new Map()); // task_id -> status
   const [lastExecution, setLastExecution] = useState<{
     behavior_number?: string;
     success?: boolean;
@@ -274,6 +281,7 @@ export default function PageDeploymentAdmin({
   // Fetch theme assignments data
   const fetchThemeAssignments = async () => {
     try {
+      console.log(`🔍 Fetching theme assignments for deployment: ${deploymentId}`);
       const response = await fetch(
         `${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/theme-assignments`,
         { credentials: 'include' }
@@ -281,12 +289,132 @@ export default function PageDeploymentAdmin({
       
       if (response.ok) {
         const data = await response.json();
+        console.log(`🔍 Received theme assignments data:`, data);
+        console.log(`🔍 Number of theme assignments: ${data.length}`);
         setThemeAssignments(data);
       } else {
         console.error('Failed to fetch theme assignments:', response.status, response.statusText);
+        const errorText = await response.text();
+        console.error('Error response body:', errorText);
       }
     } catch (error) {
       console.error('Error fetching theme assignments:', error);
+    }
+  };
+
+  // Poll task status for async behaviors
+  const pollTaskStatus = async (taskId: string, behaviorNumber: string) => {
+    try {
+      const response = await fetch(
+        `${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/behaviors/tasks/${taskId}`,
+        { credentials: 'include' }
+      );
+      
+      if (response.ok) {
+        const status = await response.json();
+        
+        // Update task status for progress tracking
+        setTaskStatus(prev => {
+          const newMap = new Map(prev);
+          newMap.set(taskId, {
+            progress: status.progress || 0,
+            stage: status.stage || 'unknown'
+          });
+          return newMap;
+        });
+        
+        if (status.state === 'SUCCESS') {
+          // Task completed successfully
+          setLastExecution({
+            behavior_number: behaviorNumber,
+            success: true,
+            execution_time: status.result?.execution_time,
+            output_written_to_variable: status.result?.output_written_to_variable,
+            groups: status.result?.groups,
+            themes: status.result?.themes,
+            warning: status.result?.warning,
+            error: status.result?.error
+          });
+          
+          // If this was a theme creator behavior, refresh theme assignments
+          if (status.result?.themes && Array.isArray(status.result.themes)) {
+            fetchThemeAssignments();
+          }
+          
+          // Refresh analytics to show updated variable states
+          setRefreshKey(prev => prev + 1);
+          
+          // Remove from executing behaviors
+          setExecutingBehavior(null);
+          setBehaviorTasks(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(behaviorNumber);
+            return newMap;
+          });
+          setTaskStatus(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(taskId);
+            return newMap;
+          });
+          
+          alert(`Behavior execution completed successfully!`);
+        } else if (status.state === 'FAILURE') {
+          // Task failed
+          setLastExecution({
+            behavior_number: behaviorNumber,
+            success: false,
+            error: status.error || 'Behavior execution failed'
+          });
+          
+          setExecutingBehavior(null);
+          setBehaviorTasks(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(behaviorNumber);
+            return newMap;
+          });
+          setTaskStatus(prev => {
+            const newMap = new Map(prev);
+            newMap.delete(taskId);
+            return newMap;
+          });
+          
+          alert(`Behavior execution failed: ${status.error || 'Unknown error'}`);
+        } else {
+          // Task still running, poll again
+          setTimeout(() => pollTaskStatus(taskId, behaviorNumber), 2000);
+        }
+      } else {
+        console.error('Failed to check task status');
+        // Stop polling on error
+        setExecutingBehavior(null);
+        setBehaviorTasks(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(behaviorNumber);
+          return newMap;
+        });
+        setTaskStatus(prev => {
+          const newMap = new Map(prev);
+          const taskId = behaviorTasks.get(behaviorNumber);
+          if (taskId) newMap.delete(taskId);
+          return newMap;
+        });
+        alert('Failed to check task status');
+      }
+    } catch (error) {
+      console.error('Error checking task status:', error);
+      // Stop polling on error
+      setExecutingBehavior(null);
+      setBehaviorTasks(prev => {
+        const newMap = new Map(prev);
+        newMap.delete(behaviorNumber);
+        return newMap;
+      });
+      setTaskStatus(prev => {
+        const newMap = new Map(prev);
+        if (taskId) newMap.delete(taskId);
+        return newMap;
+      });
+      alert('Error checking task status');
     }
   };
 
@@ -307,28 +435,77 @@ export default function PageDeploymentAdmin({
       
       if (response.ok) {
         const result = await response.json();
-        setLastExecution(result);
         
-        // If this was a theme creator behavior, refresh theme assignments
-        if (result.success && result.themes && Array.isArray(result.themes)) {
-          // This is a theme creator result
-          setLastExecution(prev => ({ ...prev, themes: result.themes }));
-          fetchThemeAssignments(); // Fetch from database
+        // Check if this is an async response (has task_id) or sync response (has success)
+        if (result.task_id) {
+          // Async execution - start polling for status
+          setBehaviorTasks(prev => {
+            const newMap = new Map(prev);
+            newMap.set(behaviorNumber, result.task_id);
+            return newMap;
+          });
+          
+          // Start polling
+          setTimeout(() => pollTaskStatus(result.task_id, behaviorNumber), 1000);
+          
+          alert(`Behavior execution started. Running in background...`);
+        } else {
+          // Synchronous execution - handle immediately
+          setLastExecution(result);
+          
+          // If this was a theme creator behavior, refresh theme assignments
+          if (result.success && result.themes && Array.isArray(result.themes)) {
+            // This is a theme creator result
+            setLastExecution(prev => ({ ...prev, themes: result.themes }));
+            fetchThemeAssignments(); // Fetch from database
+          }
+          
+          // Refresh analytics to show updated variable states
+          setRefreshKey(prev => prev + 1);
+          
+          setExecutingBehavior(null);
+          alert(`Behavior execution ${result.success ? 'completed successfully' : 'failed'}!`);
         }
-        
-        // Refresh analytics to show updated variable states
-        setRefreshKey(prev => prev + 1);
-        
-        alert(`Behavior execution ${result.success ? 'completed successfully' : 'failed'}!`);
       } else {
         const error = await response.text();
+        setExecutingBehavior(null);
         alert(`Failed to execute behavior: ${error}`);
       }
     } catch (error) {
       console.error('Error executing behavior:', error);
-      alert('Failed to execute behavior');
-    } finally {
       setExecutingBehavior(null);
+      alert('Failed to execute behavior');
+    }
+  };
+
+  // Cancel async behavior
+  const cancelBehavior = async (behaviorNumber: string) => {
+    const taskId = behaviorTasks.get(behaviorNumber);
+    if (!taskId) return;
+    
+    try {
+      const response = await fetch(
+        `${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/behaviors/tasks/${taskId}/cancel`,
+        {
+          method: 'POST',
+          credentials: 'include'
+        }
+      );
+      
+      if (response.ok) {
+        setExecutingBehavior(null);
+        setBehaviorTasks(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(behaviorNumber);
+          return newMap;
+        });
+        alert('Behavior execution cancelled');
+      } else {
+        alert('Failed to cancel behavior execution');
+      }
+    } catch (error) {
+      console.error('Error cancelling behavior:', error);
+      alert('Error cancelling behavior execution');
     }
   };
 
@@ -626,16 +803,42 @@ export default function PageDeploymentAdmin({
               <div className="px-6 py-4 border-b border-gray-200">
                 <h2 className="text-lg font-medium text-gray-900 flex items-center">
                   <VariableIcon className="h-5 w-5 mr-2" />
-                  Variables Status
+                  Behavior Variables
+                  {analytics.variable_summary.behavior_variables_only && (
+                    <span className="ml-2 text-sm font-normal text-gray-500">(Behavior outputs only)</span>
+                  )}
                 </h2>
               </div>
               <div className="p-6">
-                <div className="space-y-3">
-                  {analytics.variable_summary.variables.map((variable) => (
+                {analytics.variable_summary.variables.length === 0 ? (
+                  <div className="text-center py-8">
+                    <div className="text-gray-400 mb-2">
+                      <VariableIcon className="mx-auto h-12 w-12" />
+                    </div>
+                    <h3 className="text-sm font-medium text-gray-900 mb-1">No behavior variables yet</h3>
+                    <p className="text-sm text-gray-500">
+                      Variables will appear here after behaviors (groups, themes) are executed.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {analytics.variable_summary.variables.map((variable) => (
                     <div key={variable.name} className="flex items-center justify-between p-3 border rounded-lg">
                       <div>
                         <h4 className="font-medium text-gray-900">{variable.name}</h4>
-                        <p className="text-sm text-gray-500">Type: {variable.type}</p>
+                        <div className="flex items-center gap-2 mt-1">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
+                            variable.origin === 'group' ? 'bg-blue-100 text-blue-800' :
+                            variable.origin === 'theme' ? 'bg-purple-100 text-purple-800' :
+                            variable.origin === 'live_presentation' ? 'bg-orange-100 text-orange-800' :
+                            'bg-gray-100 text-gray-800'
+                          }`}>
+                            {variable.origin}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {variable.type} • Page {variable.page}
+                          </span>
+                        </div>
                         {variable.value_preview && (
                           <p className="text-xs text-gray-400 mt-1">{variable.value_preview}</p>
                         )}
@@ -651,7 +854,8 @@ export default function PageDeploymentAdmin({
                       </div>
                     </div>
                   ))}
-                </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -681,28 +885,67 @@ export default function PageDeploymentAdmin({
                             )}
                           </div>
                         </div>
-                        <button
-                          onClick={() => executeBehavior(behavior.behavior_number)}
-                          disabled={!behavior.can_execute || executingBehavior === behavior.behavior_number}
-                          className={`inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md ${
-                            behavior.can_execute && executingBehavior !== behavior.behavior_number
-                              ? 'text-white bg-indigo-600 hover:bg-indigo-700'
-                              : 'text-gray-400 bg-gray-200 cursor-not-allowed'
-                          }`}
-                        >
-                          {executingBehavior === behavior.behavior_number ? (
-                            <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                              Executing...
-                            </>
-                          ) : (
-                            <>
-                              <PlayIcon className="h-4 w-4 mr-2" />
-                              Execute
-                            </>
+                        <div className="flex items-center space-x-2">
+                          <button
+                            onClick={() => executeBehavior(behavior.behavior_number)}
+                            disabled={!behavior.can_execute || executingBehavior === behavior.behavior_number}
+                            className={`inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md ${
+                              behavior.can_execute && executingBehavior !== behavior.behavior_number
+                                ? 'text-white bg-indigo-600 hover:bg-indigo-700'
+                                : 'text-gray-400 bg-gray-200 cursor-not-allowed'
+                            }`}
+                          >
+                            {executingBehavior === behavior.behavior_number ? (
+                              <>
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                                {behaviorTasks.has(behavior.behavior_number) ? 'Running...' : 'Executing...'}
+                              </>
+                            ) : (
+                              <>
+                                <PlayIcon className="h-4 w-4 mr-2" />
+                                Execute
+                              </>
+                            )}
+                          </button>
+                          
+                          {/* Cancel button for async behaviors */}
+                          {executingBehavior === behavior.behavior_number && behaviorTasks.has(behavior.behavior_number) && (
+                            <button
+                              onClick={() => cancelBehavior(behavior.behavior_number)}
+                              className="inline-flex items-center px-2 py-2 border border-red-300 text-sm font-medium rounded-md text-red-700 bg-red-50 hover:bg-red-100"
+                              title="Cancel execution"
+                            >
+                              <XCircleIcon className="h-4 w-4" />
+                            </button>
                           )}
-                        </button>
+                        </div>
                       </div>
+                      
+                      {/* Progress indicator for async behaviors */}
+                      {executingBehavior === behavior.behavior_number && behaviorTasks.has(behavior.behavior_number) && (
+                        (() => {
+                          const taskId = behaviorTasks.get(behavior.behavior_number);
+                          const progress = taskId ? taskStatus.get(taskId) : null;
+                          return progress ? (
+                            <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded">
+                              <div className="flex items-center justify-between mb-2">
+                                <span className="text-sm font-medium text-blue-900">
+                                  Progress: {progress.progress}%
+                                </span>
+                                <span className="text-xs text-blue-700">
+                                  {progress.stage}
+                                </span>
+                              </div>
+                              <div className="w-full bg-blue-200 rounded-full h-2">
+                                <div 
+                                  className="bg-blue-600 h-2 rounded-full transition-all duration-300"
+                                  style={{ width: `${progress.progress}%` }}
+                                ></div>
+                              </div>
+                            </div>
+                          ) : null;
+                        })()
+                      )}
                       
                       {behavior.config && (
                         <div className="text-xs text-gray-400 mt-2">

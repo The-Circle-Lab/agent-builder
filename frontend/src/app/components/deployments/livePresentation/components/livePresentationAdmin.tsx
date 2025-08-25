@@ -37,7 +37,6 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
     sendGroupInfo,
     startReadyCheck,
     requestStats,
-    rebuildVariableMapping,
     manualReconnect
   } = useLivePresentationWebSocket({
     deploymentId,
@@ -214,7 +213,6 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
               onSendGroupInfo={sendGroupInfo}
               onStartReadyCheck={startReadyCheck}
               onRefreshStats={handleRefreshStats}
-              onRebuildVariableMapping={rebuildVariableMapping}
               manualReconnect={manualReconnect}
             />
           )}

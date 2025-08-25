@@ -174,7 +174,6 @@ export default function PageContent({ pageInfo, deploymentName, loading, error }
         return (
           <LivePresentationInterface 
             deploymentId={pageInfo.deployment_id}
-            userId={currentUser.id.toString()}
             userName={userName}
           />
         );

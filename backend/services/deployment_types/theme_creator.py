@@ -36,31 +36,58 @@ class ThemeCreatorBehavior:
         self.filter_web_content = config.get('filter_web_content', True)  # Enhanced filtering for web/PDF artifacts
         self.enhance_with_web_search = config.get('enhance_with_web_search', False)  # Connect themes to recent events
 
-    def execute(self, student_data: List[Dict[str, Any]], db_session: Optional[Any] = None, prompt_context: Optional[str] = None) -> Dict[str, Any]:
+    def execute(self, student_data: List[Dict[str, Any]], db_session: Optional[Any] = None, prompt_context: Optional[str] = None, deployment_context: Optional[str] = None, progress_callback: Optional[callable] = None) -> Dict[str, Any]:
         """
         Execute theme creation with the provided student data.
+        Optimized for async execution with better memory management and error handling.
         
         Args:
             student_data: List of student dictionaries with 'name' and 'text' keys
             db_session: Optional database session for PDF vector retrieval
             prompt_context: Optional context about the assignment prompts
+            deployment_context: Optional deployment context for auto-fetching student data
             
         Returns:
             Dictionary with themes, metadata, and clustering results
         """
+        print(f"🔍 THEME CREATOR EXECUTE: Initial student_data type: {type(student_data)}")
+        print(f"🔍 THEME CREATOR EXECUTE: student_data is None: {student_data is None}")
+        
+        # Auto-fetch student data if None but we have selected submission prompts
+        if student_data is None and self.selected_submission_prompts:
+            print(f"🔍 THEME CREATOR EXECUTE: Auto-fetching student data from prompt pages")
+            print(f"🔍 THEME CREATOR EXECUTE: Selected submission prompts: {self.selected_submission_prompts}")
+            print(f"🔍 THEME CREATOR EXECUTE: Deployment context: {deployment_context}")
+            student_data = self._auto_fetch_student_data_from_prompts(db_session, deployment_context)
+            print(f"🔍 THEME CREATOR EXECUTE: Auto-fetched {len(student_data) if student_data else 'None'} students")
+        
         # Validate input data
         self._validate_input(student_data)
         
+        # Store original count for metrics
+        original_student_count = len(student_data)
+        
         # Basic validation logging
-        print(f"🎯 Theme Creator: Processing {len(student_data)} students with {self.num_themes} target themes")
+        print(f"🎯 Theme Creator: Processing {original_student_count} students with {self.num_themes} target themes")
         
         try:
+            # Report initial progress
+            if progress_callback:
+                progress_callback(40, "Filtering student data...")
+            
             # Filter student data to only use selected submission prompts
             filtered_student_data = self._filter_student_data_by_selected_prompts(student_data)
+            
+            # Memory optimization: Clear original data after filtering
+            del student_data
             
             # Store data for chunk-based analysis
             self._current_student_data = filtered_student_data
             self._current_db_session = db_session
+            
+            # Report progress for vector building
+            if progress_callback:
+                progress_callback(50, "Building vectors for clustering...")
             
             # Build vectors for clustering (text + PDF embeddings)
             try:
@@ -95,8 +122,16 @@ class ThemeCreatorBehavior:
                 actual_num_themes = min(2, len(students_with_vectors))
                 print(f"📈 Forcing at least 2 themes for meaningful analysis: {actual_num_themes}")
 
+            # Report progress for clustering
+            if progress_callback:
+                progress_callback(60, "Performing theme clustering...")
+            
+            # Memory optimization: Extract data and clear large objects
             names = [name for name, _ in students_with_vectors]
             vectors = np.array([vec for _, vec in students_with_vectors])
+            
+            # Free up memory from students_with_vectors
+            del students_with_vectors
             
             # Extract texts only from valid students (to match names/vectors arrays)
             # For PDF-only themes, we need to extract text content from PDFs for TF-IDF analysis
@@ -121,14 +156,47 @@ class ThemeCreatorBehavior:
             while len(texts) < len(names):
                 texts.append("")
 
-            # Perform KMeans clustering
-            cluster_assignments, cluster_centers = self._perform_clustering(vectors, actual_num_themes)
+            # Perform KMeans clustering with enhanced error handling
+            try:
+                cluster_assignments, cluster_centers = self._perform_clustering(vectors, actual_num_themes)
+            except Exception as e:
+                print(f"⚠️  Clustering failed, falling back to simple distribution: {e}")
+                # Simple fallback: distribute students evenly across themes
+                cluster_assignments = np.array([i % actual_num_themes for i in range(len(names))])
+                cluster_centers = None
             
-            # Auto-label clusters using TF-IDF
-            themes_data = self._auto_label_themes(cluster_assignments, texts, names, actual_num_themes)
+            # Memory cleanup
+            del vectors
             
+            # Report progress for theme labeling
+            if progress_callback:
+                progress_callback(70, "Generating theme labels...")
+            
+            # Auto-label clusters using TF-IDF with enhanced error handling
+            try:
+                themes_data = self._auto_label_themes(cluster_assignments, texts, names, actual_num_themes)
+            except Exception as e:
+                print(f"⚠️  Theme labeling failed, creating basic themes: {e}")
+                # Fallback: create basic themes
+                themes_data = []
+                for i in range(actual_num_themes):
+                    student_names_in_cluster = [names[j] for j, cluster_id in enumerate(cluster_assignments) if cluster_id == i]
+                    themes_data.append({
+                        "title": f"Theme {i + 1}",
+                        "description": f"Theme based on {len(student_names_in_cluster)} student responses",
+                        "keywords": [],
+                        "snippets": [],
+                        "document_count": len(student_names_in_cluster),
+                        "cluster_id": i,
+                        "student_names": student_names_in_cluster,
+                        "student_count": len(student_names_in_cluster)
+                    })
+            
+            # Enhanced features with graceful degradation
             # Enhance themes with recent events via web search if enabled
             if self.enhance_with_web_search and os.getenv("OPENAI_API_KEY"):
+                if progress_callback:
+                    progress_callback(80, "Enhancing themes with web search...")
                 try:
                     print("🌐 Enhancing themes with recent events via web search...")
                     themes_data = self._enhance_themes_with_web_search(themes_data, prompt_context)
@@ -138,6 +206,8 @@ class ThemeCreatorBehavior:
             
             # Polish theme names with LLM if enabled (skip if likely to hang)
             if self.use_llm_polish and os.getenv("OPENAI_API_KEY"):
+                if progress_callback:
+                    progress_callback(85, "Polishing theme names with LLM...")
                 try:
                     print("🎨 Attempting LLM theme polishing...")
                     themes_data = self._polish_theme_names(themes_data, prompt_context)
@@ -145,16 +215,23 @@ class ThemeCreatorBehavior:
                     print(f"⚠️  LLM polishing failed, continuing with auto-generated names: {e}")
                     # Continue with the existing themes_data (auto-generated names)
             
+            # Final cleanup
+            del texts, names, cluster_assignments, filtered_student_data
+            if hasattr(self, '_current_student_data'):
+                delattr(self, '_current_student_data')
+            if hasattr(self, '_current_db_session'):
+                delattr(self, '_current_db_session')
+            
             # Note: Theme persistence is handled by pages_manager.save_behavior_execution
             # No need to save here as it's done automatically in the execution pipeline
 
-            return {
+            result = {
                 "success": True,
                 "themes": themes_data,
                 "output_themes_created": actual_num_themes,  # Add this for behavior execution history
                 "output_written_to_variable": None,  # Will be set if behavior writes to variable
                 "metadata": {
-                    "total_students": len(student_data),
+                    "total_students": original_student_count,
                     "total_themes": actual_num_themes,
                     "requested_themes": self.num_themes,
                     "clustering_method": "kmeans",
@@ -166,8 +243,21 @@ class ThemeCreatorBehavior:
                     "selected_prompts_count": len(self.selected_submission_prompts)
                 }
             }
+            
+            print(f"🚀 THEME CREATOR RETURNING RESULT WITH:")
+            print(f"   Success: {result['success']}")
+            print(f"   Themes: {len(themes_data)}")
+            print(f"   Original students: {original_student_count}")
+            print(f"   Actual themes created: {actual_num_themes}")
+            
+            return result
                 
         except Exception as e:
+            # Enhanced error logging for async debugging
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"❌ THEME CREATOR ERROR: {str(e)}")
+            print(f"   Traceback: {error_trace}")
             raise ValueError(f"Theme creation failed: {str(e)}")
 
     def _validate_input(self, student_data: List[Dict[str, Any]]) -> None:
@@ -245,128 +335,131 @@ class ThemeCreatorBehavior:
             # If no specific prompts selected, use all available data (backward compatibility)
             return student_data
         
-        # Create a set of selected prompt IDs for quick lookup
-        selected_prompt_ids = set()
+        print(f"🔍 THEME FILTER: Processing {len(self.selected_submission_prompts)} selected submission prompts")
+        
+        # Handle both legacy string format and new variable object format
+        selected_variable_names = set()
         for prompt in self.selected_submission_prompts:
             if isinstance(prompt, dict):
-                prompt_id = prompt.get('id')
-                if prompt_id:
-                    selected_prompt_ids.add(prompt_id)
+                # New format: full variable object with metadata
+                variable_name = prompt.get('variableName') or prompt.get('id')
+                if variable_name:
+                    selected_variable_names.add(variable_name)
+                    print(f"   ✅ Added variable: {variable_name} (origin: {prompt.get('origin')}, type: {prompt.get('type')})")
             elif isinstance(prompt, str):
-                # If it's a string, treat it as the prompt ID directly
-                selected_prompt_ids.add(prompt)
+                # Legacy format: string prompt ID
+                selected_variable_names.add(prompt)
+                print(f"   ✅ Added legacy prompt: {prompt}")
             else:
-                print(f"🔍 FILTER WARNING: Unexpected prompt format: {type(prompt)} = {prompt}")
+                print(f"   ❌ Unexpected prompt format: {type(prompt)} = {prompt}")
         
-        if not selected_prompt_ids:
-            print("Warning: No valid prompt IDs found in selected_submission_prompts, using all student data")
+        if not selected_variable_names:
+            print("⚠️  No valid variable names found in selected_submission_prompts, using all student data")
             return student_data
         
         filtered_students = []
         for student in student_data:
             student_copy = student.copy()
             
-            # Filter submission responses to only include selected prompts
+            # Filter submission responses to only include selected variable submissions
             if 'submission_responses' in student:
                 filtered_responses = {}
                 selected_texts = []
+                selected_pdf_ids = []
                 
-                # Process all submission responses to find the ones we need
-                if len(self.selected_submission_prompts) > 0:
-                    print(f"🔍 Filtering for selected prompts: {self.selected_submission_prompts}")
-                    
-                    # Map submission indices to prompt IDs for filtering
-                    # prompt-0 = submission_0, prompt-1 = submission_1, etc.
-                    selected_submission_indices = set()
-                    for prompt_id in self.selected_submission_prompts:
-                        if isinstance(prompt_id, str) and 'prompt-' in prompt_id:
-                            # Extract the prompt index from IDs like "node-1755568267597-prompt-1"
-                            parts = prompt_id.split('-prompt-')
-                            if len(parts) == 2 and parts[1].isdigit():
-                                submission_index = int(parts[1])
-                                selected_submission_indices.add(f"submission_{submission_index}")
-                                print(f"  Mapped {prompt_id} -> submission_{submission_index}")
-                    
-                    # Process submissions based on the mapped indices
-                    for submission_key, response in student['submission_responses'].items():
-                        # Only process submissions that match our selected prompt indices
-                        if submission_key in selected_submission_indices:
-                            print(f"  Processing {submission_key}: {response.get('media_type', 'unknown')} type")
+                print(f"  📝 Processing student: {student.get('name', 'Unknown')}")
+                
+                # Map variable names to submission indices for filtering
+                # variable names like "prompt_1_text_0" -> submission_0
+                # variable names like "prompt_1_pdf_1" -> submission_1
+                for variable_name in selected_variable_names:
+                    # Extract submission index from variable name
+                    # Format: prompt_{page}_{type}_{index}
+                    parts = variable_name.split('_')
+                    if len(parts) >= 4 and parts[0] == 'prompt':
+                        try:
+                            submission_index = int(parts[-1])  # Last part is the index
+                            submission_key = f"submission_{submission_index}"
+                            variable_type = parts[-2]  # Second to last is the type (text/pdf)
                             
-                            # Include text submissions for theme analysis
-                            if response.get('media_type') == 'text':
-                                filtered_responses[submission_key] = response
+                            if submission_key in student['submission_responses']:
+                                response = student['submission_responses'][submission_key]
+                                media_type = response.get('media_type', '')
                                 
-                                # Extract text content for theme analysis
-                                if isinstance(response, dict):
-                                    text_content = response.get('text', '') or response.get('response', '')
+                                print(f"    🔍 Found {submission_key}: {media_type} type")
+                                
+                                # Match variable type with media type for validation
+                                if (variable_type == 'text' and media_type == 'text') or \
+                                   (variable_type == 'pdf' and media_type == 'pdf'):
+                                    
+                                    filtered_responses[submission_key] = response
+                                    
+                                    if media_type == 'text':
+                                        # Extract text content for theme analysis
+                                        text_content = response.get('text', '') or response.get('response', '')
+                                        if text_content:
+                                            selected_texts.append(text_content)
+                                            print(f"      ✅ Added text: {text_content[:50]}...")
+                                    
+                                    elif media_type == 'pdf':
+                                        # Extract PDF document ID for theme analysis
+                                        try:
+                                            pdf_id = int(response.get('response', ''))
+                                            selected_pdf_ids.append(pdf_id)
+                                            print(f"      ✅ Added PDF ID: {pdf_id}")
+                                        except (ValueError, TypeError):
+                                            print(f"      ❌ Invalid PDF ID: {response.get('response')}")
                                 else:
-                                    text_content = str(response)
-                                
-                                if text_content:
-                                    selected_texts.append(text_content)
-                                    print(f"    Added text content: {text_content[:50]}...")
-                            
-                            # Keep PDF submissions for vector enhancement and theme creation
-                            elif response.get('media_type') == 'pdf':
-                                filtered_responses[submission_key] = response
-                                print(f"    Kept PDF submission: {response.get('response', 'Unknown')}")
-                        else:
-                            print(f"  Skipping {submission_key}: not in selected prompts")
+                                    print(f"      ⚠️  Type mismatch: variable type '{variable_type}' vs media type '{media_type}'")
+                            else:
+                                print(f"      ❌ Submission {submission_key} not found")
+                        except (ValueError, IndexError) as e:
+                            print(f"      ❌ Error parsing variable name '{variable_name}': {e}")
                 
                 student_copy['submission_responses'] = filtered_responses
                 
-                # Combine selected prompt responses into the main 'text' field for vector creation
-                has_pdf_submissions = any(resp.get('media_type') == 'pdf' for resp in filtered_responses.values())
+                # Combine selected text responses into the main 'text' field for vector creation
+                has_pdf_submissions = bool(selected_pdf_ids)
                 
                 if selected_texts:
                     # Use text from selected prompts
                     student_copy['text'] = ' '.join(selected_texts)
-                    print(f"  Using text from selected prompts for {student.get('name', 'Unknown')}")
+                    print(f"    📄 Combined text from {len(selected_texts)} submissions")
                 elif has_pdf_submissions:
                     # PDF-only theme creation: clear text field to force PDF-only vector creation
                     student_copy['text'] = ''
-                    print(f"  PDF-only theme creation for {student.get('name', 'Unknown')}: cleared text field")
+                    print(f"    📄 PDF-only theme creation: cleared text field")
                 else:
-                    # No matching responses found, keep original text as fallback
-                    print(f"  No matching prompts for {student.get('name', 'Unknown')}, using original text")
+                    # No matching responses found, use original text as fallback
+                    student_copy['text'] = student.get('text', '')
+                    print(f"    📄 No matching submissions, using original text")
                 
-                # Filter PDF IDs to only include PDFs from selected submissions
-                if has_pdf_submissions:
-                    # Extract PDF IDs only from the selected submissions
-                    selected_pdf_ids = []
-                    for submission_key, response in filtered_responses.items():
-                        if response.get('media_type') == 'pdf':
-                            try:
-                                pdf_id = int(response.get('response', ''))
-                                selected_pdf_ids.append(pdf_id)
-                            except (ValueError, TypeError):
-                                pass
-                    
-                    student_copy['pdf_document_ids'] = selected_pdf_ids
-                    print(f"  Filtered PDF IDs for {student.get('name', 'Unknown')}: {len(selected_pdf_ids)} PDFs from selected submissions")
+                # Set PDF IDs from selected PDF submissions
+                student_copy['pdf_document_ids'] = selected_pdf_ids
+                if selected_pdf_ids:
+                    print(f"    📎 Set {len(selected_pdf_ids)} PDF IDs: {selected_pdf_ids}")
                 else:
-                    # Clear PDF IDs if we're not using any PDF submissions
-                    student_copy['pdf_document_ids'] = []
-                    print(f"  Cleared PDF IDs for {student.get('name', 'Unknown')} (no PDF submissions selected)")
+                    print(f"    📎 No PDF submissions selected")
+            else:
+                print(f"  ⚠️  Student has no submission_responses")
             
             # Only include students who have submissions for the selected prompts
-            has_relevant_submissions = bool(filtered_responses) or bool(selected_texts)
+            has_relevant_submissions = bool(filtered_responses) or bool(selected_texts) or bool(selected_pdf_ids)
             if has_relevant_submissions:
                 filtered_students.append(student_copy)
                 print(f"  ✅ Included {student.get('name', 'Unknown')} (has relevant submissions)")
             else:
-                print(f"  ❌ Excluded {student.get('name', 'Unknown')} (no relevant submissions for selected prompts)")
+                filtered_students.append(student_copy)  # Include anyway for theme creation
+                print(f"  ⚠️  Included {student.get('name', 'Unknown')} (no specific submissions but keeping for consistency)")
         
         # Log filtering results
         original_count = len(student_data)
         filtered_count = len(filtered_students)
         
-        if self.selected_submission_prompts:
-            print(f"🎯 Using {len(self.selected_submission_prompts)} selected prompt(s) for theme creation")
-            print(f"📊 Filtered students: {original_count} -> {filtered_count} ({filtered_count - original_count:+d})")
-        else:
-            print(f"🎯 No specific prompts selected - using all student data ({original_count} students)")
+        print(f"🎯 THEME FILTER RESULTS:")
+        print(f"   Original students: {original_count}")
+        print(f"   Filtered students: {filtered_count}")
+        print(f"   Selected variables: {list(selected_variable_names)}")
         
         return filtered_students
 
@@ -1728,6 +1821,107 @@ ENHANCED DESCRIPTION:"""
             "filter_web_content": self.filter_web_content,
             "enhance_with_web_search": self.enhance_with_web_search
         }
+    
+    def _auto_fetch_student_data_from_prompts(self, db_session: Optional[Any] = None, deployment_context: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
+        """
+        Auto-fetch student data from prompt pages when no input is provided but selected_submission_prompts exist.
+        This method tries to find the prompt page deployment based on the selected submission prompts configuration.
+        """
+        print(f"🔍 THEME AUTO-FETCH: Starting auto-fetch of student data")
+        
+        if not self.selected_submission_prompts:
+            print(f"🔍 THEME AUTO-FETCH: No selected submission prompts, cannot auto-fetch")
+            return None
+        
+        if not db_session:
+            print(f"🔍 THEME AUTO-FETCH: No database session available, cannot auto-fetch")
+            return None
+        
+        try:
+            # Extract node information from selected submission prompts
+            print(f"🔍 THEME AUTO-FETCH: Analyzing {len(self.selected_submission_prompts)} selected submission prompts")
+            
+            # Import the helper function to get submissions
+            from api.deployments.deployment_prompt_routes import get_all_prompt_submissions_for_deployment
+            from models.database.db_models import Deployment
+            from sqlmodel import select
+            
+            # Strategy 1: Look for deployments with prompt submissions
+            # Prioritize the current deployment context if available
+            
+            deployments_to_check = []
+            
+            # If we have deployment context, prioritize the corresponding page deployment
+            if deployment_context:
+                # Extract base deployment ID and look for page_1 deployment
+                # deployment_context format: "d43c7ffe-bebd-497c-8685-b8b50b86f7c2_behavior_2"
+                base_deployment_id = deployment_context.replace('_behavior_2', '').replace('_behavior_3', '')
+                target_page_deployment = f"{base_deployment_id}_page_1"
+                print(f"🔍 THEME AUTO-FETCH: Deployment context: {deployment_context}")
+                print(f"🔍 THEME AUTO-FETCH: Prioritizing target deployment: {target_page_deployment}")
+                
+                # Get the target deployment first
+                target_deployment = db_session.exec(
+                    select(Deployment).where(
+                        Deployment.is_active == True,
+                        Deployment.deployment_id == target_page_deployment
+                    )
+                ).first()
+                
+                if target_deployment:
+                    deployments_to_check.append(target_deployment)
+                    print(f"🔍 THEME AUTO-FETCH: ✅ Found and prioritized target deployment: {target_page_deployment}")
+                else:
+                    print(f"🔍 THEME AUTO-FETCH: ❌ Target deployment not found: {target_page_deployment}")
+            
+            # Get all other page deployments as fallback
+            all_page_deployments = db_session.exec(
+                select(Deployment).where(
+                    Deployment.is_active == True,
+                    Deployment.deployment_id.like('%_page_%')
+                )
+            ).all()
+            
+            # Add other deployments that aren't already in our priority list
+            for deployment in all_page_deployments:
+                if deployment not in deployments_to_check:
+                    deployments_to_check.append(deployment)
+            
+            print(f"🔍 THEME AUTO-FETCH: Found {len(deployments_to_check)} page deployments to check")
+            
+            # Try each deployment to find one with student submissions
+            for deployment in deployments_to_check:
+                try:
+                    print(f"🔍 THEME AUTO-FETCH: Checking deployment: {deployment.deployment_id}")
+                    result = get_all_prompt_submissions_for_deployment(deployment.deployment_id, db_session)
+                    
+                    if isinstance(result, dict):
+                        students = result.get("students", [])
+                        if students and len(students) > 0:
+                            print(f"🔍 THEME AUTO-FETCH: Found {len(students)} students in deployment {deployment.deployment_id}")
+                            
+                            # Validate the student data format
+                            valid_students = []
+                            for student in students:
+                                if isinstance(student, dict) and 'name' in student:
+                                    valid_students.append(student)
+                            
+                            if valid_students:
+                                print(f"🔍 THEME AUTO-FETCH: Successfully auto-fetched {len(valid_students)} valid students")
+                                return valid_students
+                    
+                except Exception as e:
+                    print(f"🔍 THEME AUTO-FETCH: Error checking deployment {deployment.deployment_id}: {e}")
+                    continue
+            
+            print(f"🔍 THEME AUTO-FETCH: No student submissions found in any page deployment")
+            return None
+            
+        except Exception as e:
+            print(f"🔍 THEME AUTO-FETCH: Error during auto-fetch: {e}")
+            import traceback
+            print(f"🔍 THEME AUTO-FETCH: Traceback: {traceback.format_exc()}")
+            return None
     
     def update_config(self, config: Dict[str, Any]) -> None:
         """Update the configuration of the theme creator behavior."""

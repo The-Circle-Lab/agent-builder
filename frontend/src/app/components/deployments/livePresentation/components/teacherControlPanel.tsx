@@ -6,8 +6,7 @@ import {
   CheckCircleIcon,
   ChartBarIcon,
   ExclamationTriangleIcon,
-  HeartIcon,
-  WrenchScrewdriverIcon
+  HeartIcon
 } from '@heroicons/react/24/outline';
 import { 
   LivePresentationPrompt, 
@@ -22,7 +21,6 @@ interface TeacherControlPanelProps {
   onSendGroupInfo: () => void;
   onStartReadyCheck: () => void;
   onRefreshStats: () => void;
-  onRebuildVariableMapping: () => void;
   manualReconnect?: () => void;
 }
 
@@ -34,7 +32,6 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
   onSendGroupInfo,
   onStartReadyCheck,
   onRefreshStats,
-  onRebuildVariableMapping,
   manualReconnect
 }) => {
   const [selectedPrompt, setSelectedPrompt] = useState<LivePresentationPrompt | null>(null);
@@ -95,7 +92,7 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
       <div className="bg-white rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <button
             onClick={onStartReadyCheck}
             disabled={!isConnected}
@@ -134,20 +131,6 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
             <HeartIcon className="h-6 w-6" />
             <span className="font-medium">Thank You</span>
           </button>
-
-          <button
-            onClick={onRebuildVariableMapping}
-            disabled={!isConnected}
-            className={`flex items-center justify-center space-x-2 p-4 rounded-lg border-2 border-dashed transition-colors ${
-              isConnected
-                ? 'border-orange-300 text-orange-700 hover:border-orange-400 hover:bg-orange-50'
-                : 'border-gray-300 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            <WrenchScrewdriverIcon className="h-6 w-6" />
-            <span className="font-medium text-xs">Fix Variable Mapping</span>
-          </button>
-
           <button
             onClick={onRefreshStats}
             className="flex items-center justify-center space-x-2 p-4 rounded-lg border-2 border-dashed border-blue-300 text-blue-700 hover:border-blue-400 hover:bg-blue-50 transition-colors"

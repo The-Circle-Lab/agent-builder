@@ -38,7 +38,7 @@ class BehaviorDeployment:
         """Get the type of behavior (e.g., 'group')"""
         return self.behavior_type
     
-    def execute_behavior(self, input_data: Any, db_session: Optional[Any] = None, prompt_context: Optional[str] = None) -> Dict[str, Any]:
+    def execute_behavior(self, input_data: Any, db_session: Optional[Any] = None, prompt_context: Optional[str] = None, progress_callback: Optional[callable] = None) -> Dict[str, Any]:
         """
         Execute the behavior with the provided input data.
         
@@ -59,11 +59,13 @@ class BehaviorDeployment:
             # Pass through database session when available for handlers that need persistence/lookups
             if hasattr(self._behavior_handler, 'execute'):
                 try:
-                    # For group behaviors, pass deployment context for better auto-fetch
+                    # For group and theme behaviors, pass deployment context for better auto-fetch
                     if self.behavior_type == BehaviorType.GROUP:
-                        result = self._behavior_handler.execute(input_data, db_session=db_session, prompt_context=prompt_context, deployment_context=self.behavior_id)
+                        result = self._behavior_handler.execute(input_data, db_session=db_session, prompt_context=prompt_context, deployment_context=self.behavior_id, progress_callback=progress_callback)
+                    elif self.behavior_type == BehaviorType.THEME:
+                        result = self._behavior_handler.execute(input_data, db_session=db_session, prompt_context=prompt_context, deployment_context=self.behavior_id, progress_callback=progress_callback)
                     else:
-                        result = self._behavior_handler.execute(input_data, db_session=db_session, prompt_context=prompt_context)
+                        result = self._behavior_handler.execute(input_data, db_session=db_session, prompt_context=prompt_context, progress_callback=progress_callback)
                 except TypeError:
                     # Fallback for handlers not expecting all parameters
                     try:

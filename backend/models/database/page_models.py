@@ -24,13 +24,22 @@ class PageDeploymentState(SQLModel, table=True):
 
 
 class PageDeploymentVariable(SQLModel, table=True):
-    """Stores variables for page-based deployments"""
+    """Stores variables for page-based deployments with full metadata"""
     id: int | None = Field(default=None, primary_key=True)
     page_deployment_id: int = Field(foreign_key="pagedeploymentstate.id")
     
+    # Variable identification
     name: str = Field(index=True)
-    variable_type: str  # "text" or "group"
-    variable_value: Dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))  # Store any JSON-serializable data
+    
+    # Variable metadata (matching new variable system)
+    origin_type: str  # "student" or "behaviour"
+    origin: str  # "prompt", "group", "theme", "live_presentation", "global"
+    variable_type: str  # "text", "pdf", "group", "list"
+    page: int = Field(default=0)  # Page number
+    index: int = Field(default=0)  # Index within page
+    
+    # Variable value (JSON serializable)
+    variable_value: Dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     
     # Metadata
     created_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))

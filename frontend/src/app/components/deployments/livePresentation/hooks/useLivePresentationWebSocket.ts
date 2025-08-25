@@ -14,7 +14,6 @@ import {
 interface UseLivePresentationWebSocketProps {
   deploymentId: string;
   isTeacher: boolean;
-  userId?: string;
   userName?: string;
 }
 
@@ -27,7 +26,6 @@ interface WebSocketState {
 export const useLivePresentationWebSocket = ({
   deploymentId,
   isTeacher,
-  userId,
   userName
 }: UseLivePresentationWebSocketProps) => {
   const [socketState, setSocketState] = useState<WebSocketState>({
@@ -332,7 +330,7 @@ export const useLivePresentationWebSocket = ({
         error: 'Failed to connect'
       }));
     }
-  }, [deploymentId, isTeacher, userId, userName, handleMessage, socketState.connectionStatus]);
+  }, [deploymentId, isTeacher, handleMessage, socketState.connectionStatus]);
 
   const disconnect = useCallback(() => {
     console.log('🎤 Disconnecting WebSocket');

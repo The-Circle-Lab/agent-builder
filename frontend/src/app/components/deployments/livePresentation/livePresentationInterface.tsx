@@ -10,13 +10,11 @@ import { API_CONFIG } from '@/lib/constants';
 
 interface LivePresentationInterfaceProps {
   deploymentId: string;
-  userId: string;
   userName: string;
 }
 
 export default function LivePresentationInterface({ 
   deploymentId, 
-  userId, 
   userName 
 }: LivePresentationInterfaceProps) {
   const [deploymentInfo, setDeploymentInfo] = useState<LivePresentationInfo | null>(null);
@@ -41,7 +39,6 @@ export default function LivePresentationInterface({
   } = useLivePresentationWebSocket({
     deploymentId,
     isTeacher: false,
-    userId,
     userName
   });
 

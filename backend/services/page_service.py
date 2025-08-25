@@ -8,13 +8,30 @@ from sqlmodel import Session as DBSession
 
 class VariableType(str, Enum):
     TEXT = "text"
+    PDF = "pdf"
     GROUP = "group"
     LIST = "list"
 
+class OriginType(str, Enum):
+    STUDENT = "student"
+    BEHAVIOUR = "behaviour"
+
+class Origin(str, Enum):
+    PROMPT = "prompt"
+    GROUP = "group"
+    THEME = "theme"
+    LIVE_PRESENTATION = "live_presentation"
+    GLOBAL = "global"
+
 class DeploymentVariable:
-    def __init__(self, name: str, variable_type: VariableType, variable_value: Any = None):
+    def __init__(self, name: str, origin_type: OriginType, origin: Origin, variable_type: VariableType, 
+                 page: int = 0, index: int = 0, variable_value: Any = None):
         self.name = name
+        self.origin_type = origin_type
+        self.origin = origin
         self.variable_type = variable_type
+        self.page = page
+        self.index = index
         self.variable_value = variable_value
     
     def is_empty(self) -> bool:
@@ -24,6 +41,27 @@ class DeploymentVariable:
     def set_value(self, value: Any):
         """Set the variable value"""
         self.variable_value = value
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert variable to dictionary representation"""
+        return {
+            "name": self.name,
+            "origin_type": self.origin_type.value,
+            "origin": self.origin.value,
+            "type": self.variable_type.value,
+            "page": self.page,
+            "index": self.index,
+            "value": self.variable_value,
+            "is_empty": self.is_empty()
+        }
+    
+    def is_behavior_variable(self) -> bool:
+        """Check if this is a behavior-generated variable"""
+        return self.origin_type == OriginType.BEHAVIOUR
+    
+    def is_student_variable(self) -> bool:
+        """Check if this is a student-generated variable"""
+        return self.origin_type == OriginType.STUDENT
 
 class Page:
     def __init__(self, page_number: str, page_config: Dict[str, Any], deployment_id: str, collection_name: Optional[str] = None):
@@ -261,7 +299,17 @@ class Behavior:
         return self.input_type is not None and self.input_id is not None
     
     def has_output(self) -> bool:
-        return self.output_type is not None and self.output_id is not None
+        # Check if explicitly configured with output
+        if self.output_type is not None and self.output_id is not None:
+            return True
+        
+        # For the new variable system: group and theme behaviors always output to variables
+        behavior_type = self.get_behavior_deployment().get_behavior_type()
+        if behavior_type in ["group", "themeCreator"]:
+            print(f"🔍 BEHAVIOR HAS_OUTPUT: {behavior_type} behavior automatically has output (variable system)")
+            return True
+        
+        return False
     
     def is_input_from_page(self) -> bool:
         return self.input_type == "page"
@@ -270,7 +318,17 @@ class Behavior:
         return self.input_type == "variable"
     
     def is_output_to_variable(self) -> bool:
-        return self.output_type == "variable"
+        # Check if explicitly configured to output to variable
+        if self.output_type == "variable":
+            return True
+        
+        # For the new variable system: group and theme behaviors always output to variables
+        behavior_type = self.get_behavior_deployment().get_behavior_type()
+        if behavior_type in ["group", "themeCreator"]:
+            print(f"🔍 BEHAVIOR IS_OUTPUT_TO_VARIABLE: {behavior_type} behavior automatically outputs to variable")
+            return True
+        
+        return False
     
     def is_output_to_page(self) -> bool:
         return self.output_type == "page"
@@ -313,7 +371,7 @@ class Behavior:
         print(f"🔍 BEHAVIOR DEBUG: Unknown input type, returning None")
         return None
     
-    def execute_with_resolved_input(self) -> Dict[str, Any]:
+    def execute_with_resolved_input(self, progress_callback: Optional[callable] = None) -> Dict[str, Any]:
         """
         Execute the behavior with automatically resolved input data.
         """
@@ -352,22 +410,29 @@ class Behavior:
                         f"Behavior {self.behavior_number} could not resolve input from {self.input_type}:{self.input_id}. "
                         f"Please check your workflow configuration."
                     )
-            return self.execute_with_input(input_data)
+            return self.execute_with_input(input_data, progress_callback)
         else:
             # Execute without input if behavior doesn't require input
-            return self.execute_with_input(None)
+            return self.execute_with_input(None, progress_callback)
     
-    def execute_with_input(self, input_data: Any) -> Dict[str, Any]:
+    def execute_with_input(self, input_data: Any, progress_callback: Optional[callable] = None) -> Dict[str, Any]:
         """Execute the behavior with the provided input data"""
         # Pass DB session if available for behaviors that require database/Qdrant access
         db_session = getattr(self._page_deployment, '_db_session', None)
         prompt_context = getattr(self._page_deployment, '_prompt_context', None)
-        result = self.behavior_deployment.execute_behavior(input_data, db_session=db_session, prompt_context=prompt_context)
+        result = self.behavior_deployment.execute_behavior(input_data, db_session=db_session, prompt_context=prompt_context, progress_callback=progress_callback)
         
         # Handle output if behavior produces output
+        print(f"🔍 BEHAVIOR OUTPUT CHECK: success={result.get('success')}, has_output={self.has_output()}")
+        if self.has_output():
+            print(f"🔍 BEHAVIOR OUTPUT CONFIG: output_type={self.output_type}, output_id={self.output_id}, is_output_to_variable={self.is_output_to_variable()}")
+        
         if result.get("success") and self.has_output():
             if self.is_output_to_variable():
+                print(f"🔍 CALLING _handle_variable_output for {self.get_behavior_deployment().get_behavior_type()}")
                 self._handle_variable_output(result)
+            else:
+                print(f"🔍 BEHAVIOR NOT CONFIGURED TO OUTPUT TO VARIABLE: output_type={self.output_type}")
         
         return result
     
@@ -376,47 +441,67 @@ class Behavior:
         if not self._page_deployment:
             return
         
-        output_variable_name = self.output_id
         behavior_type = self.get_behavior_deployment().get_behavior_type()
+        behavior_page_number = int(self.behavior_number)
         
-        # Get the output data based on behavior type
-        output_data = None
-        if "groups" in result:
-            output_data = result["groups"]  # For group behaviors
-        elif "themes" in result:
-            output_data = result["themes"]  # For theme creator behaviors
-        elif "result" in result:
-            output_data = result["result"]  # Generic result field (for themes, lists, etc.)
+        # Create the appropriate behavior variable based on behavior type
+        if behavior_type == "group":
+            variable_name = f"group_{behavior_page_number}"
+            variable_origin = Origin.GROUP
+            variable_type = VariableType.GROUP
+            output_data = result.get("groups")
+        elif behavior_type == "themeCreator":
+            variable_name = f"theme_{behavior_page_number}"
+            variable_origin = Origin.THEME
+            variable_type = VariableType.LIST
+            output_data = result.get("themes")
+        else:
+            # Fallback for unknown behavior types
+            variable_name = f"{behavior_type}_{behavior_page_number}"
+            variable_origin = Origin.GLOBAL
+            variable_type = VariableType.LIST
+            output_data = result.get("result") or result.get("output")
         
         if output_data is not None:
-            # Validate the assignment using PageDeployment's validation method
-            validation_result = self._page_deployment.validate_variable_assignment(
-                output_variable_name, output_data, behavior_type
-            )
-            
-            if validation_result["valid"]:
-                # Perform the assignment with persistence
-                success = self._page_deployment.set_variable_value_with_persistence(output_variable_name, output_data)
+            try:
+                # Create or update the behavior variable
+                variable = self._page_deployment.create_behavior_variable(
+                    name=variable_name,
+                    origin=variable_origin,
+                    variable_type=variable_type,
+                    page=behavior_page_number,
+                    index=0,
+                    value=output_data
+                )
+                
+                # Perform the assignment 
+                success = self._page_deployment.set_variable_value(variable_name, output_data)
+                print(f"🔍 VARIABLE ASSIGNMENT: {variable_name} = {success}")
                 if success:
-                    result["output_written_to_variable"] = output_variable_name
+                    result["output_written_to_variable"] = variable_name
                     result["variable_assignment_success"] = True
                     
                     # Add additional metadata about the assignment
-                    variable = self._page_deployment.get_variable_by_name(output_variable_name)
-                    if variable:
-                        result["variable_info"] = {
-                            "name": variable.name,
-                            "type": variable.variable_type.value,
-                            "was_empty_before": variable.is_empty()
-                        }
+                    result["variable_info"] = {
+                        "name": variable.name,
+                        "origin_type": variable.origin_type.value,
+                        "origin": variable.origin.value,
+                        "type": variable.variable_type.value,
+                        "page": variable.page,
+                        "index": variable.index,
+                        "was_empty_before": variable.is_empty()
+                    }
+                    
+                    print(f"✅ Behavior output written to variable: {variable_name}")
                 else:
-                    result["warning"] = f"Could not write output to variable '{output_variable_name}'"
+                    result["warning"] = f"Could not persist output to variable '{variable_name}'"
                     result["variable_assignment_success"] = False
-            else:
-                result["warning"] = f"Variable assignment validation failed: {validation_result['error']}"
+                
+            except Exception as e:
+                result["warning"] = f"Error creating behavior variable '{variable_name}': {str(e)}"
                 result["variable_assignment_success"] = False
         else:
-            result["warning"] = f"No output data found in behavior result to assign to variable '{output_variable_name}'"
+            result["warning"] = f"No output data found in behavior result to assign to variable"
             result["variable_assignment_success"] = False
     
     def cleanup(self):
@@ -522,15 +607,43 @@ class PageDeployment:
         self.behavior_count = 0
         self.pages_accessible = -1
         
-        # Initialize deployment variables
+        # Initialize deployment variables from new array format
         self.deployment_variables = []
         self.variable_id_to_name_map = {}  # Map variable IDs to names
         
-        variables = config.get("variables", {})
-        for var_name, var_type_str in variables.items():
-            var_type = VariableType(var_type_str)
-            variable = DeploymentVariable(name=var_name, variable_type=var_type)
-            self.deployment_variables.append(variable)
+        variables = config.get("variables", [])
+        print(f"🔍 Initializing variables from new format: {len(variables)} variables found")
+        
+        # Support both old dict format and new array format for backward compatibility
+        if isinstance(variables, dict):
+            print(f"🔍 Using legacy dict format for variables")
+            for var_name, var_type_str in variables.items():
+                var_type = VariableType(var_type_str)
+                variable = DeploymentVariable(
+                    name=var_name, 
+                    origin_type=OriginType.BEHAVIOUR,  # Assume behavior for legacy
+                    origin=Origin.GLOBAL,  # Default for legacy
+                    variable_type=var_type
+                )
+                self.deployment_variables.append(variable)
+        elif isinstance(variables, list):
+            print(f"🔍 Using new array format for variables")
+            for var_data in variables:
+                if isinstance(var_data, dict):
+                    try:
+                        variable = DeploymentVariable(
+                            name=var_data["name"],
+                            origin_type=OriginType(var_data["origin_type"]),
+                            origin=Origin(var_data["origin"]),
+                            variable_type=VariableType(var_data["type"]),
+                            page=var_data.get("page", 0),
+                            index=var_data.get("index", 0)
+                        )
+                        self.deployment_variables.append(variable)
+                        print(f"   ✅ Initialized variable: {variable.name} ({variable.origin_type.value}:{variable.origin.value})")
+                    except (KeyError, ValueError) as e:
+                        print(f"   ❌ Error initializing variable {var_data}: {e}")
+                        continue
         
         # Build variable ID to name mapping from global variables in workflow data
         print(f"🔍 DEBUG: Config structure for variable mapping:")
@@ -652,6 +765,18 @@ class PageDeployment:
                 print(f"  {var.name}: {var.variable_type.value} (empty: {var.is_empty()})")
         
         print(f"{'='*50}\n")
+        
+        # Note: Variable restoration will happen after database session is set
+        print(f"📝 PageDeployment initialization complete - variables will be restored when database session is set")
+    
+    def set_database_session(self, db_session):
+        """Set the database session for variable persistence"""
+        self._db_session = db_session
+        print(f"💾 Database session set for PageDeployment variable persistence")
+        
+        # Now restore variables from database
+        print(f"🔄 Attempting to restore variables from database...")
+        self._restore_variables_from_database()
     
     def set_pages_accessible(self, pages_accessible: int):
         """Set the number of pages that are accessible to students"""
@@ -752,13 +877,174 @@ class PageDeployment:
         
         print(f"🗂️ Rebuilt variable ID mapping: {self.variable_id_to_name_map}")
     
+    def _save_variable_to_database(self, variable: "DeploymentVariable"):
+        """Save a deployment variable to the database"""
+        try:
+            if not hasattr(self, '_db_session') or not self._db_session:
+                print(f"⚠️ No database session available for saving variable '{variable.name}'")
+                return
+            
+            from models.database.page_models import PageDeploymentState, PageDeploymentVariable
+            from sqlmodel import select
+            
+            # Get or create the page deployment state
+            page_deployment_state = self._db_session.exec(
+                select(PageDeploymentState).where(
+                    PageDeploymentState.deployment_id == self.deployment_id,
+                    PageDeploymentState.is_active == True
+                )
+            ).first()
+            
+            if not page_deployment_state:
+                # Create page deployment state if it doesn't exist
+                page_deployment_state = PageDeploymentState(
+                    deployment_id=self.deployment_id,
+                    pages_accessible=self.pages_accessible
+                )
+                self._db_session.add(page_deployment_state)
+                self._db_session.commit()
+                self._db_session.refresh(page_deployment_state)
+            
+            # Get or create the variable record
+            variable_record = self._db_session.exec(
+                select(PageDeploymentVariable).where(
+                    PageDeploymentVariable.page_deployment_id == page_deployment_state.id,
+                    PageDeploymentVariable.name == variable.name,
+                    PageDeploymentVariable.is_active == True
+                )
+            ).first()
+            
+            if not variable_record:
+                # Create new variable record
+                variable_record = PageDeploymentVariable(
+                    page_deployment_id=page_deployment_state.id,
+                    name=variable.name,
+                    origin_type=variable.origin_type.value,
+                    origin=variable.origin.value,
+                    variable_type=variable.variable_type.value,
+                    page=variable.page,
+                    index=variable.index,
+                    variable_value=variable.variable_value
+                )
+                self._db_session.add(variable_record)
+                print(f"💾 Created new variable record for '{variable.name}'")
+            else:
+                # Update existing variable record
+                variable_record.variable_value = variable.variable_value
+                from datetime import datetime
+                variable_record.updated_at = datetime.now()
+                self._db_session.add(variable_record)
+                print(f"💾 Updated variable record for '{variable.name}'")
+            
+            self._db_session.commit()
+            print(f"✅ Variable '{variable.name}' saved to database successfully")
+            
+        except Exception as e:
+            print(f"❌ Error saving variable '{variable.name}' to database: {e}")
+            if self._db_session:
+                self._db_session.rollback()
+    
+    def _restore_variables_from_database(self):
+        """Restore all variables from the database"""
+        try:
+            if not hasattr(self, '_db_session') or not self._db_session:
+                print(f"⚠️ No database session available for restoring variables")
+                return
+            
+            from models.database.page_models import PageDeploymentState, PageDeploymentVariable
+            from sqlmodel import select
+            
+            # Get the page deployment state
+            page_deployment_state = self._db_session.exec(
+                select(PageDeploymentState).where(
+                    PageDeploymentState.deployment_id == self.deployment_id,
+                    PageDeploymentState.is_active == True
+                )
+            ).first()
+            
+            if not page_deployment_state:
+                print(f"🔍 No page deployment state found for '{self.deployment_id}' - no variables to restore")
+                return
+            
+            # Get all variable records
+            variable_records = self._db_session.exec(
+                select(PageDeploymentVariable).where(
+                    PageDeploymentVariable.page_deployment_id == page_deployment_state.id,
+                    PageDeploymentVariable.is_active == True
+                )
+            ).all()
+            
+            if not variable_records:
+                print(f"🔍 No variables found in database for '{self.deployment_id}'")
+                return
+            
+            print(f"🔄 Restoring {len(variable_records)} variables from database...")
+            restored_count = 0
+            
+            for record in variable_records:
+                try:
+                    # Convert database record back to DeploymentVariable
+                    # Note: OriginType, Origin, VariableType are already imported at the top of this file
+                    
+                    # Create the variable
+                    variable = DeploymentVariable(
+                        name=record.name,
+                        origin_type=OriginType(record.origin_type),
+                        origin=Origin(record.origin),
+                        variable_type=VariableType(record.variable_type),
+                        page=record.page,
+                        index=record.index
+                    )
+                    
+                    # Set the value if it exists
+                    if record.variable_value is not None:
+                        variable.set_value(record.variable_value)
+                    
+                    # Find existing variable or add new one
+                    existing_var = self.get_variable_by_name(record.name)
+                    if existing_var:
+                        # Update existing variable
+                        existing_var.set_value(record.variable_value)
+                        print(f"   ✅ Updated existing variable '{record.name}'")
+                    else:
+                        # Add new variable to list
+                        self.deployment_variables.append(variable)
+                        print(f"   ✅ Added new variable '{record.name}'")
+                    restored_count += 1
+                    
+                    print(f"   ✅ Restored '{record.name}' ({record.origin}:{record.variable_type}) with {len(record.variable_value) if isinstance(record.variable_value, (list, dict)) else 'non-container'} items")
+                    
+                except Exception as e:
+                    print(f"   ❌ Error restoring variable '{record.name}': {e}")
+            
+            print(f"✅ Successfully restored {restored_count}/{len(variable_records)} variables from database")
+            
+        except Exception as e:
+            print(f"❌ Error restoring variables from database: {e}")
+    
     def set_variable_value(self, variable_name: str, value: Any) -> bool:
-        """Set the value of a deployment variable"""
+        """Set the value of a deployment variable and persist to database"""
+        print(f"🔍 SET_VARIABLE_VALUE called: '{variable_name}' = {type(value)} with {len(value) if hasattr(value, '__len__') else 'no length'}")
         variable = self.get_variable_by_name(variable_name)
         if variable:
+            print(f"🔍 Variable '{variable_name}' found, setting value...")
+            print(f"🔍 Before set: variable.is_empty() = {variable.is_empty()}")
             variable.set_value(value)
+            print(f"🔍 After set: variable.is_empty() = {variable.is_empty()}")
+            print(f"🔍 Variable value type: {type(variable.variable_value)}")
+            print(f"🔍 Variable value preview: {str(variable.variable_value)[:100] if variable.variable_value else 'None'}")
+            
+            # Persist to database if we have a session
+            if hasattr(self, '_db_session') and self._db_session:
+                print(f"🔍 Persisting variable '{variable_name}' to database...")
+                self._save_variable_to_database(variable)
+            else:
+                print(f"⚠️ No database session available for persisting variable '{variable_name}'")
             return True
-        return False
+        else:
+            print(f"❌ Variable '{variable_name}' not found in deployment variables")
+            print(f"🔍 Available variables: {[var.name for var in self.deployment_variables]}")
+            return False
     
     def is_page_accessible(self, page_number: int) -> bool:
         """Check if a specific page number is accessible"""
@@ -952,7 +1238,7 @@ class PageDeployment:
         # Execute the behavior using the new method
         return behavior.execute_with_input(input_data)
     
-    def execute_behavior_with_resolved_input(self, behavior_number: str, executed_by_user_id: Optional[int] = None) -> Dict[str, Any]:
+    def execute_behavior_with_resolved_input(self, behavior_number: str, executed_by_user_id: Optional[int] = None, progress_callback: Optional[callable] = None) -> Dict[str, Any]:
         """
         Execute a behavior with automatically resolved input data.
         This is the main method for instructor-triggered behavior execution.
@@ -974,7 +1260,7 @@ class PageDeployment:
             if behavior.has_input():
                 captured_input_data = behavior.resolve_input_source()
             
-            result = behavior.execute_with_resolved_input()
+            result = behavior.execute_with_resolved_input(progress_callback)
             execution_time = time.time() - start_time
             
             # Save execution to database if we have a session and user ID
@@ -1102,19 +1388,36 @@ class PageDeployment:
         
         return {"valid": True}
     
-    def get_variable_summary(self) -> Dict[str, Any]:
+    def get_variable_summary(self, behavior_variables_only: bool = False) -> Dict[str, Any]:
         """Get a summary of all variables and their current state"""
+        print(f"🔍 GET_VARIABLE_SUMMARY called: behavior_variables_only={behavior_variables_only}")
+        print(f"🔍 Total deployment variables: {len(self.deployment_variables)}")
+        
+        variables_to_include = self.deployment_variables
+        
+        if behavior_variables_only:
+            variables_to_include = [var for var in self.deployment_variables if var.is_behavior_variable()]
+            print(f"🔍 Filtered to behavior variables: {len(variables_to_include)}")
+        
         summary = {
-            "total_variables": len(self.deployment_variables),
+            "total_variables": len(variables_to_include),
+            "behavior_variables_only": behavior_variables_only,
             "variables": []
         }
         
-        for variable in self.deployment_variables:
+        for variable in variables_to_include:
+            is_empty = variable.is_empty()
+            print(f"🔍 Variable '{variable.name}': is_empty={is_empty}, value_type={type(variable.variable_value)}, value={str(variable.variable_value)[:50] if variable.variable_value else 'None'}")
+            
             var_info = {
                 "name": variable.name,
+                "origin_type": variable.origin_type.value,
+                "origin": variable.origin.value,
                 "type": variable.variable_type.value,
-                "is_empty": variable.is_empty(),
-                "has_value": not variable.is_empty(),
+                "page": variable.page,
+                "index": variable.index,
+                "is_empty": is_empty,
+                "has_value": not is_empty,
                 "value_type": type(variable.variable_value).__name__ if variable.variable_value is not None else None
             }
             
@@ -1132,6 +1435,48 @@ class PageDeployment:
             summary["variables"].append(var_info)
         
         return summary
+    
+    def get_behavior_variables(self) -> List[DeploymentVariable]:
+        """Get only behavior-generated variables"""
+        return [var for var in self.deployment_variables if var.is_behavior_variable()]
+    
+    def get_student_variables(self) -> List[DeploymentVariable]:
+        """Get only student-generated variables"""  
+        return [var for var in self.deployment_variables if var.is_student_variable()]
+    
+    def get_variables_by_type(self, variable_type: VariableType) -> List[DeploymentVariable]:
+        """Get variables by their type"""
+        return [var for var in self.deployment_variables if var.variable_type == variable_type]
+    
+    def get_variables_by_origin(self, origin: Origin) -> List[DeploymentVariable]:
+        """Get variables by their origin"""
+        return [var for var in self.deployment_variables if var.origin == origin]
+    
+    def create_behavior_variable(self, name: str, origin: Origin, variable_type: VariableType, 
+                                page: int, index: int = 0, value: Any = None) -> DeploymentVariable:
+        """Create a new behavior variable and add it to the deployment"""
+        variable = DeploymentVariable(
+            name=name,
+            origin_type=OriginType.BEHAVIOUR,
+            origin=origin,
+            variable_type=variable_type,
+            page=page,
+            index=index,
+            variable_value=value
+        )
+        
+        # Check if variable already exists
+        existing = self.get_variable_by_name(name)
+        if existing:
+            # Update existing variable
+            existing.variable_value = value
+            print(f"🔄 Updated existing behavior variable: {name}")
+            return existing
+        else:
+            # Add new variable
+            self.deployment_variables.append(variable)
+            print(f"✅ Created new behavior variable: {name} ({origin.value}:{variable_type.value})")
+            return variable
     
     def get_page_data_for_behavior_input(self, page_id: str) -> List[Dict[str, Any]]:
         """

@@ -8,6 +8,9 @@ import {
   NodeData,
   useNodeOperations,
 } from "./components/nodes";
+import { Var } from "./components/nodes/types";
+import { createVariableIndex } from "./scripts/nodeHelpers";
+import { NodeContextProvider, setGlobalNodeContext } from "./components/nodes/nodeContext";
 import { SideMenu, useSideMenu } from "./components/sideMenu";
 import {
   SettingsMenu,
@@ -17,6 +20,7 @@ import PageSorter from "./components/pageSorter";
 
 import { createWorkflowJSON } from "./scripts/exportWorkflow";
 import { BaseDeploymentAPI } from "../../../lib/deploymentAPIs/deploymentAPI";
+import { NodeClasses } from "./components/nodes/nodeTypes";
 
 import "@xyflow/react/dist/style.css";
 
@@ -138,6 +142,70 @@ export default function WorkflowEditor({
     });
   }, [handlePageAddNodeClick, edges, handleDeleteNode, handleOpenSettings, handleNodeDataUpdate, workflowId, pageRelationships, nodes]);
 
+  // Helper function to test nodeVariables function
+  const testNodeVariables = useCallback(() => {
+    console.log("🧪 Testing nodeVariables function on all nodes...");
+    console.log("Current nodes:", nodes);
+    console.log("Current edges:", edges);
+    
+    nodes.forEach((node) => {
+      try {
+        // Find the node class for this node type
+        const nodeType = node.type;
+        const NodeClass = nodeType ? NodeClasses[nodeType as keyof typeof NodeClasses] : null;
+        
+        if (NodeClass) {
+          // Create a temporary instance with the node's props
+          const nodeInstance = new (NodeClass as new (props: { id: string; data: unknown; edges: Edge[] }) => { nodeVariables: (nodes: Node[]) => Var[] })({
+            id: node.id,
+            data: node.data,
+            edges: edges,
+          });
+          
+          // Call the nodeVariables method
+          const variables = nodeInstance.nodeVariables(nodes);
+          
+          console.log(`📝 Node ${node.id} (${nodeType}):`, {
+            nodeData: node.data,
+            variables: variables,
+            variableCount: variables.length
+          });
+        } else {
+          console.warn(`⚠️ No NodeClass found for node type: ${nodeType}`);
+        }
+      } catch (error) {
+        console.error(`❌ Error testing node ${node.id}:`, error);
+      }
+    });
+    
+    console.log("✅ Node variables test complete!");
+  }, [nodes, edges]);
+
+  // Helper function to test variable index
+  const testVariableIndex = useCallback(() => {
+    console.log("📋 Testing variable index...");
+    const variableIndex = createVariableIndex(nodes, edges);
+    
+    console.log("🔍 Variable Index Results:");
+    console.log("Behaviors:", variableIndex.behaviors);
+    console.log("Pages:", variableIndex.pages);
+    
+    // Pretty print for better readability
+    console.log("\n📊 Formatted Results:");
+    
+    console.log("🎭 Behaviors by page:");
+    Object.entries(variableIndex.behaviors).forEach(([pageNum, variables]) => {
+      console.log(`  Page ${pageNum}: [${variables.join(', ')}]`);
+    });
+    
+    console.log("📄 Pages by page:");
+    Object.entries(variableIndex.pages).forEach(([pageNum, variables]) => {
+      console.log(`  Page ${pageNum}: [${variables.join(', ')}]`);
+    });
+    
+    console.log("✅ Variable index test complete!");
+  }, [nodes, edges]);
+
   // Notify parent component of workflow changes
   useEffect(() => {
     if (onWorkflowChange) {
@@ -145,7 +213,10 @@ export default function WorkflowEditor({
     }
   }, [nodes, edges, pageRelationships, onWorkflowChange]);
 
-  // Handle Ctrl+E keyboard shortcut
+  // Handle keyboard shortcuts:
+  // - Ctrl+E: Export workflow JSON to console
+  // - Ctrl+T: Test nodeVariables function on all nodes (output to console)
+  // - Ctrl+I: Test variable index (output to console)
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.ctrlKey && event.key === "e") {
@@ -157,6 +228,16 @@ export default function WorkflowEditor({
         );
         console.log(workflowJSON);
       }
+      
+      if (event.ctrlKey && event.key === "t") {
+        event.preventDefault();
+        testNodeVariables();
+      }
+      
+      if (event.ctrlKey && event.key === "i") {
+        event.preventDefault();
+        testVariableIndex();
+      }
     };
 
     document.addEventListener("keydown", handleKeyDown);
@@ -164,7 +245,7 @@ export default function WorkflowEditor({
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [nodes, edges, pageRelationships]);
+  }, [nodes, edges, pageRelationships, testNodeVariables, testVariableIndex]);
 
   // Auto-save functionality
   useEffect(() => {
@@ -257,27 +338,45 @@ export default function WorkflowEditor({
     onDeploySuccess,
   ]);
 
+  // Update global context whenever data changes
+  React.useEffect(() => {
+    const nodeData = nodes.map(node => ({ id: node.id, type: node.type || 'unknown' }));
+    setGlobalNodeContext({
+      pageRelationships,
+      nodes: nodeData,
+      fullNodes: nodes,
+      getCurrentPageRelationships: () => pageRelationships,
+      getCurrentNodes: () => nodeData,
+      getCurrentFullNodes: () => nodes,
+    });
+  }, [pageRelationships, nodes]);
+
   return (
-    <div style={{ width: "100%", height: "100%", backgroundColor: "#374151" }}>
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        onConnect={onConnect}
-        nodeTypes={nodeTypes}
-        defaultEdgeOptions={{
-          style: { strokeWidth: 3, stroke: "orange" },
-        }}
-        proOptions={{ hideAttribution: true }}
-        snapToGrid={true}
-        snapGrid={[15, 15]}
-        style={{ backgroundColor: "#374151" }}
-        connectOnClick={false}
-        connectionMode={ConnectionMode.Loose}
-      >
-        <Background gap={12} size={1} color="#6B7280" />
-      </ReactFlow>
+    <NodeContextProvider 
+      pageRelationships={pageRelationships} 
+      nodes={nodes.map(node => ({ id: node.id, type: node.type || 'unknown' }))}
+      fullNodes={nodes}
+    >
+      <div style={{ width: "100%", height: "100%", backgroundColor: "#374151" }}>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          nodeTypes={nodeTypes}
+          defaultEdgeOptions={{
+            style: { strokeWidth: 3, stroke: "orange" },
+          }}
+          proOptions={{ hideAttribution: true }}
+          snapToGrid={true}
+          snapGrid={[15, 15]}
+          style={{ backgroundColor: "#374151" }}
+          connectOnClick={false}
+          connectionMode={ConnectionMode.Loose}
+        >
+          <Background gap={12} size={1} color="#6B7280" />
+        </ReactFlow>
 
       {nodes.length === 0 && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center space-y-4 z-20">
@@ -516,6 +615,7 @@ export default function WorkflowEditor({
           currentNodeId={settingsData.nodeId}
         />
       )}
-    </div>
+      </div>
+    </NodeContextProvider>
   );
 }

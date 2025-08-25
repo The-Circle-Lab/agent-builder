@@ -53,6 +53,9 @@ async def load_page_deployment_on_demand(deployment_id: str, user_id: int, db: D
             collection_name=db_deployment.collection_name,
         )
         
+        # Set database session for variable persistence
+        page_deployment.set_database_session(db)
+        
         # Restore state from database
         await restore_page_deployment_state(page_deployment, db)
         
@@ -279,34 +282,59 @@ async def save_behavior_execution(
         db.commit()
         
         # If this is a successful group behavior execution, save the group data
+        print(f"🔍 CHECKING GROUP SAVE CONDITIONS:")
+        print(f"   Success: {success}")
+        print(f"   Behavior type: {behavior_type}")
+        print(f"   Has groups: {'groups' in execution_result}")
+        print(f"   Has student data: {student_data is not None}")
+        print(f"   Execution result keys: {list(execution_result.keys())}")
+        
+        # For group behaviors, we don't need student_data parameter since the group data contains all necessary info
         if (success and 
             behavior_type == "group" and 
-            "groups" in execution_result and 
-            student_data is not None):
+            "groups" in execution_result):
             
             groups_data = execution_result.get("groups", {})
             explanations_data = execution_result.get("explanations", {})
             metadata = execution_result.get("metadata", {})
+            
+            print(f"🔍 GROUP SAVE DATA EXTRACTED:")
+            print(f"   Groups: {list(groups_data.keys()) if groups_data else 'None'}")
+            print(f"   Explanations: {list(explanations_data.keys()) if explanations_data else 'None'}")
+            print(f"   Metadata: {metadata}")
             
             group_assignment_id = await save_group_assignment_to_database(
                 execution_id=execution_id,
                 page_deployment_id=page_state.id,
                 groups_data=groups_data,
                 explanations_data=explanations_data,
-                student_data=student_data,
+                student_data=None,  # Not needed for group save - all data is in groups_data
                 metadata=metadata,
                 db=db
             )
             
             if group_assignment_id:
-                print(f"Saved group assignment data with ID: {group_assignment_id}")
+                print(f"✅ Saved group assignment data with ID: {group_assignment_id}")
+                
+                # Output groups to the correct variable (new variable system)
+                behavior_id = execution_result.get('behavior_id', f"{page_state.deployment_id}_behavior_1")
+                # Extract page number from behavior_id (format: "uuid_behavior_2" -> "2")
+                behavior_page_number = behavior_id.split('_behavior_')[-1] if '_behavior_' in behavior_id else '1'
+                behavior_variable_name = f"group_{behavior_page_number}"
+                print(f"🔍 OUTPUTTING GROUPS TO VARIABLE: {behavior_variable_name} (extracted from behavior_id: {behavior_id})")
+                
+                # Set the group variable with the groups data
+                page_deployment.set_variable_value(behavior_variable_name, groups_data)
+                print(f"✅ Set variable '{behavior_variable_name}' with {len(groups_data)} groups")
             else:
-                print("Failed to save group assignment data")
+                print("❌ Failed to save group assignment data")
+        else:
+            print("❌ GROUP SAVE CONDITIONS NOT MET - skipping group database save")
         
         # If this is a successful theme behavior execution, save the theme data
-        elif (success and 
-              behavior_type == "themeCreator" and 
-              "themes" in execution_result and
+        if (success and 
+            behavior_type == "themeCreator" and 
+            "themes" in execution_result and
               execution_result["themes"] and
               len(execution_result["themes"]) > 0):
             
@@ -347,6 +375,17 @@ async def save_behavior_execution(
             
             if theme_assignment_id:
                 print(f"✅ Saved theme assignment data with ID: {theme_assignment_id}")
+                
+                # Output themes to the correct variable (new variable system)
+                behavior_id = execution_result.get('behavior_id', f"{page_state.deployment_id}_behavior_2")
+                # Extract page number from behavior_id (format: "uuid_behavior_2" -> "2")
+                behavior_page_number = behavior_id.split('_behavior_')[-1] if '_behavior_' in behavior_id else '2'
+                behavior_variable_name = f"theme_{behavior_page_number}"
+                print(f"🔍 OUTPUTTING THEMES TO VARIABLE: {behavior_variable_name} (extracted from behavior_id: {behavior_id})")
+                
+                # Set the theme variable with the themes data
+                page_deployment.set_variable_value(behavior_variable_name, themes_data)
+                print(f"✅ Set variable '{behavior_variable_name}' with {len(themes_data)} themes")
             else:
                 print("❌ Failed to save theme assignment data")
         
@@ -389,7 +428,7 @@ async def save_group_assignment_to_database(
         group_assignment = GroupAssignment(
             execution_id=execution_id,
             page_deployment_id=page_deployment_id,
-            total_students=metadata.get("total_students", len(student_data)),
+            total_students=metadata.get("total_students", 0),  # Use metadata count since student_data may be None
             total_groups=metadata.get("total_groups", len(groups_data)),
             group_size_target=metadata.get("group_size_target", 4),
             grouping_method=metadata.get("grouping_method", "mixed"),
@@ -402,12 +441,19 @@ async def save_group_assignment_to_database(
         
         print(f"Created group assignment record with ID: {group_assignment.id}")
         
-        # Create a lookup for student data
-        student_lookup = {student["name"]: student.get("text", "") for student in student_data}
+        # Create a lookup for student data (handle None case)
+        student_lookup = {}
+        if student_data:
+            student_lookup = {student["name"]: student.get("text", "") for student in student_data}
+        print(f"💾 STUDENT LOOKUP: {len(student_lookup)} entries")
         
         # Create group records
+        print(f"💾 SAVING GROUPS TO DATABASE: {len(groups_data)} groups")
+        print(f"💾 EXPLANATIONS DATA: {explanations_data}")
+        
         for group_number, (group_name, member_names) in enumerate(groups_data.items(), 1):
             explanation = explanations_data.get(group_name) if explanations_data else None
+            print(f"💾 Group '{group_name}' explanation: {explanation[:100] if explanation else 'None'}...")
             
             group = Group(
                 assignment_id=group_assignment.id,
@@ -420,7 +466,7 @@ async def save_group_assignment_to_database(
             db.commit()
             db.refresh(group)
             
-            print(f"Created group '{group_name}' with ID: {group.id}")
+            print(f"✅ Created group '{group_name}' with ID: {group.id} and explanation: {bool(explanation)}")
             
             # Create group member records
             for member_name in member_names:
@@ -478,7 +524,7 @@ async def save_theme_assignment_to_database(
         theme_assignment = ThemeAssignment(
             execution_id=execution_id,
             page_deployment_id=page_deployment_id,
-            total_students=metadata.get("total_students", len(student_data)),
+            total_students=metadata.get("total_students", 0),  # Use metadata count since student_data may be None
             total_themes=metadata.get("total_themes", len(themes_data)),
             num_themes_target=metadata.get("requested_themes", len(themes_data)),
             clustering_method=metadata.get("clustering_method", "kmeans"),
@@ -493,8 +539,11 @@ async def save_theme_assignment_to_database(
         
         print(f"Created theme assignment record with ID: {theme_assignment.id}")
         
-        # Create a lookup for student data
-        student_lookup = {student["name"]: student.get("text", "") for student in student_data}
+        # Create a lookup for student data (handle None case)
+        student_lookup = {}
+        if student_data:
+            student_lookup = {student["name"]: student.get("text", "") for student in student_data}
+        print(f"💾 STUDENT LOOKUP: {len(student_lookup)} entries")
         
         # Create theme records
         for theme_data in themes_data:

@@ -24,13 +24,19 @@ class GroupAssignmentBehavior:
         """
         self.group_size = config.get('group_size', 4)
         self.grouping_method = config.get('grouping_method', 'mixed')  # homogeneous, diverse, mixed
+        # Default to True for explanations, even if not specified in config
         self.include_explanations = config.get('include_explanations', True)
+        if self.include_explanations is None:  # Handle case where it's explicitly set to None
+            self.include_explanations = True
         self.label = config.get('label', 'Group Assignment')
         self.selected_submission_prompts = config.get('selected_submission_prompts', [])
+        
+        print(f"🔧 GROUP BEHAVIOR INIT: include_explanations={self.include_explanations} (from config: {config.get('include_explanations', 'NOT_SET')})")
     
-    def execute(self, student_data: List[Dict[str, Any]], db_session: Optional[Any] = None, prompt_context: Optional[str] = None, deployment_context: Optional[str] = None) -> Dict[str, Any]:
+    def execute(self, student_data: List[Dict[str, Any]], db_session: Optional[Any] = None, prompt_context: Optional[str] = None, deployment_context: Optional[str] = None, progress_callback: Optional[callable] = None) -> Dict[str, Any]:
         """
         Execute group assignment with the provided student data.
+        Optimized for async execution with better memory management.
         
         Args:
             student_data: List of student dictionaries with 'name' and 'text' keys
@@ -52,9 +58,23 @@ class GroupAssignmentBehavior:
         # Validate input data
         self._validate_input(student_data)
         
+        # Store original count for metrics
+        original_student_count = len(student_data)
+        
         try:
+            # Report initial progress
+            if progress_callback:
+                progress_callback(40, "Filtering student data...")
+            
             # Filter student data to only use selected submission prompts
             filtered_student_data = self._filter_student_data_by_selected_prompts(student_data)
+            
+            # Memory optimization: Clear intermediate variables
+            del student_data  # Free original data after filtering
+            
+            # Report progress for vector building
+            if progress_callback:
+                progress_callback(50, "Building student vectors...")
             
             # Incorporate vectors from PDFs when available
             try:
@@ -64,9 +84,17 @@ class GroupAssignmentBehavior:
                 print(f"Warning: PDF vector enrichment failed, using text only. Error: {e}")
                 students_with_vectors = [(s["name"], student_to_vector(s.get("text", ""))) for s in filtered_student_data]
 
+            # Memory optimization: Extract data and clear large objects
             names = [name for name, _ in students_with_vectors]
             vectors = [vec for _, vec in students_with_vectors]
-
+            
+            # Free up memory from students_with_vectors
+            del students_with_vectors
+            
+            # Report progress for grouping
+            if progress_callback:
+                progress_callback(60, "Performing hierarchical clustering...")
+            
             # Debug the vectors and names before grouping
             print(f"🔍 GROUPING DEBUG: Number of students: {len(names)}")
             print(f"🔍 GROUPING DEBUG: Student names: {names}")
@@ -75,50 +103,80 @@ class GroupAssignmentBehavior:
             print(f"🔍 GROUPING DEBUG: Grouping method: {self.grouping_method}")
             
             # Perform grouping using our computed vectors
-            group_indices = _hierarchical_assign(np.asarray(vectors), self.group_size, self.grouping_method)
+            vectors_array = np.asarray(vectors)
+            group_indices = _hierarchical_assign(vectors_array, self.group_size, self.grouping_method)
+            
+            # Memory cleanup
+            del vectors, vectors_array
+            
             print(f"🔍 GROUPING DEBUG: Raw group indices: {group_indices}")
             print(f"🔍 GROUPING DEBUG: Number of groups created: {len(group_indices)}")
             
             groups: Dict[str, List[str]] = {f"Group{i+1}": [names[j] for j in idxs] for i, idxs in enumerate(group_indices)}
             print(f"🔍 GROUPING DEBUG: Final groups: {groups}")
 
+            # Generate explanations if requested
+            explanations = None
             if self.include_explanations:
-                explanations = _generate_group_explanations(
-                    groups, 
-                    filtered_student_data, 
-                    self.grouping_method, 
-                    db_session=db_session, 
-                    prompt_context=prompt_context,
-                    selected_prompts=self.selected_submission_prompts
-                )
-                return {
-                    "success": True,
-                    "groups": groups,
-                    "explanations": explanations,
-                    "metadata": {
-                        "total_students": len(student_data),
-                        "total_groups": len(groups),
-                        "group_size_target": self.group_size,
-                        "grouping_method": self.grouping_method,
-                        "includes_explanations": True,
-                        "label": self.label
-                    }
+                if progress_callback:
+                    progress_callback(75, "Generating group explanations...")
+                
+                print(f"🔍 GENERATING EXPLANATIONS: include_explanations={self.include_explanations}")
+                try:
+                    explanations = _generate_group_explanations(
+                        groups, 
+                        filtered_student_data, 
+                        self.grouping_method, 
+                        db_session=db_session, 
+                        prompt_context=prompt_context,
+                        selected_prompts=self.selected_submission_prompts
+                    )
+                    print(f"✅ EXPLANATIONS GENERATED: {len(explanations)} explanations")
+                    for group_name, explanation in explanations.items():
+                        print(f"   {group_name}: {explanation[:100]}...")
+                except Exception as e:
+                    print(f"⚠️  Warning: Explanation generation failed: {e}")
+                    explanations = {group_name: f"Group explanation unavailable due to processing error." for group_name in groups.keys()}
+            
+            # Report final progress
+            if progress_callback:
+                progress_callback(85, "Finalizing results...")
+            
+            # Build result with proper memory management
+            result = {
+                "success": True,
+                "groups": groups,
+                "metadata": {
+                    "total_students": original_student_count,
+                    "total_groups": len(groups),
+                    "group_size_target": self.group_size,
+                    "grouping_method": self.grouping_method,
+                    "includes_explanations": bool(explanations),
+                    "label": self.label
                 }
-            else:
-                return {
-                    "success": True,
-                    "groups": groups,
-                    "metadata": {
-                        "total_students": len(student_data),
-                        "total_groups": len(groups),
-                        "group_size_target": self.group_size,
-                        "grouping_method": self.grouping_method,
-                        "includes_explanations": False,
-                        "label": self.label
-                    }
-                }
+            }
+            
+            if explanations:
+                result["explanations"] = explanations
+                
+            print(f"🚀 GROUP BEHAVIOR RETURNING RESULT WITH:")
+            print(f"   Success: {result['success']}")
+            print(f"   Groups: {list(result['groups'].keys())}")
+            print(f"   Has explanations: {'explanations' in result}")
+            print(f"   Explanations count: {len(result.get('explanations', {}))}")
+            print(f"   Metadata includes_explanations: {result['metadata']['includes_explanations']}")
+            
+            # Final memory cleanup
+            del filtered_student_data
+            
+            return result
                 
         except Exception as e:
+            # Enhanced error logging for async debugging
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"❌ GROUP ASSIGNMENT ERROR: {str(e)}")
+            print(f"   Traceback: {error_trace}")
             raise ValueError(f"Group assignment failed: {str(e)}")
     
     def generate_explanations_for_existing_groups(
@@ -256,74 +314,117 @@ class GroupAssignmentBehavior:
             # If no specific prompts selected, use all available data (backward compatibility)
             return student_data
         
-        # Create a set of selected prompt IDs for quick lookup
-        # Handle both string and dict formats for selected_submission_prompts
-        selected_prompt_ids = set()
+        print(f"🔍 GROUP FILTER: Processing {len(self.selected_submission_prompts)} selected submission prompts")
+        
+        # Handle both legacy string format and new variable object format
+        selected_variable_names = set()
         for prompt in self.selected_submission_prompts:
             if isinstance(prompt, dict):
-                prompt_id = prompt.get('id')
-                if prompt_id:
-                    selected_prompt_ids.add(prompt_id)
+                # New format: full variable object with metadata
+                variable_name = prompt.get('variableName') or prompt.get('id')
+                if variable_name:
+                    selected_variable_names.add(variable_name)
+                    print(f"   ✅ Added variable: {variable_name} (origin: {prompt.get('origin')}, type: {prompt.get('type')})")
             elif isinstance(prompt, str):
-                # If it's a string, treat it as the prompt ID directly
-                selected_prompt_ids.add(prompt)
+                # Legacy format: string prompt ID
+                selected_variable_names.add(prompt)
+                print(f"   ✅ Added legacy prompt: {prompt}")
             else:
-                print(f"🔍 FILTER WARNING: Unexpected prompt format: {type(prompt)} = {prompt}")
+                print(f"   ❌ Unexpected prompt format: {type(prompt)} = {prompt}")
         
-        if not selected_prompt_ids:
-            print("Warning: No valid prompt IDs found in selected_submission_prompts, using all student data")
+        if not selected_variable_names:
+            print("⚠️  No valid variable names found in selected_submission_prompts, using all student data")
             return student_data
         
         filtered_students = []
         for student in student_data:
             student_copy = student.copy()
             
-            # Filter submission responses to only include selected prompts
+            # Filter submission responses to only include selected variable submissions
             if 'submission_responses' in student:
                 filtered_responses = {}
                 selected_texts = []
+                selected_pdf_ids = []
                 
-                # Since the submission keys are currently submission_0, submission_1, etc.,
-                # and we have actual prompt IDs, we need a different approach.
-                # For now, if we have selected prompts, we'll use the first submission only
-                # This assumes the first submission corresponds to the first/main prompt
+                print(f"  📝 Processing student: {student.get('name', 'Unknown')}")
                 
-                if len(self.selected_submission_prompts) > 0:
-                    # Get the first submission (submission_0) - assumes this is the main prompt response
-                    first_submission_key = "submission_0"
-                    if first_submission_key in student['submission_responses']:
-                        response = student['submission_responses'][first_submission_key]
-                        
-                        # Only include text submissions when filtering by prompts
-                        if response.get('media_type') == 'text':
-                            filtered_responses[first_submission_key] = response
+                # Map variable names to submission indices for filtering
+                # variable names like "prompt_1_text_0" -> submission_0
+                # variable names like "prompt_1_pdf_1" -> submission_1
+                for variable_name in selected_variable_names:
+                    # Extract submission index from variable name
+                    # Format: prompt_{page}_{type}_{index}
+                    parts = variable_name.split('_')
+                    if len(parts) >= 4 and parts[0] == 'prompt':
+                        try:
+                            submission_index = int(parts[-1])  # Last part is the index
+                            submission_key = f"submission_{submission_index}"
+                            variable_type = parts[-2]  # Second to last is the type (text/pdf)
                             
-                            # Extract text content for grouping
-                            if isinstance(response, dict):
-                                text_content = response.get('text', '') or response.get('response', '')
+                            if submission_key in student['submission_responses']:
+                                response = student['submission_responses'][submission_key]
+                                media_type = response.get('media_type', '')
+                                
+                                print(f"    🔍 Found {submission_key}: {media_type} type")
+                                
+                                # Match variable type with media type for validation
+                                if (variable_type == 'text' and media_type == 'text') or \
+                                   (variable_type == 'pdf' and media_type == 'pdf'):
+                                    
+                                    filtered_responses[submission_key] = response
+                                    
+                                    if media_type == 'text':
+                                        # Extract text content
+                                        text_content = response.get('text', '') or response.get('response', '')
+                                        if text_content:
+                                            selected_texts.append(text_content)
+                                            print(f"      ✅ Added text: {text_content[:50]}...")
+                                    
+                                    elif media_type == 'pdf':
+                                        # Extract PDF document ID
+                                        try:
+                                            pdf_id = int(response.get('response', ''))
+                                            selected_pdf_ids.append(pdf_id)
+                                            print(f"      ✅ Added PDF ID: {pdf_id}")
+                                        except (ValueError, TypeError):
+                                            print(f"      ❌ Invalid PDF ID: {response.get('response')}")
+                                else:
+                                    print(f"      ⚠️  Type mismatch: variable type '{variable_type}' vs media type '{media_type}'")
                             else:
-                                text_content = str(response)
-                            
-                            if text_content:
-                                selected_texts.append(text_content)
+                                print(f"      ❌ Submission {submission_key} not found")
+                        except (ValueError, IndexError) as e:
+                            print(f"      ❌ Error parsing variable name '{variable_name}': {e}")
                 
                 student_copy['submission_responses'] = filtered_responses
                 
-                # Combine selected prompt responses into the main 'text' field for vector creation
+                # Combine selected text responses into the main 'text' field for vector creation
                 if selected_texts:
                     student_copy['text'] = ' '.join(selected_texts)
+                    print(f"    📄 Combined text from {len(selected_texts)} submissions")
                 else:
-                    # No matching responses found, use empty text but keep student for consistency
+                    # No text found, but might have PDFs
                     student_copy['text'] = ''
+                    print(f"    📄 No text content found")
                 
-                # Clear PDF IDs when filtering by specific prompts to avoid PDF interference
-                student_copy['pdf_document_ids'] = []
+                # Set PDF IDs from selected PDF submissions
+                student_copy['pdf_document_ids'] = selected_pdf_ids
+                if selected_pdf_ids:
+                    print(f"    📎 Set {len(selected_pdf_ids)} PDF IDs: {selected_pdf_ids}")
+                else:
+                    print(f"    📎 No PDF submissions selected")
+            else:
+                print(f"  ⚠️  Student has no submission_responses")
             
             filtered_students.append(student_copy)
         
-        # Log which prompts are being used for grouping
-        prompt_labels = [prompt.get('prompt', prompt.get('id', 'Unknown'))[:50] for prompt in self.selected_submission_prompts]
-        print(f"Grouping students based on {len(self.selected_submission_prompts)} selected prompts: {prompt_labels}")
+        # Log filtering results
+        original_count = len(student_data)
+        filtered_count = len(filtered_students)
+        
+        print(f"🎯 GROUP FILTER RESULTS:")
+        print(f"   Original students: {original_count}")
+        print(f"   Filtered students: {filtered_count}")
+        print(f"   Selected variables: {list(selected_variable_names)}")
         
         return filtered_students
 
@@ -615,6 +716,13 @@ def _hierarchical_assign(vectors, group_size, mode):
 
 def _generate_group_explanations(groups: dict, student_data: list, strategy: str, use_llm: bool = True, db_session: Optional[Any] = None, prompt_context: Optional[str] = None, selected_prompts: Optional[List[Dict[str, Any]]] = None) -> dict:
     """Generate explanations for why students were grouped together using LLM or simple rules."""
+    print(f"🎯 EXPLANATION FUNCTION CALLED:")
+    print(f"   Groups: {list(groups.keys())}")
+    print(f"   Students: {len(student_data)}")
+    print(f"   Strategy: {strategy}")
+    print(f"   Use LLM: {use_llm}")
+    print(f"   Has OpenAI Key: {bool(os.getenv('OPENAI_API_KEY'))}")
+    
     # Create a lookup dictionary for student descriptions and enrich with PDF snippets if available
     student_profiles = {student.get("name", ""): student.get("text", "") for student in student_data}
     student_pdf_map = {student.get("name", ""): (student.get("pdf_document_ids") or []) for student in student_data}
@@ -769,6 +877,10 @@ Write 2 concise sentences explaining why these students were grouped together fo
                 explanation = f"This group brings together diverse backgrounds and skills using the {strategy} strategy{prompts_info}. The variety of experiences will create opportunities for mutual learning and innovation."
             
             explanations[group_id] = explanation
+    
+    print(f"🎯 EXPLANATIONS COMPLETED: {len(explanations)} explanations generated")
+    for group_id, explanation in explanations.items():
+        print(f"   {group_id}: {explanation[:150]}...")
     
     return explanations
 

@@ -40,7 +40,8 @@ class LivePresentationPrompt:
         self.input_type = prompt_data.get("inputType", "textarea")
         self.input_placeholder = prompt_data.get("inputPlaceholder", "")
         self.use_random_list_item = prompt_data.get("useRandomListItem", False)
-        self.list_variable_id = prompt_data.get("listVariableId")
+        # Support both old and new list variable formats
+        self.list_variable_id = prompt_data.get("selectedListVariable") or prompt_data.get("listVariableId")
         self.is_system_prompt = prompt_data.get("isSystemPrompt", False)
         self.category = prompt_data.get("category", "general")
     
@@ -52,7 +53,8 @@ class LivePresentationPrompt:
             "inputType": self.input_type,
             "inputPlaceholder": self.input_placeholder,
             "useRandomListItem": self.use_random_list_item,
-            "listVariableId": self.list_variable_id,
+            "selectedListVariable": self.list_variable_id,  # Use new format
+            "listVariableId": self.list_variable_id,  # Keep legacy for compatibility
             "isSystemPrompt": self.is_system_prompt,
             "category": self.category
         }
@@ -67,6 +69,7 @@ class StudentConnection:
         self.last_activity = datetime.now()
         self.responses: Dict[str, Any] = {}  # prompt_id -> response data
         self.group_info: Optional[Dict[str, Any]] = None
+        self.assigned_list_items: Dict[str, Any] = {}  # prompt_id -> assigned list item
     
     async def send_message(self, message: Dict[str, Any]):
         """Send a message to this student"""
@@ -92,6 +95,15 @@ class StudentConnection:
         }
         self.last_activity = datetime.now()
     
+    def set_assigned_list_item(self, prompt_id: str, list_item: Any):
+        """Store the list item assigned to this student for a specific prompt"""
+        self.assigned_list_items[prompt_id] = list_item
+        print(f"📝 Stored list item for {self.user_name} on prompt {prompt_id}: {str(list_item)[:100]}...")
+    
+    def get_assigned_list_item(self, prompt_id: str) -> Optional[Any]:
+        """Get the list item assigned to this student for a specific prompt"""
+        return self.assigned_list_items.get(prompt_id)
+    
     def to_stats_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for stats purposes"""
         return {
@@ -101,7 +113,8 @@ class StudentConnection:
             "connected_at": self.connected_at.isoformat(),
             "last_activity": self.last_activity.isoformat(),
             "response_count": len(self.responses),
-            "group_info": self.group_info
+            "group_info": self.group_info,
+            "assigned_list_items": self.assigned_list_items
         }
 
 class LivePresentationDeployment:
@@ -153,7 +166,8 @@ class LivePresentationDeployment:
         try:
             self._response_summarizer = ResponseSummarizer(
                 model_name="gpt-5",
-                temperature=1.0,  # GPT-5 only supports default temperature of 1.0
+                reasoning={ "effort": "low" },
+                text={ "verbosity": "low" },
                 max_tokens=2000
             )
         except Exception as e:
@@ -226,6 +240,8 @@ class LivePresentationDeployment:
         print(f"🎤 Parent page deployment set for live presentation")
         # Auto-detect and set group variable data
         self._auto_detect_group_variable()
+        # Also auto-detect theme variables for list items
+        self._auto_detect_theme_variables()
     
     def _auto_detect_group_variable(self):
         """Auto-detect and use the first available GROUP type variable from parent page deployment"""
@@ -317,6 +333,59 @@ class LivePresentationDeployment:
         except Exception as e:
             print(f"❌ Error during group variable auto-detection: {e}")
     
+    def _auto_detect_theme_variables(self):
+        """Auto-detect and cache theme variables for use in list prompts"""
+        if not self._parent_page_deployment:
+            print(f"🔍 No parent page deployment available for theme auto-detection")
+            return
+        
+        try:
+            # Look for LIST type variables that contain themes
+            from services.page_service import VariableType, Origin
+            
+            # Get behavior variables (themes are behavior-generated)
+            behavior_variables = self._parent_page_deployment.get_behavior_variables()
+            print(f"🔍 Available behavior variables for theme detection: {[(var.name, var.origin.value, var.variable_type.value) for var in behavior_variables]}")
+            
+            # Look for theme variables specifically
+            theme_variables = []
+            for variable in behavior_variables:
+                if (hasattr(variable, 'origin') and variable.origin == Origin.THEME and
+                    hasattr(variable, 'variable_type') and variable.variable_type == VariableType.LIST):
+                    theme_variables.append(variable)
+            
+            print(f"🔍 Found {len(theme_variables)} THEME variables")
+            
+            if theme_variables:
+                # Use the most recent theme variable (highest page number)
+                selected_theme_variable = max(theme_variables, key=lambda v: v.page)
+                print(f"🎤 Auto-detected THEME variable: '{selected_theme_variable.name}' from page {selected_theme_variable.page}")
+                
+                if not selected_theme_variable.is_empty() and selected_theme_variable.variable_value:
+                    # Store theme data separately to avoid conflicts with group data
+                    self._theme_data = selected_theme_variable.variable_value
+                    print(f"🎤 Auto-loaded theme data: {len(self._theme_data)} themes")
+                    
+                    # Cache this theme variable for future list variable lookups
+                    self._list_variable_cache[selected_theme_variable.name] = self._theme_data
+                    print(f"🎤 Cached theme variable '{selected_theme_variable.name}' for list prompts")
+                    
+                    # Log theme titles for debugging
+                    if isinstance(self._theme_data, list) and self._theme_data:
+                        theme_titles = []
+                        for theme in self._theme_data[:5]:  # Show first 5
+                            if isinstance(theme, dict):
+                                title = theme.get('title', 'Untitled')
+                                theme_titles.append(title)
+                        print(f"🎤 Available themes: {theme_titles}")
+                else:
+                    print(f"⚠️ THEME variable '{selected_theme_variable.name}' is empty")
+            else:
+                print(f"⚠️ No THEME type variables found in behavior variables")
+        
+        except Exception as e:
+            print(f"❌ Error during theme variable auto-detection: {e}")
+    
     def _get_latest_group_assignment_from_database(self) -> Optional[Dict[str, List[str]]]:
         """Get the latest group assignment data from database for this deployment"""
         if not self._db_session:
@@ -391,6 +460,8 @@ class LivePresentationDeployment:
         """Manually refresh group variable data from parent page deployment"""
         print(f"🔄 Manual refresh of group variable data requested")
         self._auto_detect_group_variable()
+        # Also refresh theme variables
+        self._auto_detect_theme_variables()
     
     def _try_get_parent_page_deployment(self):
         """Try to get parent page deployment from deployment manager"""
@@ -556,6 +627,7 @@ class LivePresentationDeployment:
             
             # Note: Student connections are not restored on server restart
             # Students will need to reconnect, but their data remains in the database
+            # However, their assigned list items will be restored when they reconnect
             
             print(f"🎤 Session state restored for {self.deployment_id}")
             print(f"   Session active: {self.session_active}")
@@ -734,7 +806,8 @@ class LivePresentationDeployment:
                         is_ready=(student.status == ConnectionStatus.READY),
                         group_info=student.group_info,
                         connected_at=student.connected_at,
-                        last_activity=student.last_activity
+                        last_activity=student.last_activity,
+                        assigned_list_items=student.assigned_list_items  # Store list item assignments
                     )
                     self._db_session.add(connection_record)
                 else:
@@ -742,6 +815,7 @@ class LivePresentationDeployment:
                     connection_record.status = student.status
                     connection_record.is_ready = (student.status == ConnectionStatus.READY)
                     connection_record.last_activity = student.last_activity
+                    connection_record.assigned_list_items = student.assigned_list_items  # Update list item assignments
                     if student.status == ConnectionStatus.DISCONNECTED:
                         connection_record.disconnected_at = datetime.now()
                     self._db_session.add(connection_record)
@@ -802,7 +876,7 @@ class LivePresentationDeployment:
                     input_type=prompt_data.get("inputType", "textarea"),
                     input_placeholder=prompt_data.get("inputPlaceholder", ""),
                     use_random_list_item=prompt_data.get("useRandomListItem", False),
-                    list_variable_id=prompt_data.get("listVariableId"),
+                    list_variable_id=prompt_data.get("selectedListVariable") or prompt_data.get("listVariableId"),
                     sent_at=datetime.fromisoformat(prompt_data.get("sent_at")) if prompt_data.get("sent_at") else datetime.now(),
                     prompt_data=prompt_data
                 )
@@ -866,7 +940,8 @@ class LivePresentationDeployment:
                         "inputType": recent_prompt.input_type,
                         "inputPlaceholder": recent_prompt.input_placeholder,
                         "useRandomListItem": recent_prompt.use_random_list_item,
-                        "listVariableId": recent_prompt.list_variable_id,
+                        "selectedListVariable": recent_prompt.list_variable_id,  # New format
+                        "listVariableId": recent_prompt.list_variable_id,  # Legacy format
                         "sent_at": recent_prompt.sent_at.isoformat()
                     }
             else:
@@ -959,6 +1034,52 @@ class LivePresentationDeployment:
             if self._db_session:
                 self._db_session.rollback()
     
+    async def _restore_student_list_items(self, student: "StudentConnection"):
+        """Restore assigned list items for a returning student from database"""
+        if not self._db_session:
+            return
+        
+        try:
+            from models.database.live_presentation_models import (
+                LivePresentationSession, LivePresentationStudentConnection
+            )
+            from sqlmodel import select, and_
+            
+            # Get session record
+            session_record = self._db_session.exec(
+                select(LivePresentationSession).where(
+                    LivePresentationSession.deployment_id == self.deployment_id,
+                    LivePresentationSession.is_active == True
+                )
+            ).first()
+            
+            if not session_record:
+                print(f"🔍 No session record found for restoring list items")
+                return
+            
+            # Get student connection record
+            connection_record = self._db_session.exec(
+                select(LivePresentationStudentConnection).where(
+                    and_(
+                        LivePresentationStudentConnection.session_id == session_record.id,
+                        LivePresentationStudentConnection.user_id == student.user_id,
+                        LivePresentationStudentConnection.is_active == True
+                    )
+                )
+            ).first()
+            
+            if connection_record and connection_record.assigned_list_items:
+                student.assigned_list_items = connection_record.assigned_list_items
+                print(f"🔄 Restored {len(student.assigned_list_items)} assigned list items for {student.user_name}")
+                for prompt_id, item in student.assigned_list_items.items():
+                    item_preview = str(item)[:50] if not isinstance(item, dict) else item.get('title', 'Item')
+                    print(f"   📋 {prompt_id}: {item_preview}")
+            else:
+                print(f"🔍 No previous list item assignments found for {student.user_name}")
+                
+        except Exception as e:
+            print(f"❌ Error restoring list items for {student.user_name}: {e}")
+    
     async def connect_student(self, user_id: str, user_name: str, websocket: WebSocket) -> bool:
         """Connect a student to the live presentation"""
         try:
@@ -995,6 +1116,9 @@ class LivePresentationDeployment:
             # Add group info if available from input variable
             self._assign_group_info_to_student(student)
             
+            # Restore assigned list items from database if this is a returning student
+            await self._restore_student_list_items(student)
+            
             self.students[user_id] = student
             
             # Send welcome message
@@ -1020,11 +1144,36 @@ class LivePresentationDeployment:
                     self.current_prompt = recent_prompt
                     print(f"🎤 Updated current_prompt for late-joining student compatibility")
                 
-                await student.send_message({
-                    "type": "prompt_received",
+                # Check if this student should get a specific list item for this prompt
+                prompt_id = recent_prompt.get("id")
+                assigned_list_item = None
+                
+                # First, check if we already have a stored assignment for this student and prompt
+                if prompt_id:
+                    assigned_list_item = student.get_assigned_list_item(prompt_id)
+                    if assigned_list_item:
+                        print(f"🔄 Using restored list item assignment for {user_name} on prompt {prompt_id}")
+                
+                # If no stored assignment but prompt uses list items, assign one
+                if (assigned_list_item is None and prompt_id and recent_prompt.get("useRandomListItem") and 
+                    recent_prompt.get("selectedListVariable")):
+                    print(f"🎯 Late-joining student needs list item assignment for prompt {prompt_id}")
+                    assigned_list_item = await self._get_list_item_for_late_joining_student(
+                        student, prompt_id, recent_prompt.get("selectedListVariable")
+                    )
+                
+                # Send the prompt with the assigned list item (if any)
+                prompt_message = {
+                    "type": "prompt_received", 
                     "prompt": recent_prompt,
                     "is_late_join": True  # Flag to indicate this is for a late-joining student
-                })
+                }
+                
+                if assigned_list_item is not None:
+                    prompt_message["prompt"]["assigned_list_item"] = assigned_list_item
+                    print(f"🎤 Including assigned list item for late-joining student {user_name}")
+                
+                await student.send_message(prompt_message)
             
             # Send group info message if student has group assignment (for late-joining students)
             if student.group_info:
@@ -1280,13 +1429,48 @@ class LivePresentationDeployment:
         
         # Check if this prompt uses random list items that should be assigned per group
         use_random_list_item = prompt_data.get("useRandomListItem", False)
-        list_variable_id = prompt_data.get("listVariableId")
+        # Support both old and new list variable formats
+        list_variable_id = prompt_data.get("selectedListVariable") or prompt_data.get("listVariableId")
         
-        if use_random_list_item and list_variable_id:
-            print(f"🎯 Prompt uses list items - assigning per group from variable: {list_variable_id}")
+        # DEBUGGING: Log the incoming prompt data
+        print(f"🔍 PROMPT DEBUG - Incoming prompt data:")
+        print(f"   useRandomListItem: {use_random_list_item}")
+        print(f"   selectedListVariable: {prompt_data.get('selectedListVariable')}")
+        print(f"   listVariableId: {prompt_data.get('listVariableId')}")
+        print(f"   Final list_variable_id: {list_variable_id}")
+        print(f"   Full prompt data keys: {list(prompt_data.keys())}")
+        
+        # Check if we should use group-based assignment
+        should_use_group_assignment = use_random_list_item and list_variable_id
+        
+        # Auto-detect: If no explicit list variable but we have theme data available, use it
+        if not should_use_group_assignment:
+            print(f"🔍 No explicit list variable configured, checking for auto-detection...")
+            available_theme_vars = []
+            if hasattr(self, '_page_deployment') and self._page_deployment:
+                # Look for theme variables in the page deployment
+                # Note: deployment_variables is a list, not a dict
+                for variable in self._page_deployment.deployment_variables:
+                    if (hasattr(variable, 'origin') and variable.origin.value == "theme" and 
+                        hasattr(variable, 'variable_type') and variable.variable_type.value == "list" and 
+                        not variable.is_empty()):
+                        available_theme_vars.append(variable.name)
+                        print(f"   Found theme variable: {variable.name}")
+            
+            if available_theme_vars:
+                # Use the first available theme variable
+                list_variable_id = available_theme_vars[0]
+                should_use_group_assignment = True
+                print(f"🎯 AUTO-DETECTED theme variable for group assignment: {list_variable_id}")
+        
+        if should_use_group_assignment:
+            print(f"🎯 Using group-based theme assignment from variable: {list_variable_id}")
             await self._send_prompt_with_group_list_items(prompt_data, list_variable_id)
         else:
             # Standard prompt - send same message to all students
+            print(f"🔍 USING STANDARD PROMPT - NOT group-based assignment")
+            print(f"   Reason: use_random_list_item={use_random_list_item}, list_variable_id={list_variable_id}")
+            print(f"   Available theme variables: {available_theme_vars if 'available_theme_vars' in locals() else 'None checked'}")
             message = {
                 "type": "prompt_received",
                 "prompt": self.current_prompt
@@ -1381,7 +1565,13 @@ class LivePresentationDeployment:
             # Assign list items to groups (cycle through list if more groups than items)
             import random
             available_items = list_data.copy()
-            random.shuffle(available_items)  # Randomize the list items
+            
+            # Use deterministic randomization based on prompt ID to ensure consistency
+            # across all students (including late-joining students)
+            prompt_id = self.current_prompt.get("id", "default")
+            random.seed(hash(prompt_id) % (2**32))  # Create deterministic seed from prompt ID
+            random.shuffle(available_items)  # Randomize the list items consistently
+            print(f"🎯 Using deterministic shuffle based on prompt ID: {prompt_id}")
             
             group_assignments = {}
             for i, (group_name, students) in enumerate(groups_to_students.items()):
@@ -1397,6 +1587,9 @@ class LivePresentationDeployment:
                 # Send prompt with this list item to all students in this group
                 for student in students:
                     if student.status != ConnectionStatus.DISCONNECTED:
+                        # Store the assigned list item for this student and prompt
+                        student.set_assigned_list_item(self.current_prompt["id"], selected_item)
+                        
                         message = {
                             "type": "prompt_received",
                             "prompt": {
@@ -1432,53 +1625,97 @@ class LivePresentationDeployment:
         try:
             print(f"🔍 Searching for specific variable: '{variable_id}'")
             
-            # List all available variables for debugging
+            # List all available variables for debugging with new structure
             all_variables = self._parent_page_deployment.get_deployment_variables()
-            print(f"🔍 Available variables: {[var.name for var in all_variables]}")
+            print(f"🔍 Available variables: {[(var.name, getattr(var, 'origin_type', 'unknown'), getattr(var, 'variable_type', 'unknown')) for var in all_variables]}")
+            
+            # List behavior variables specifically (new filtering)
+            behavior_variables = self._parent_page_deployment.get_behavior_variables()
+            print(f"🔍 Available BEHAVIOR variables: {[(var.name, var.origin.value, var.variable_type.value) for var in behavior_variables]}")
             
             # List all LIST type variables specifically
-            list_variables = [var for var in all_variables if hasattr(var, 'variable_type') and var.variable_type.value == 'list']
+            list_variables = [var for var in behavior_variables if var.variable_type.value == 'list']
             print(f"🔍 Available LIST variables: {[var.name for var in list_variables]}")
             
-            # Get the variable by ID or name (new method supports both)
+            # Get the variable by ID or name (supports both legacy and new)
             variable = self._parent_page_deployment.get_variable_by_id_or_name(variable_id)
             if not variable:
-                print(f"❌ Variable '{variable_id}' not found in available variables")
-                print(f"🔍 Did you mean one of these LIST variables? {[var.name for var in list_variables]}")
-                # Cache the negative result
-                self._list_variable_cache[variable_id] = None
-                return None
+                print(f"❌ Variable '{variable_id}' not found - trying alternative lookups...")
+                
+                # Try pattern matching for theme/group variables
+                if 'theme' in variable_id.lower():
+                    theme_variables = [var for var in behavior_variables 
+                                     if var.origin.value == "theme" and var.variable_type.value == "list"]
+                    if theme_variables:
+                        variable = max(theme_variables, key=lambda v: v.page)  # Get most recent
+                        print(f"✅ Found theme variable by pattern: '{variable.name}'")
+                elif 'group' in variable_id.lower():
+                    group_variables = [var for var in behavior_variables 
+                                     if var.origin.value == "group" and var.variable_type.value == "group"]
+                    if group_variables:
+                        variable = max(group_variables, key=lambda v: v.page)  # Get most recent
+                        print(f"✅ Found group variable by pattern: '{variable.name}'")
+                
+                if not variable:
+                    print(f"🔍 Did you mean one of these LIST variables? {[var.name for var in list_variables]}")
+                    # Cache the negative result
+                    self._list_variable_cache[variable_id] = None
+                    return None
             
-            print(f"✅ Found variable '{variable_id}' (type: {getattr(variable, 'variable_type', 'unknown')})")
+            print(f"✅ Found variable '{variable.name}' (origin: {variable.origin_type.value}:{variable.origin.value}, type: {variable.variable_type.value})")
             
             if variable.is_empty():
-                print(f"⚠️ Variable '{variable_id}' is empty")
+                print(f"⚠️ Variable '{variable.name}' is empty")
                 # Cache the negative result
                 self._list_variable_cache[variable_id] = None
                 return None
             
             variable_data = variable.variable_value
-            if not isinstance(variable_data, list):
-                print(f"⚠️ Variable '{variable_id}' is not a list (type: {type(variable_data)})")
+            
+            # Handle different variable types with the new system
+            if variable.variable_type.value == "list" and isinstance(variable_data, list):
+                print(f"✅ Using list variable directly: {len(variable_data)} items")
+                list_data = variable_data
+            elif variable.variable_type.value == "group" and isinstance(variable_data, dict):
+                # Convert group data to list of group names for live presentation
+                list_data = list(variable_data.keys())
+                print(f"✅ Converted group variable to group names: {len(list_data)} groups")
+            elif isinstance(variable_data, list):
+                # Any list-like data
+                list_data = variable_data
+                print(f"✅ Using variable as list: {len(list_data)} items")
+            elif isinstance(variable_data, dict):
+                # Try to extract suitable list data from dict
+                for key in ['themes', 'items', 'data', 'list', 'content']:
+                    if key in variable_data and isinstance(variable_data[key], list):
+                        list_data = variable_data[key]
+                        print(f"✅ Extracted list from key '{key}': {len(list_data)} items")
+                        break
+                else:
+                    # Use dict values as list items
+                    list_data = list(variable_data.values())
+                    print(f"✅ Using dict values as list: {len(list_data)} items")
+            else:
+                print(f"⚠️ Variable '{variable.name}' cannot be converted to list (type: {type(variable_data)})")
                 # Cache the negative result
                 self._list_variable_cache[variable_id] = None
                 return None
             
-            print(f"📋 Successfully retrieved list variable '{variable_id}' with {len(variable_data)} items")
+            print(f"📋 Successfully retrieved list variable '{variable.name}' with {len(list_data)} items")
             
             # Cache the positive result
-            self._list_variable_cache[variable_id] = variable_data
+            self._list_variable_cache[variable_id] = list_data
             
             # Preview the data for debugging
-            if variable_data and len(variable_data) > 0:
-                if isinstance(variable_data[0], dict) and 'title' in variable_data[0]:
-                    preview = [item.get('title', 'Untitled') for item in variable_data[:3]]
-                    print(f"📋 Variable '{variable_id}' preview (themes): {preview}")
+            if list_data and len(list_data) > 0:
+                if isinstance(list_data[0], dict) and 'title' in list_data[0]:
+                    preview = [item.get('title', 'Untitled') for item in list_data[:3]]
+                    print(f"📋 Variable '{variable.name}' preview (themes): {preview}")
                 else:
-                    preview = [str(item)[:30] for item in variable_data[:3]]
-                    print(f"📋 Variable '{variable_id}' preview: {preview}")
+                    preview = [str(item)[:30] for item in list_data[:3]]
+                    print(f"📋 Variable '{variable.name}' preview: {preview}")
             
-            return variable_data
+            return list_data
             
         except Exception as e:
             print(f"❌ Error retrieving list variable '{variable_id}': {e}")
@@ -1853,6 +2090,65 @@ class LivePresentationDeployment:
             if student.status != ConnectionStatus.DISCONNECTED:
                 await student.send_message(message)
     
+    async def _get_list_item_for_late_joining_student(self, student: "StudentConnection", prompt_id: str, list_variable_id: str) -> Optional[Any]:
+        """Get the appropriate list item for a late-joining student based on their group assignment"""
+        try:
+            print(f"🎯 Getting list item for late-joining student {student.user_name}")
+            print(f"   Prompt ID: {prompt_id}")
+            print(f"   List Variable ID: {list_variable_id}")
+            print(f"   Student Group: {student.group_info}")
+            
+            # Get the list data from the variable
+            list_data = self._get_list_variable_data(list_variable_id)
+            if not list_data:
+                print(f"⚠️ No list data found for variable {list_variable_id}")
+                return None
+            
+            # Check if student has group assignment
+            if not student.group_info or not student.group_info.get("group_name"):
+                print(f"⚠️ Student {student.user_name} has no group assignment, using first list item")
+                assigned_item = list_data[0] if list_data else None
+                if assigned_item:
+                    student.set_assigned_list_item(prompt_id, assigned_item)
+                return assigned_item
+            
+            # Get all current students grouped by assignment
+            groups_to_students = self._group_students_by_assignment()
+            student_group_name = student.group_info["group_name"]
+            
+            # Find which list item this group should get
+            import random
+            available_items = list_data.copy()
+            
+            # Use the SAME deterministic randomization as the original assignment
+            # This ensures late-joining students get the same theme as their group
+            random.seed(hash(prompt_id) % (2**32))  # Same seed as original assignment
+            random.shuffle(available_items)  # Use same randomization logic
+            print(f"🎯 Late-joining: Using same deterministic shuffle for prompt ID: {prompt_id}")
+            
+            # Assign items to groups in the same order as the original assignment
+            group_names = list(groups_to_students.keys())
+            if student_group_name in group_names:
+                group_index = group_names.index(student_group_name)
+                item_index = group_index % len(available_items)
+                assigned_item = available_items[item_index]
+                
+                print(f"✅ Assigned list item {item_index + 1} to late-joining student {student.user_name} (group: {student_group_name})")
+                
+                # Store the assignment for this student
+                student.set_assigned_list_item(prompt_id, assigned_item)
+                return assigned_item
+            else:
+                print(f"⚠️ Student group {student_group_name} not found in current groups, using first item")
+                assigned_item = list_data[0] if list_data else None
+                if assigned_item:
+                    student.set_assigned_list_item(prompt_id, assigned_item)
+                return assigned_item
+                
+        except Exception as e:
+            print(f"❌ Error getting list item for late-joining student: {e}")
+            return None
+
     async def _send_prompt_with_list_item_to_all(self, prompt_data: Dict[str, Any], list_item: Any):
         """Send prompt with the same list item to all students"""
         message = {
@@ -1865,6 +2161,8 @@ class LivePresentationDeployment:
         
         for student in self.students.values():
             if student.status != ConnectionStatus.DISCONNECTED:
+                # Store the assigned list item for each student
+                student.set_assigned_list_item(self.current_prompt["id"], list_item)
                 await student.send_message(message)
     
     async def send_group_info_to_students(self):
