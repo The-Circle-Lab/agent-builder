@@ -2,6 +2,7 @@ celery==5.5.3
 docker_py==1.10.6
 fastapi==0.116.0
 fastmcp==2.10.4
+fastembed==0.7.2
 langchain==0.3.26
 langchain_community==0.3.27
 langchain_openai==0.3.27
