@@ -164,13 +164,12 @@ class LivePresentationDeployment:
         # Group response completion tracking: prompt_id -> {group_name -> {completed: bool, summary_sent: bool}}
         self._group_completion_status: Dict[str, Dict[str, Dict[str, bool]]] = {}
         
-        # Initialize response summarizer for group summaries using GPT-5 (only if possible)
+        # Initialize response summarizer for group summaries using GPT-4 (more stable than GPT-5)
         self._response_summarizer = None
         try:
             self._response_summarizer = ResponseSummarizer(
-                model_name="gpt-5",
-                reasoning={ "effort": "low" },
-                text={ "verbosity": "low" },
+                model_name="gpt-4o",  # Use GPT-4o instead of GPT-5 for better stability
+                temperature=0.7,
                 max_tokens=2000
             )
         except Exception as e:

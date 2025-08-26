@@ -57,37 +57,33 @@ class SummaryResult:
 class ResponseSummarizer:
     """Main class for summarizing student responses"""
     
-    def __init__(self, model_name: str = "gpt-5", temperature: float = 1.0, max_tokens: int = 1500):
+    def __init__(self, model_name: str = "gpt-4o", temperature: float = 0.7, max_tokens: int = 1500):
         """
-        Initialize the response summarizer with GPT-5
+        Initialize the response summarizer
         
         Args:
-            model_name: The LLM model to use for summarization (defaults to GPT-5)
-            temperature: Temperature for LLM responses (GPT-5 only supports default value of 1.0)
+            model_name: The LLM model to use for summarization (defaults to GPT-4o)
+            temperature: Temperature for LLM responses
             max_tokens: Maximum tokens for LLM responses
         """
         self.model_name = model_name
         self.temperature = temperature
         self.max_tokens = max_tokens
         
-        # Initialize GPT-5 - note that GPT-5 only supports temperature=1.0
-        if model_name == "gpt-5":
-            if temperature != 1.0:
-                print(f"⚠️  GPT-5 only supports temperature=1.0, adjusting from {temperature} to 1.0")
-            self._llm = ChatOpenAI(
-                model=model_name,
-                temperature=1.0,  # GPT-5 only supports default temperature
-                max_tokens=max_tokens,
-            )
-        else:
-            # For other models, use the specified temperature
-            self._llm = ChatOpenAI(
-                model=model_name,
-                temperature=temperature,
-                max_tokens=max_tokens,
-            )
+        # Check if OpenAI API key is available
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise ValueError("OPENAI_API_KEY environment variable is required for ResponseSummarizer")
         
-        print(f"🤖 ResponseSummarizer initialized with {model_name} (temperature: {1.0 if model_name == 'gpt-5' else temperature})")
+        # Initialize ChatOpenAI with API key
+        self._llm = ChatOpenAI(
+            model=model_name,
+            api_key=api_key,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        
+        print(f"🤖 ResponseSummarizer initialized with {model_name} (temperature: {temperature})")
     
     async def summarize_responses(
         self,
