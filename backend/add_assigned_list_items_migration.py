@@ -9,11 +9,16 @@ import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from sqlmodel import create_engine, Session
-from database.database import SQLALCHEMY_DATABASE_URL
+from scripts.config import load_config
 
 def run_migration():
     """Add assigned_list_items column to live presentation student connections"""
-    engine = create_engine(SQLALCHEMY_DATABASE_URL)
+    # Load config and create engine the same way as database.py
+    config = load_config()
+    database_url = config.get("database", {}).get("url", "sqlite:///./database/app.db")
+    connect_args = config.get("database", {}).get("connect_args", {})
+    
+    engine = create_engine(database_url, connect_args=connect_args)
     
     with Session(engine) as session:
         try:
