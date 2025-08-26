@@ -155,26 +155,36 @@ async def websocket_teacher_endpoint(
     deployment_id: str
 ):
     """WebSocket endpoint for teachers to control live presentations"""
+    print(f"🎤 TEACHER WEBSOCKET: Endpoint called for deployment {deployment_id}")
+    
     try:
         # Accept the connection first
+        print(f"🎤 TEACHER: About to accept WebSocket connection")
         await websocket.accept()
+        print(f"🎤 TEACHER: WebSocket accepted successfully")
         
         # Authenticate user using session cookie (same as chat WebSocket)
+        print(f"🎤 TEACHER: Creating database session")
         db = Session(engine)
         try:
+            print(f"🎤 TEACHER: About to authenticate user")
             user, db_deployment = await _authenticate_websocket_user(websocket, deployment_id, db)
             print(f"🎤 Teacher authenticated: {user.email} ({user.id}) to {deployment_id}")
             print(f"🎤 DB deployment class_id: {db_deployment.class_id}, user_id: {user.id}")
             
             # Verify user is an instructor
             from scripts.permission_helpers import user_is_instructor
+            print(f"🎤 TEACHER: Checking if user is instructor")
             if not user_is_instructor(user, db):
+                print(f"🎤 TEACHER: User {user.email} is NOT an instructor - DENIED")
                 await websocket.send_text(json.dumps({
                     "type": "error",
                     "message": "Unauthorized - instructors only"
                 }))
                 await websocket.close()
                 return
+            
+            print(f"🎤 TEACHER: User {user.email} is an instructor - APPROVED")
             
             # Load deployment for the authenticated user with proper instance sharing
             deployment = await _load_deployment_for_user(deployment_id, user, db)
