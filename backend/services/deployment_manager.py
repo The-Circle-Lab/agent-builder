@@ -219,4 +219,8 @@ async def cleanup_all_deployments():
     # Cleanup page deployments
     await cleanup_all_page_deployments()
     
+    # Clear live presentation cache
+    from services.deployment_service import clear_live_presentation_cache
+    clear_live_presentation_cache()
+    
     print("All MCP deployments and page deployments cleaned up. Deployments remain active in database for restart.") 

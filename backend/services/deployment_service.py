@@ -9,6 +9,20 @@ from services.deployment_types.mcq import MCQDeployment
 from services.deployment_types.prompt import PromptDeployment
 from services.deployment_types.live_presentation import LivePresentationDeployment
 
+# Global cache for live presentation services to ensure single instance per deployment
+_LIVE_PRESENTATION_CACHE: Dict[str, "LivePresentationDeployment"] = {}
+
+def clear_live_presentation_cache(deployment_id: str = None):
+    """Clear live presentation cache for specific deployment or all deployments"""
+    global _LIVE_PRESENTATION_CACHE
+    if deployment_id:
+        if deployment_id in _LIVE_PRESENTATION_CACHE:
+            print(f"🎤 Clearing live presentation cache for deployment {deployment_id}")
+            del _LIVE_PRESENTATION_CACHE[deployment_id]
+    else:
+        print(f"🎤 Clearing all live presentation cache ({len(_LIVE_PRESENTATION_CACHE)} items)")
+        _LIVE_PRESENTATION_CACHE.clear()
+
 class AgentDeployment:
     _services: AgentNodeList
     _deployment_type: DeploymentType
@@ -66,7 +80,14 @@ class AgentDeployment:
                 self._services.append(AgentNode(self._prompt_service))
             case 'livePresentation':
                 self._deployment_type = DeploymentType.LIVE_PRESENTATION
-                self._live_presentation_service = LivePresentationDeployment.from_config(config, deployment_id)
+                # Use cached instance to ensure single live presentation service per deployment
+                if deployment_id not in _LIVE_PRESENTATION_CACHE:
+                    print(f"🎤 Creating NEW live presentation service for deployment {deployment_id}")
+                    _LIVE_PRESENTATION_CACHE[deployment_id] = LivePresentationDeployment.from_config(config, deployment_id)
+                else:
+                    print(f"🎤 Using CACHED live presentation service for deployment {deployment_id}")
+                
+                self._live_presentation_service = _LIVE_PRESENTATION_CACHE[deployment_id]
                 self._services.append(AgentNode(self._live_presentation_service))
             case _:
                 raise ValueError(f"Invalid deployment type: {config['1']['type']}")
