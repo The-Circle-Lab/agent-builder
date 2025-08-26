@@ -76,8 +76,11 @@ class StudentConnection:
         try:
             await self.websocket.send_text(json.dumps(message))
             self.last_activity = datetime.now()
+            print(f"✅ Message sent successfully to {self.user_name}: {message.get('type', 'unknown')}")
         except Exception as e:
-            print(f"Error sending message to {self.user_name}: {e}")
+            print(f"❌ Error sending message to {self.user_name}: {e}")
+            print(f"   Message type: {message.get('type', 'unknown')}")
+            print(f"   WebSocket state: {self.websocket.client_state if hasattr(self.websocket, 'client_state') else 'unknown'}")
             self.status = ConnectionStatus.DISCONNECTED
     
     def set_ready(self):
@@ -232,7 +235,24 @@ class LivePresentationDeployment:
     
     def set_database_session(self, db_session):
         """Set the database session for persistence"""
-        self._db_session = db_session
+        # Check if current session is still valid
+        session_needs_update = False
+        
+        if self._db_session is None:
+            session_needs_update = True
+            print(f"🎤 No database session exists, setting new one for deployment {self.deployment_id}")
+        else:
+            # Check if current session is still active
+            try:
+                # Simple test to see if session is still valid
+                self._db_session.execute("SELECT 1")
+                print(f"🎤 Database session already exists and is valid for deployment {self.deployment_id}")
+            except:
+                session_needs_update = True
+                print(f"🎤 Database session exists but is invalid, updating for deployment {self.deployment_id}")
+        
+        if session_needs_update:
+            self._db_session = db_session
     
     def set_parent_page_deployment(self, page_deployment):
         """Set reference to parent PageDeployment for auto-detecting variables"""
@@ -1256,10 +1276,14 @@ class LivePresentationDeployment:
             message_type = message.get("type")
             student = self.students.get(user_id)
             
+            print(f"🎤 Handling student message from {user_id}: {message_type}")
+            
             if not student:
+                print(f"❌ Student {user_id} not found in students dict")
                 return
             
             if message_type == MessageType.STUDENT_READY:
+                print(f"🎤 Student {student.user_name} is ready")
                 student.set_ready()
                 self.ready_students.add(user_id)
                 await self._notify_teachers_connection_update()
@@ -1267,6 +1291,9 @@ class LivePresentationDeployment:
             elif message_type == MessageType.STUDENT_RESPONSE:
                 prompt_id = message.get("prompt_id")
                 response_text = message.get("response", "")
+                
+                print(f"🎤 Student {student.user_name} responded to prompt {prompt_id}")
+                print(f"   Response length: {len(response_text)} characters")
                 
                 if prompt_id:
                     student.add_response(prompt_id, {
@@ -1282,9 +1309,15 @@ class LivePresentationDeployment:
                     
                     # Check if this completes a group's responses and trigger summary if needed
                     await self._check_group_completion_and_summarize(prompt_id)
+                else:
+                    print(f"❌ No prompt_id in student response from {student.user_name}")
+            else:
+                print(f"🔍 Unknown message type from student {student.user_name}: {message_type}")
             
         except Exception as e:
-            print(f"Error handling student message from {user_id}: {e}")
+            print(f"❌ Error handling student message from {user_id}: {e}")
+            import traceback
+            traceback.print_exc()
     
     async def handle_teacher_message(self, websocket: WebSocket, message: Dict[str, Any]):
         """Handle incoming message from teacher"""
@@ -1477,9 +1510,13 @@ class LivePresentationDeployment:
             }
             
             # Send to all connected students
+            sent_count = 0
             for student in self.students.values():
                 if student.status != ConnectionStatus.DISCONNECTED:
                     await student.send_message(message)
+                    sent_count += 1
+            
+            print(f"🎤 Standard prompt sent to {sent_count} students")
         
         # Save updated session state
         await self._save_session_state()
@@ -2291,16 +2328,23 @@ class LivePresentationDeployment:
             "stats": stats
         }
         
+        print(f"🎤 Notifying {len(self.teacher_websockets)} teachers of connection update")
+        print(f"   Total students: {stats.get('total_students', 0)}")
+        print(f"   Connected students: {stats.get('connected_students', 0)}")
+        
         disconnected_teachers = set()
         for teacher_ws in self.teacher_websockets:
             try:
                 await teacher_ws.send_text(json.dumps(message))
-            except:
+                print(f"✅ Connection update sent to teacher")
+            except Exception as e:
+                print(f"❌ Failed to send connection update to teacher: {e}")
                 disconnected_teachers.add(teacher_ws)
         
         # Remove disconnected teachers
         for teacher_ws in disconnected_teachers:
             self.teacher_websockets.discard(teacher_ws)
+            print(f"🗑️ Removed disconnected teacher websocket")
     
     async def _notify_teachers_response_received(self, student: StudentConnection, prompt_id: str, response: str):
         """Notify teachers when a student submits a response"""
@@ -2316,16 +2360,23 @@ class LivePresentationDeployment:
             "timestamp": datetime.now().isoformat()
         }
         
+        print(f"🎤 Notifying {len(self.teacher_websockets)} teachers of response from {student.user_name}")
+        print(f"   Prompt ID: {prompt_id}")
+        print(f"   Response length: {len(response)} characters")
+        
         disconnected_teachers = set()
         for teacher_ws in self.teacher_websockets:
             try:
                 await teacher_ws.send_text(json.dumps(message))
-            except:
+                print(f"✅ Response notification sent to teacher")
+            except Exception as e:
+                print(f"❌ Failed to send response notification to teacher: {e}")
                 disconnected_teachers.add(teacher_ws)
         
         # Remove disconnected teachers
         for teacher_ws in disconnected_teachers:
             self.teacher_websockets.discard(teacher_ws)
+            print(f"🗑️ Removed disconnected teacher websocket")
     
     def get_presentation_stats(self) -> Dict[str, Any]:
         """Get current presentation statistics"""

@@ -104,7 +104,10 @@ async def websocket_student_endpoint(
         # Connect the student using the authenticated user info
         print(f"🎤 About to connect student {user.email} to live presentation service")
         print(f"🎤 Live presentation service deployment_id: {live_presentation_service.deployment_id}")
+        print(f"🎤 Live presentation service instance ID: {id(live_presentation_service)}")
         print(f"🎤 Current students before connection: {len(live_presentation_service.students)}")
+        print(f"🎤 Student names in service: {[s.user_name for s in live_presentation_service.students.values()]}")
+        print(f"🎤 Current teachers in service: {len(live_presentation_service.teacher_websockets)}")
         
         success = await live_presentation_service.connect_student(str(user.id), user.email, websocket)
         if not success:
@@ -240,7 +243,9 @@ async def websocket_teacher_endpoint(
         # Connect the teacher
         print(f"🎤 About to connect teacher to live presentation service")
         print(f"🎤 Live presentation service deployment_id: {live_presentation_service.deployment_id}")
+        print(f"🎤 Live presentation service instance ID: {id(live_presentation_service)}")
         print(f"🎤 Current students before teacher connection: {len(live_presentation_service.students)}")
+        print(f"🎤 Student names in service: {[s.user_name for s in live_presentation_service.students.values()]}")
         print(f"🎤 Current teachers before connection: {len(live_presentation_service.teacher_websockets)}")
         
         success = await live_presentation_service.connect_teacher(websocket)
