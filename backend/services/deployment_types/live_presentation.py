@@ -2394,6 +2394,27 @@ class LivePresentationDeployment:
                 responses.extend(student.responses.values())
         return responses
     
+    def get_live_presentation_service(self) -> "LivePresentationDeployment":
+        """Return self as the live presentation service"""
+        return self
+    
+    def get_live_presentation_info(self) -> Dict[str, Any]:
+        """Get live presentation info for API responses"""
+        return {
+            "deployment_id": self.deployment_id,
+            "title": self.title,
+            "description": self.description,
+            "saved_prompts": [prompt.to_dict() for prompt in self.saved_prompts]
+        }
+    
+    def is_fully_initialized(self) -> bool:
+        """Check if the deployment is fully initialized and ready for use"""
+        return (hasattr(self, 'deployment_id') and 
+                hasattr(self, 'title') and 
+                hasattr(self, 'saved_prompts') and
+                hasattr(self, 'students') and
+                hasattr(self, 'teacher_websockets'))
+    
     def cleanup(self):
         """Cleanup resources"""
         print(f"🎤 LivePresentationDeployment {self.deployment_id} cleaned up")

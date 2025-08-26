@@ -42,12 +42,29 @@ async def websocket_student_endpoint(
             
             # Get the live presentation service
             mcp_deployment = deployment["mcp_deployment"]
-            live_presentation_service = mcp_deployment.get_live_presentation_service()
+            live_presentation_service = None
+            
+            # Try to get the live presentation service with error handling
+            try:
+                if hasattr(mcp_deployment, 'get_live_presentation_service'):
+                    live_presentation_service = mcp_deployment.get_live_presentation_service()
+                else:
+                    print(f"🎤 Student: mcp_deployment missing get_live_presentation_service method")
+                    print(f"🎤 Student: mcp_deployment type: {type(mcp_deployment)}")
+                    print(f"🎤 Student: mcp_deployment methods: {[m for m in dir(mcp_deployment) if not m.startswith('_')]}")
+            except Exception as service_error:
+                print(f"🎤 Student: Error getting live presentation service: {service_error}")
+                print(f"🎤 Student: mcp_deployment type: {type(mcp_deployment)}")
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": f"Failed to load deployment: {str(service_error)}"
+                }))
+                await websocket.close()
+                return
             
             if not live_presentation_service:
-                print(f"🎤 No live presentation service found in mcp_deployment")
-                print(f"🎤 mcp_deployment type: {type(mcp_deployment)}")
-                print(f"🎤 mcp_deployment methods: {[m for m in dir(mcp_deployment) if not m.startswith('_')]}")
+                print(f"🎤 Student: No live presentation service found in mcp_deployment")
+                print(f"🎤 Student: mcp_deployment type: {type(mcp_deployment)}")
             
             # Set up a fresh database session for the live presentation service
             # Don't close the db session yet - we need it for the WebSocket connection
@@ -161,12 +178,29 @@ async def websocket_teacher_endpoint(
             
             # Get the live presentation service
             mcp_deployment = deployment["mcp_deployment"]
-            live_presentation_service = mcp_deployment.get_live_presentation_service()
+            live_presentation_service = None
+            
+            # Try to get the live presentation service with error handling
+            try:
+                if hasattr(mcp_deployment, 'get_live_presentation_service'):
+                    live_presentation_service = mcp_deployment.get_live_presentation_service()
+                else:
+                    print(f"🎤 Teacher: mcp_deployment missing get_live_presentation_service method")
+                    print(f"🎤 Teacher: mcp_deployment type: {type(mcp_deployment)}")
+                    print(f"🎤 Teacher: mcp_deployment methods: {[m for m in dir(mcp_deployment) if not m.startswith('_')]}")
+            except Exception as service_error:
+                print(f"🎤 Teacher: Error getting live presentation service: {service_error}")
+                print(f"🎤 Teacher: mcp_deployment type: {type(mcp_deployment)}")
+                await websocket.send_text(json.dumps({
+                    "type": "error",
+                    "message": f"Failed to load deployment: {str(service_error)}"
+                }))
+                await websocket.close()
+                return
             
             if not live_presentation_service:
-                print(f"🎤 No live presentation service found in mcp_deployment")
-                print(f"🎤 mcp_deployment type: {type(mcp_deployment)}")
-                print(f"🎤 mcp_deployment methods: {[m for m in dir(mcp_deployment) if not m.startswith('_')]}")
+                print(f"🎤 Teacher: No live presentation service found in mcp_deployment")
+                print(f"🎤 Teacher: mcp_deployment type: {type(mcp_deployment)}")
             
             # Set up a fresh database session for the live presentation service
             if live_presentation_service:
