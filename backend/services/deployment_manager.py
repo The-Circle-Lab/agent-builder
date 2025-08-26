@@ -147,6 +147,9 @@ async def load_deployment_on_demand(deployment_id: str, user_id: int, db: DBSess
 
 # get active deployment from memory
 def get_active_deployment(deployment_id: str) -> Dict[str, Any]:
+    print(f"🎤 Looking for deployment: {deployment_id}")
+    print(f"🎤 Available in ACTIVE_DEPLOYMENTS: {list(ACTIVE_DEPLOYMENTS.keys())}")
+    
     # Check regular deployments first
     deployment = ACTIVE_DEPLOYMENTS.get(deployment_id)
     if deployment:
@@ -156,19 +159,29 @@ def get_active_deployment(deployment_id: str) -> Dict[str, Any]:
     # Check page deployments  
     page_deployment = get_active_page_deployment(deployment_id)
     if page_deployment:
-        print(f"🎤 Found deployment {deployment_id} in ACTIVE_PAGE_DEPLOYMENTS, converting format")
-        # Convert page deployment format to match regular deployment format
-        return {
-            "user_id": page_deployment["user_id"],
-            "workflow_name": page_deployment["workflow_name"],
-            "config": page_deployment["config"],
-            "mcp_deployment": page_deployment["page_deployment"],  # Note: different key name
-            "created_at": page_deployment["created_at"],
-            "chat_history": [],
-            "type": page_deployment["type"],
-            "is_page_based": True,
-            "page_count": page_deployment.get("page_count", 0)
-        }
+        print(f"🎤 Found parent deployment {deployment_id} in ACTIVE_PAGE_DEPLOYMENTS, but need to check for specific page")
+        
+        # For page-based deployments, we need to check if this is requesting a specific page
+        # The deployment_id might be something like "parent_deployment_id_page_2"
+        if "_page_" in deployment_id:
+            # This is a request for a specific page, which should be in ACTIVE_DEPLOYMENTS
+            print(f"🎤 Request is for specific page {deployment_id}, should be in ACTIVE_DEPLOYMENTS")
+            print(f"🎤 Available in ACTIVE_DEPLOYMENTS: {list(ACTIVE_DEPLOYMENTS.keys())}")
+            return None  # Force it to fall through to "not found"
+        else:
+            # This is a request for the parent deployment, return PageDeployment wrapper
+            print(f"🎤 Request is for parent deployment, converting format")
+            return {
+                "user_id": page_deployment["user_id"],
+                "workflow_name": page_deployment["workflow_name"],
+                "config": page_deployment["config"],
+                "mcp_deployment": page_deployment["page_deployment"],  # Note: different key name
+                "created_at": page_deployment["created_at"],
+                "chat_history": [],
+                "type": page_deployment["type"],
+                "is_page_based": True,
+                "page_count": page_deployment.get("page_count", 0)
+            }
     
     print(f"🎤 Deployment {deployment_id} not found in either ACTIVE_DEPLOYMENTS or ACTIVE_PAGE_DEPLOYMENTS")
     return None
@@ -176,6 +189,10 @@ def get_active_deployment(deployment_id: str) -> Dict[str, Any]:
 # add deployment to active deployments
 def add_active_deployment(deployment_id: str, deployment_data: Dict[str, Any]) -> None:
     ACTIVE_DEPLOYMENTS[deployment_id] = deployment_data
+    print(f"🎤 Added deployment {deployment_id} to ACTIVE_DEPLOYMENTS")
+    print(f"🎤 Type: {deployment_data.get('type', 'unknown')}")
+    print(f"🎤 MCP deployment type: {type(deployment_data.get('mcp_deployment', None))}")
+    print(f"🎤 Total active deployments: {len(ACTIVE_DEPLOYMENTS)}")
 
 # remove deployment from active deployments
 def remove_active_deployment(deployment_id: str) -> None:

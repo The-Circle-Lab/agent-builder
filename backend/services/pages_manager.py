@@ -613,7 +613,14 @@ async def save_theme_assignment_to_database(
 
 def get_active_page_deployment(deployment_id: str) -> Optional[Dict[str, Any]]:
     """Get active page deployment from memory"""
-    return ACTIVE_PAGE_DEPLOYMENTS.get(deployment_id)
+    print(f"🎤 Looking for page deployment: {deployment_id}")
+    print(f"🎤 Available in ACTIVE_PAGE_DEPLOYMENTS: {list(ACTIVE_PAGE_DEPLOYMENTS.keys())}")
+    result = ACTIVE_PAGE_DEPLOYMENTS.get(deployment_id)
+    if result:
+        print(f"🎤 Found page deployment {deployment_id}")
+    else:
+        print(f"🎤 Page deployment {deployment_id} not found")
+    return result
 
 def add_active_page_deployment(deployment_id: str, deployment_data: Dict[str, Any]) -> None:
     """Add page deployment to active deployments"""

@@ -32,6 +32,12 @@ async def websocket_student_endpoint(
             # Load deployment for the authenticated user with proper instance sharing
             deployment = await _load_deployment_for_user(deployment_id, user, db)
             
+            print(f"🎤 Student - Deployment loaded: {deployment is not None}")
+            if deployment:
+                print(f"🎤 Student - Deployment keys: {list(deployment.keys())}")
+                print(f"🎤 Student - Deployment type: {deployment.get('type', 'unknown')}")
+                print(f"🎤 Student - Is page based: {deployment.get('is_page_based', False)}")
+            
             if not deployment:
                 await websocket.send_text(json.dumps({
                     "type": "error",
@@ -170,6 +176,12 @@ async def websocket_teacher_endpoint(
             
             # Load deployment for the authenticated user with proper instance sharing
             deployment = await _load_deployment_for_user(deployment_id, user, db)
+            
+            print(f"🎤 Teacher - Deployment loaded: {deployment is not None}")
+            if deployment:
+                print(f"🎤 Teacher - Deployment keys: {list(deployment.keys())}")
+                print(f"🎤 Teacher - Deployment type: {deployment.get('type', 'unknown')}")
+                print(f"🎤 Teacher - Is page based: {deployment.get('is_page_based', False)}")
             
             if not deployment:
                 await websocket.send_text(json.dumps({
