@@ -59,8 +59,8 @@ async def lifespan(app: FastAPI):
     
     # Run database migrations
     try:
-        from add_assigned_list_items_migration import run_migration
-        run_migration()
+        from run_migration_now import run_migration_now
+        run_migration_now()
         logger.info("Database migrations completed")
     except Exception as migration_error:
         logger.error(f"Database migration failed: {migration_error}")

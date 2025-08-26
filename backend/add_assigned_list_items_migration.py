@@ -9,6 +9,7 @@ import sys
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 
 from sqlmodel import create_engine, Session
+from sqlalchemy import text
 from scripts.config import load_config
 
 def run_migration():
@@ -22,23 +23,24 @@ def run_migration():
     
     with Session(engine) as session:
         try:
-            # Check if column already exists
-            result = session.execute("""
-                SELECT column_name 
-                FROM information_schema.columns 
-                WHERE table_name = 'livepresentationstudentconnection' 
-                AND column_name = 'assigned_list_items'
-            """)
+            # Check if column already exists (SQLite-compatible)
+            result = session.execute(text("""
+                PRAGMA table_info(livepresentationstudentconnection)
+            """))
             
-            if result.fetchone():
+            # Check if assigned_list_items column exists
+            columns = result.fetchall()
+            column_names = [row[1] for row in columns]  # column name is at index 1
+            
+            if 'assigned_list_items' in column_names:
                 print("✅ Column 'assigned_list_items' already exists")
                 return
             
             # Add the column
-            session.execute("""
+            session.execute(text("""
                 ALTER TABLE livepresentationstudentconnection 
                 ADD COLUMN assigned_list_items JSON DEFAULT '{}'
-            """)
+            """))
             session.commit()
             print("✅ Added 'assigned_list_items' column to LivePresentationStudentConnection table")
             
