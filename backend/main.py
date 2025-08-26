@@ -56,6 +56,15 @@ async def lifespan(app: FastAPI):
     # Startup
     init_db()
     logger.info("Database initialized")
+    
+    # Run database migrations
+    try:
+        from add_assigned_list_items_migration import run_migration
+        run_migration()
+        logger.info("Database migrations completed")
+    except Exception as migration_error:
+        logger.error(f"Database migration failed: {migration_error}")
+        # Don't stop the server, but log the error
 
     # Verify Celery broker connectivity (non-blocking)
     try:

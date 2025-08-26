@@ -57,6 +57,9 @@ class LivePresentationStudentConnection(SQLModel, table=True):
     # Group information if available
     group_info: Dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     
+    # Assigned list items for prompts (prompt_id -> list_item)
+    assigned_list_items: Dict[str, Any] = Field(default={}, sa_column=Column(JSON))
+    
     # Connection timestamps
     connected_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
     last_activity: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))

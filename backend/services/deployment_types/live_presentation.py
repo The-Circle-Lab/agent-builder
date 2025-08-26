@@ -1235,21 +1235,29 @@ class LivePresentationDeployment:
             print(f"🎤 Current students in this instance: {len(self.students)}")
             print(f"🎤 Student names in this instance: {[s.user_name for s in self.students.values()]}")
             print(f"🎤 Current teachers in this instance: {len(self.teacher_websockets)}")
+            
+            # Add teacher websocket
             self.teacher_websockets.add(websocket)
+            print(f"🎤 Teacher websocket added. New count: {len(self.teacher_websockets)}")
             
             # Send current stats
             stats = self.get_presentation_stats()
+            print(f"🎤 Sending teacher_connected message with stats: total_students={stats.get('total_students', 0)}, connected_students={stats.get('connected_students', 0)}")
+            
             await websocket.send_text(json.dumps({
                 "type": "teacher_connected",
                 "stats": stats,
                 "saved_prompts": [prompt.to_dict() for prompt in self.saved_prompts]
             }))
             
-            print(f"🎤 Teacher connected to {self.deployment_id}")
+            print(f"🎤 Teacher connected successfully to {self.deployment_id}")
+            print(f"🎤 Final teacher count: {len(self.teacher_websockets)}")
             return True
             
         except Exception as e:
-            print(f"Error connecting teacher: {e}")
+            print(f"❌ Error connecting teacher: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     async def disconnect_student(self, user_id: str):
@@ -1267,8 +1275,14 @@ class LivePresentationDeployment:
     
     async def disconnect_teacher(self, websocket: WebSocket):
         """Disconnect a teacher"""
+        before_count = len(self.teacher_websockets)
         self.teacher_websockets.discard(websocket)
+        after_count = len(self.teacher_websockets)
         print(f"🎤 Teacher disconnected from {self.deployment_id}")
+        print(f"🎤 Teacher count: {before_count} -> {after_count}")
+        
+        if before_count == after_count:
+            print(f"⚠️ Warning: Teacher websocket was not in the set (already disconnected?)")
     
     async def handle_student_message(self, user_id: str, message: Dict[str, Any]):
         """Handle incoming message from student"""
