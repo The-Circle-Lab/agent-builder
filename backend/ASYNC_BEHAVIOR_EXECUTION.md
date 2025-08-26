@@ -88,8 +88,8 @@ Previously, group assignment and theme creation behaviors ran synchronously, blo
 ## Heavy Behaviors
 
 The following behaviors automatically use async execution by default:
-- `group_assignment`
-- `theme_creator`
+- `group`
+- `themeCreator`
 
 Other behaviors can still be run asynchronously by setting `async_execution: true`.
 

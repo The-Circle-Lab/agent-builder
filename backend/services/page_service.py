@@ -308,6 +308,8 @@ class Behavior:
         if behavior_type in ["group", "themeCreator"]:
             print(f"🔍 BEHAVIOR HAS_OUTPUT: {behavior_type} behavior automatically has output (variable system)")
             return True
+        else:
+            print(f"🔍 BEHAVIOR HAS_OUTPUT: {behavior_type} behavior does not automatically have output")
         
         return False
     
@@ -327,6 +329,8 @@ class Behavior:
         if behavior_type in ["group", "themeCreator"]:
             print(f"🔍 BEHAVIOR IS_OUTPUT_TO_VARIABLE: {behavior_type} behavior automatically outputs to variable")
             return True
+        else:
+            print(f"🔍 BEHAVIOR IS_OUTPUT_TO_VARIABLE: {behavior_type} behavior does not automatically output to variable")
         
         return False
     
@@ -455,6 +459,10 @@ class Behavior:
             variable_origin = Origin.THEME
             variable_type = VariableType.LIST
             output_data = result.get("themes")
+            print(f"🎯 THEME CREATOR VARIABLE SETUP:")
+            print(f"   Variable name: {variable_name}")
+            print(f"   Themes data type: {type(output_data)}")
+            print(f"   Themes count: {len(output_data) if output_data else 0}")
         else:
             # Fallback for unknown behavior types
             variable_name = f"{behavior_type}_{behavior_page_number}"

@@ -282,7 +282,7 @@ async def trigger_behavior_execution(
     behavior_config['behavior_type'] = behavior.get_behavior_deployment().get_behavior_type()
     
     # Check if this is a heavy operation that should run async by default
-    heavy_behaviors = ['group_assignment', 'theme_creator']
+    heavy_behaviors = ['group', 'themeCreator']
     is_heavy_behavior = behavior_config.get('behavior_type') in heavy_behaviors
     
     # Use async execution if requested or if it's a heavy behavior

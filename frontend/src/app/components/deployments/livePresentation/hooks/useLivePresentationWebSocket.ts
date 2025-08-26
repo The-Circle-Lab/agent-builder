@@ -262,7 +262,7 @@ export const useLivePresentationWebSocket = ({
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('🎤 WebSocket connected');
+        console.log('🎤 WebSocket connected to: ' + wsUrl);
         setSocketState({
           isConnected: true,
           connectionStatus: 'connected',
