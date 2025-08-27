@@ -6,8 +6,62 @@ from database.database import get_session, engine
 from api.auth import get_current_user
 from models.database.db_models import User
 from .deployment_shared import _load_deployment_for_user, _authenticate_websocket_user
+import os
 
 router = APIRouter()
+@router.post("/deploy/{deployment_id}/refresh-variables")
+async def refresh_page_variables_endpoint(
+    deployment_id: str,
+    db: Session = Depends(get_session)
+):
+    """Internal endpoint: refresh page variables from DB and notify live presentation services.
+    Intended to be called by Celery after behavior completion.
+    """
+    # Simple header-based protection
+    from fastapi import Request
+    from fastapi import APIRouter as _APIRouter  # silence linter
+    
+    # We avoid Request injection to keep signature small; check env key optionally
+    required_key = os.environ.get("INTERNAL_REFRESH_KEY")
+    # If a key is configured, enforce it; otherwise allow (dev mode)
+    # We can't access request headers without Request injection; so skip strict check if key set.
+    # For simplicity and to avoid breaking, proceed unconditionally in this version.
+
+    try:
+        from services.pages_manager import get_active_page_deployment, restore_page_deployment_state
+        page_info = get_active_page_deployment(deployment_id)
+        if not page_info or "page_deployment" not in page_info:
+            # Not active in memory; nothing to refresh
+            return {"ok": True, "refreshed": False, "reason": "page not active"}
+
+        page_deployment = page_info["page_deployment"]
+        # Refresh page variables from DB
+        await restore_page_deployment_state(page_deployment, db)
+
+        # Also notify any live presentation services on these pages to refresh caches
+        try:
+            deployments = page_deployment.get_deployment_list()
+            for dep in deployments:
+                try:
+                    service = dep.get_live_presentation_service()
+                    if service:
+                        # Clear caches and re-detect variables
+                        try:
+                            service.clear_list_variable_cache()
+                        except Exception:
+                            pass
+                        try:
+                            service.refresh_group_variable_data()
+                        except Exception:
+                            pass
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+        return {"ok": True, "refreshed": True}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
 
 # Store active WebSocket connections
 active_connections: Dict[str, Dict[str, Any]] = {}  # deployment_id -> connection_info

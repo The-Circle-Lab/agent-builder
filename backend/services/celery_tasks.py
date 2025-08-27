@@ -166,6 +166,16 @@ def execute_behavior_task(self, deployment_id: str, behavior_number: str, execut
             print(f"   Success: {result.get('success', False)}")
             print(f"   Execution time: {execution_time}")
             
+            # Proactively notify backend API to refresh variables for this page deployment
+            try:
+                import requests
+                api_base = os.getenv("API_BASE_URL", "http://localhost:8000")
+                refresh_url = f"{api_base}/api/deploy/{deployment_id}/refresh-variables"
+                print(f"🔄 [Celery] Triggering variable refresh: {refresh_url}")
+                requests.post(refresh_url, timeout=3)
+            except Exception as refresh_exc:
+                print(f"⚠️ [Celery] Variable refresh call failed: {refresh_exc}")
+            
             return {
                 'status': 'SUCCESS',
                 'result': result,
