@@ -77,11 +77,13 @@ class StudentConnection:
             await self.websocket.send_text(json.dumps(message))
             self.last_activity = datetime.now()
             print(f"✅ Message sent successfully to {self.user_name}: {message.get('type', 'unknown')}")
+            return True  # Indicate success
         except Exception as e:
             print(f"❌ Error sending message to {self.user_name}: {e}")
             print(f"   Message type: {message.get('type', 'unknown')}")
             print(f"   WebSocket state: {self.websocket.client_state if hasattr(self.websocket, 'client_state') else 'unknown'}")
             self.status = ConnectionStatus.DISCONNECTED
+            return False  # Indicate failure
     
     def set_ready(self):
         """Mark student as ready"""
@@ -1553,10 +1555,19 @@ class LivePresentationDeployment:
             
             # Send to all connected students
             sent_count = 0
-            for student in self.students.values():
+            failed_students = []
+            for user_id, student in list(self.students.items()):
                 if student.status != ConnectionStatus.DISCONNECTED:
-                    await student.send_message(message)
-                    sent_count += 1
+                    success = await student.send_message(message)
+                    if success:
+                        sent_count += 1
+                    else:
+                        failed_students.append(user_id)
+            
+            # Clean up students whose WebSockets failed
+            for user_id in failed_students:
+                print(f"🧹 Removing student with failed WebSocket during standard prompt: {self.students[user_id].user_name}")
+                await self.disconnect_student(user_id)
             
             print(f"🎤 Standard prompt sent to {sent_count} students")
         
@@ -1664,6 +1675,7 @@ class LivePresentationDeployment:
                 print(f"📝 {group_name} ({len(students)} students) → List item {item_index + 1}: {item_preview}...")
                 
                 # Send prompt with this list item to all students in this group
+                failed_students = []
                 for student in students:
                     if student.status != ConnectionStatus.DISCONNECTED:
                         # Store the assigned list item for this student and prompt
@@ -1676,8 +1688,16 @@ class LivePresentationDeployment:
                                 "assigned_list_item": selected_item
                             }
                         }
-                        await student.send_message(message)
-                        print(f"  📤 Sent theme '{item_preview}' to {student.user_name}")
+                        success = await student.send_message(message)
+                        if success:
+                            print(f"  📤 Sent theme '{item_preview}' to {student.user_name}")
+                        else:
+                            failed_students.append(student.user_id)
+                
+                # Clean up students whose WebSockets failed
+                for user_id in failed_students:
+                    print(f"🧹 Removing student with failed WebSocket during group prompt: {self.students[user_id].user_name}")
+                    await self.disconnect_student(user_id)
             
             print(f"✅ Successfully sent prompts with group-specific list items to all students")
             
@@ -2165,9 +2185,17 @@ class LivePresentationDeployment:
             "prompt": self.current_prompt
         }
         
-        for student in self.students.values():
+        failed_students = []
+        for user_id, student in list(self.students.items()):
             if student.status != ConnectionStatus.DISCONNECTED:
-                await student.send_message(message)
+                success = await student.send_message(message)
+                if not success:
+                    failed_students.append(user_id)
+        
+        # Clean up students whose WebSockets failed
+        for user_id in failed_students:
+            print(f"🧹 Removing student with failed WebSocket during prompt: {self.students[user_id].user_name}")
+            await self.disconnect_student(user_id)
     
     async def _get_list_item_for_late_joining_student(self, student: "StudentConnection", prompt_id: str, list_variable_id: str) -> Optional[Any]:
         """Get the appropriate list item for a late-joining student based on their group assignment"""
@@ -2238,11 +2266,19 @@ class LivePresentationDeployment:
             }
         }
         
-        for student in self.students.values():
+        failed_students = []
+        for user_id, student in list(self.students.items()):
             if student.status != ConnectionStatus.DISCONNECTED:
                 # Store the assigned list item for each student
                 student.set_assigned_list_item(self.current_prompt["id"], list_item)
-                await student.send_message(message)
+                success = await student.send_message(message)
+                if not success:
+                    failed_students.append(user_id)
+        
+        # Clean up students whose WebSockets failed
+        for user_id in failed_students:
+            print(f"🧹 Removing student with failed WebSocket during list item prompt: {self.students[user_id].user_name}")
+            await self.disconnect_student(user_id)
     
     async def send_group_info_to_students(self):
         """Send group information to students"""
@@ -2295,18 +2331,26 @@ class LivePresentationDeployment:
         
         # Now send group info to all connected students
         sent_count = 0
-        for student in self.students.values():
+        failed_students = []
+        for user_id, student in list(self.students.items()):
             if student.status != ConnectionStatus.DISCONNECTED:
                 message = {
                     "type": "group_info",
                     "group_info": student.group_info  # This could be None if student not in any group
                 }
                 print(f"🎤 Sending message to {student.user_name}: {message}")
-                await student.send_message(message)
-                sent_count += 1
-                
-                # Save updated connection to database
-                await self._save_student_connection(student)
+                success = await student.send_message(message)
+                if success:
+                    sent_count += 1
+                    # Save updated connection to database
+                    await self._save_student_connection(student)
+                else:
+                    failed_students.append(user_id)
+        
+        # Clean up students whose WebSockets failed
+        for user_id in failed_students:
+            print(f"🧹 Removing student with failed WebSocket during group info: {self.students[user_id].user_name}")
+            await self.disconnect_student(user_id)
         
         print(f"🎤 Group info sent to {sent_count} students")
         
@@ -2339,6 +2383,18 @@ class LivePresentationDeployment:
             for teacher_ws in disconnected_teachers:
                 self.teacher_websockets.discard(teacher_ws)
     
+    async def _cleanup_disconnected_students(self):
+        """Remove students with failed WebSocket connections"""
+        disconnected_students = []
+        
+        for user_id, student in self.students.items():
+            if student.status == ConnectionStatus.DISCONNECTED:
+                disconnected_students.append(user_id)
+        
+        for user_id in disconnected_students:
+            print(f"🧹 Cleaning up disconnected student: {self.students[user_id].user_name}")
+            await self.disconnect_student(user_id)
+
     async def start_presentation(self):
         """Start the presentation - makes it active for students"""
         self.presentation_active = True
@@ -2350,17 +2406,26 @@ class LivePresentationDeployment:
             "presentation_active": True
         }
         
-        for student in self.students.values():
+        failed_students = []
+        for user_id, student in list(self.students.items()):  # Use list() to avoid modification during iteration
             if student.status != ConnectionStatus.DISCONNECTED:
-                await student.send_message(message)
+                success = await student.send_message(message)
+                if not success:
+                    failed_students.append(user_id)
         
-        # Notify teachers
+        # Clean up students whose WebSockets failed
+        for user_id in failed_students:
+            print(f"🧹 Removing student with failed WebSocket: {self.students[user_id].user_name}")
+            await self.disconnect_student(user_id)
+        
+        # Notify teachers (after cleanup so they get accurate counts)
         await self._notify_teachers_presentation_state_change("started")
         
         # Save updated session state
         await self._save_session_state()
         
         print(f"🎤 Presentation started for deployment {self.deployment_id}")
+        print(f"🎤 Active students after cleanup: {len(self.students)}")
     
     async def end_presentation(self):
         """End the presentation - makes it inactive for students"""
@@ -2373,21 +2438,30 @@ class LivePresentationDeployment:
             "presentation_active": False
         }
         
-        for student in self.students.values():
+        failed_students = []
+        for user_id, student in list(self.students.items()):  # Use list() to avoid modification during iteration
             if student.status != ConnectionStatus.DISCONNECTED:
-                await student.send_message(message)
+                success = await student.send_message(message)
+                if not success:
+                    failed_students.append(user_id)
+        
+        # Clean up students whose WebSockets failed
+        for user_id in failed_students:
+            print(f"🧹 Removing student with failed WebSocket: {self.students[user_id].user_name}")
+            await self.disconnect_student(user_id)
         
         # Clear any active ready check
         self.ready_check_active = False
         self.ready_students.clear()
         
-        # Notify teachers
+        # Notify teachers (after cleanup so they get accurate counts)
         await self._notify_teachers_presentation_state_change("ended")
         
         # Save updated session state
         await self._save_session_state()
         
         print(f"🎤 Presentation ended for deployment {self.deployment_id}")
+        print(f"🎤 Active students after cleanup: {len(self.students)}")
 
     async def start_ready_check(self):
         """Start a ready check for all students"""
@@ -2405,10 +2479,18 @@ class LivePresentationDeployment:
         }
         
         # Send to all connected students
-        for student in self.students.values():
+        failed_students = []
+        for user_id, student in list(self.students.items()):
             if student.status != ConnectionStatus.DISCONNECTED:
                 student.status = ConnectionStatus.CONNECTED  # Reset status
-                await student.send_message(message)
+                success = await student.send_message(message)
+                if not success:
+                    failed_students.append(user_id)
+        
+        # Clean up students whose WebSockets failed
+        for user_id in failed_students:
+            print(f"🧹 Removing student with failed WebSocket during ready check: {self.students[user_id].user_name}")
+            await self.disconnect_student(user_id)
         
         await self._notify_teachers_connection_update()
         
@@ -2444,6 +2526,9 @@ class LivePresentationDeployment:
 
     async def _notify_teachers_connection_update(self):
         """Notify all teachers of connection/status updates"""
+        # Clean up any disconnected students first to get accurate stats
+        await self._cleanup_disconnected_students()
+        
         stats = self.get_presentation_stats()
         message = {
             "type": "connection_update",
