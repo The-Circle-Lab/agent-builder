@@ -151,7 +151,7 @@ export default function LivePresentationInterface({
                     Wait for the teacher to start the presentation
                   </h2>
                   <p className="text-yellow-700">
-                    You're connected and ready. The presentation will begin when your instructor is ready.
+                    You&apos;re connected and ready. The presentation will begin when your instructor is ready.
                   </p>
                 </div>
               </>
