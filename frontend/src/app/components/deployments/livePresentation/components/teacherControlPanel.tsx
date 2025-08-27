@@ -6,7 +6,8 @@ import {
   CheckCircleIcon,
   ChartBarIcon,
   ExclamationTriangleIcon,
-  HeartIcon
+  HeartIcon,
+  StopIcon
 } from '@heroicons/react/24/outline';
 import { 
   LivePresentationPrompt, 
@@ -17,10 +18,13 @@ interface TeacherControlPanelProps {
   stats: PresentationStats | null;
   savedPrompts: LivePresentationPrompt[];
   connectionStatus: 'connecting' | 'connected' | 'disconnected' | 'error';
+  presentationActive: boolean;
   onSendPrompt: (prompt: LivePresentationPrompt) => void;
   onSendGroupInfo: () => void;
   onStartReadyCheck: () => void;
   onRefreshStats: () => void;
+  onStartPresentation: () => void;
+  onEndPresentation: () => void;
   manualReconnect?: () => void;
 }
 
@@ -28,10 +32,13 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
   stats,
   savedPrompts,
   connectionStatus,
+  presentationActive,
   onSendPrompt,
   onSendGroupInfo,
   onStartReadyCheck,
   onRefreshStats,
+  onStartPresentation,
+  onEndPresentation,
   manualReconnect
 }) => {
   const [selectedPrompt, setSelectedPrompt] = useState<LivePresentationPrompt | null>(null);
@@ -57,6 +64,59 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Presentation Controls */}
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Presentation Control</h3>
+        
+        {!presentationActive ? (
+          <div className="text-center py-8">
+            <div className="mb-4">
+              <div className="inline-flex items-center px-4 py-2 rounded-full bg-yellow-100 text-yellow-800 text-sm font-medium">
+                Presentation Not Started
+              </div>
+            </div>
+            <p className="text-gray-600 mb-6">
+              Students are waiting for you to start the presentation. Click the button below to begin.
+            </p>
+            <button
+              onClick={onStartPresentation}
+              disabled={!isConnected}
+              className={`inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md ${
+                isConnected
+                  ? 'text-white bg-green-600 hover:bg-green-700'
+                  : 'text-gray-400 bg-gray-200 cursor-not-allowed'
+              }`}
+            >
+              <PlayIcon className="h-5 w-5 mr-2" />
+              Start Presentation
+            </button>
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <div className="mb-4">
+              <div className="inline-flex items-center px-4 py-2 rounded-full bg-green-100 text-green-800 text-sm font-medium">
+                Presentation Active
+              </div>
+            </div>
+            <p className="text-gray-600 mb-6">
+              The presentation is running. Students can participate and receive prompts.
+            </p>
+            <button
+              onClick={onEndPresentation}
+              disabled={!isConnected}
+              className={`inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md ${
+                isConnected
+                  ? 'text-white bg-red-600 hover:bg-red-700'
+                  : 'text-gray-400 bg-gray-200 cursor-not-allowed'
+              }`}
+            >
+              <StopIcon className="h-5 w-5 mr-2" />
+              End Presentation
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* Connection Status */}
       <div className={`rounded-lg p-4 ${
         isConnected 
@@ -95,9 +155,9 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <button
             onClick={onStartReadyCheck}
-            disabled={!isConnected}
+            disabled={!isConnected || !presentationActive}
             className={`flex items-center justify-center space-x-2 p-4 rounded-lg border-2 border-dashed transition-colors ${
-              isConnected
+              isConnected && presentationActive
                 ? 'border-green-300 text-green-700 hover:border-green-400 hover:bg-green-50'
                 : 'border-gray-300 text-gray-400 cursor-not-allowed'
             }`}
@@ -108,9 +168,9 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
 
           <button
             onClick={onSendGroupInfo}
-            disabled={!isConnected}
+            disabled={!isConnected || !presentationActive}
             className={`flex items-center justify-center space-x-2 p-4 rounded-lg border-2 border-dashed transition-colors ${
-              isConnected
+              isConnected && presentationActive
                 ? 'border-purple-300 text-purple-700 hover:border-purple-400 hover:bg-purple-50'
                 : 'border-gray-300 text-gray-400 cursor-not-allowed'
             }`}
@@ -121,9 +181,9 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
 
           <button
             onClick={handleSendThankYou}
-            disabled={!isConnected}
+            disabled={!isConnected || !presentationActive}
             className={`flex items-center justify-center space-x-2 p-4 rounded-lg border-2 border-dashed transition-colors ${
-              isConnected
+              isConnected && presentationActive
                 ? 'border-pink-300 text-pink-700 hover:border-pink-400 hover:bg-pink-50'
                 : 'border-gray-300 text-gray-400 cursor-not-allowed'
             }`}
@@ -231,9 +291,16 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
 
       {/* Saved Prompts */}
       <div className="bg-white rounded-lg shadow p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Saved Prompts ({savedPrompts.length})
-        </h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">
+            Saved Prompts ({savedPrompts.length})
+          </h3>
+          {!presentationActive && (
+            <div className="text-sm text-amber-600 bg-amber-50 px-3 py-1 rounded-full">
+              Start presentation to send prompts
+            </div>
+          )}
+        </div>
 
         {savedPrompts.length === 0 ? (
           <div className="text-center py-8 text-gray-500">
@@ -280,9 +347,9 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
                       e.stopPropagation();
                       onSendPrompt(prompt);
                     }}
-                    disabled={!isConnected}
+                    disabled={!isConnected || !presentationActive}
                     className={`ml-4 inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md ${
-                      isConnected
+                      isConnected && presentationActive
                         ? 'text-white bg-indigo-600 hover:bg-indigo-700'
                         : 'text-gray-400 bg-gray-200 cursor-not-allowed'
                     }`}

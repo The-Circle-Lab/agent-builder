@@ -142,6 +142,7 @@ class LivePresentationDeployment:
         
         # Session data
         self.session_active = False
+        self.presentation_active = False  # New: Controls whether the presentation is active
         self.current_prompt: Optional[Dict[str, Any]] = None
         self.ready_check_active = False
         self.ready_students: Set[str] = set()
@@ -624,6 +625,7 @@ class LivePresentationDeployment:
             self.title = session_record.title
             self.description = session_record.description
             self.session_active = session_record.session_active
+            self.presentation_active = getattr(session_record, 'presentation_active', False)  # Default to False for backwards compatibility
             self.ready_check_active = session_record.ready_check_active
             self.current_prompt = session_record.current_prompt
             self.input_variable_data = session_record.input_variable_data
@@ -753,6 +755,7 @@ class LivePresentationDeployment:
                     title=self.title,
                     description=self.description,
                     session_active=self.session_active,
+                    presentation_active=self.presentation_active,
                     ready_check_active=self.ready_check_active,
                     current_prompt=self.current_prompt,
                     input_variable_data=self.input_variable_data,
@@ -762,6 +765,7 @@ class LivePresentationDeployment:
             else:
                 # Update existing session
                 session_record.session_active = self.session_active
+                session_record.presentation_active = self.presentation_active
                 session_record.ready_check_active = self.ready_check_active
                 session_record.current_prompt = self.current_prompt
                 session_record.input_variable_data = self.input_variable_data
@@ -1140,59 +1144,71 @@ class LivePresentationDeployment:
             
             self.students[user_id] = student
             
-            # Send welcome message
-            welcome_message = {
-                "type": "welcome",
-                "message": f"Connected to {self.title}",
-                "session_active": self.session_active,
-                "group_info": student.group_info
-            }
+            # Send welcome message based on presentation state
+            if self.presentation_active:
+                welcome_message = {
+                    "type": "welcome",
+                    "message": f"Connected to {self.title}",
+                    "session_active": self.session_active,
+                    "presentation_active": self.presentation_active,
+                    "group_info": student.group_info
+                }
+            else:
+                welcome_message = {
+                    "type": "waiting_for_teacher",
+                    "message": "Please wait for the teacher to start the presentation.",
+                    "session_active": self.session_active,
+                    "presentation_active": self.presentation_active,
+                    "group_info": student.group_info
+                }
             await student.send_message(welcome_message)
             
             # Check for recent prompts (within 10 minutes) and send to late-joining student
-            recent_prompt = await self._get_recent_prompt_from_database()
-            if recent_prompt:
-                print(f"🎤 Sending recent prompt to late-joining student: {user_name}")
-                
-                # Update current_prompt if we don't have one or this is more recent
-                if not self.current_prompt or (
-                    recent_prompt.get("sent_at") and 
-                    self.current_prompt.get("sent_at") and
-                    recent_prompt["sent_at"] > self.current_prompt["sent_at"]
-                ):
-                    self.current_prompt = recent_prompt
-                    print(f"🎤 Updated current_prompt for late-joining student compatibility")
-                
-                # Check if this student should get a specific list item for this prompt
-                prompt_id = recent_prompt.get("id")
-                assigned_list_item = None
-                
-                # First, check if we already have a stored assignment for this student and prompt
-                if prompt_id:
-                    assigned_list_item = student.get_assigned_list_item(prompt_id)
-                    if assigned_list_item:
-                        print(f"🔄 Using restored list item assignment for {user_name} on prompt {prompt_id}")
-                
-                # If no stored assignment but prompt uses list items, assign one
-                if (assigned_list_item is None and prompt_id and recent_prompt.get("useRandomListItem") and 
-                    recent_prompt.get("selectedListVariable")):
-                    print(f"🎯 Late-joining student needs list item assignment for prompt {prompt_id}")
-                    assigned_list_item = await self._get_list_item_for_late_joining_student(
-                        student, prompt_id, recent_prompt.get("selectedListVariable")
-                    )
-                
-                # Send the prompt with the assigned list item (if any)
-                prompt_message = {
-                    "type": "prompt_received", 
-                    "prompt": recent_prompt,
-                    "is_late_join": True  # Flag to indicate this is for a late-joining student
-                }
-                
-                if assigned_list_item is not None:
-                    prompt_message["prompt"]["assigned_list_item"] = assigned_list_item
-                    print(f"🎤 Including assigned list item for late-joining student {user_name}")
-                
-                await student.send_message(prompt_message)
+            # Only send recent prompts if the presentation is active
+            if self.presentation_active:
+                recent_prompt = await self._get_recent_prompt_from_database()
+                if recent_prompt:
+                    print(f"🎤 Sending recent prompt to late-joining student: {user_name}")
+                    
+                    # Update current_prompt if we don't have one or this is more recent
+                    if not self.current_prompt or (
+                        recent_prompt.get("sent_at") and 
+                        self.current_prompt.get("sent_at") and
+                        recent_prompt["sent_at"] > self.current_prompt["sent_at"]
+                    ):
+                        self.current_prompt = recent_prompt
+                        print(f"🎤 Updated current_prompt for late-joining student compatibility")
+                    
+                    # Check if this student should get a specific list item for this prompt
+                    prompt_id = recent_prompt.get("id")
+                    assigned_list_item = None
+                    
+                    # First, check if we already have a stored assignment for this student and prompt
+                    if prompt_id:
+                        assigned_list_item = student.get_assigned_list_item(prompt_id)
+                        if assigned_list_item:
+                            print(f"🔄 Using restored list item assignment for {user_name} on prompt {prompt_id}")
+                    
+                    # If no stored assignment but prompt uses list items, assign one
+                    if (assigned_list_item is None and prompt_id and recent_prompt.get("useRandomListItem") and 
+                        recent_prompt.get("selectedListVariable")):
+                        print(f"🎯 Late-joining student needs list item assignment for prompt {prompt_id}")
+                        assigned_list_item = await self._get_list_item_for_late_joining_student(
+                            student, prompt_id, recent_prompt.get("selectedListVariable")
+                        )
+                    
+                    # Send the prompt with the assigned list item (if any)
+                    prompt_message = {
+                        "type": "prompt_received", 
+                        "prompt": recent_prompt,
+                        "is_late_join": True  # Flag to indicate this is for a late-joining student
+                    }
+                    
+                    if assigned_list_item is not None:
+                        prompt_message["prompt"]["assigned_list_item"] = assigned_list_item
+                        print(f"🎤 Including assigned list item for late-joining student {user_name}")
+                    
+                    await student.send_message(prompt_message)
             
             # Send group info message if student has group assignment (for late-joining students)
             if student.group_info:
@@ -1204,7 +1220,8 @@ class LivePresentationDeployment:
                 })
             
             # Check if there's an active ready check and send it to late-joining student
-            if self.ready_check_active:
+            # Only send ready checks if presentation is active
+            if self.ready_check_active and self.presentation_active:
                 print(f"🎤 Sending active ready check to late-joining student: {user_name}")
                 await student.send_message({
                     "type": "ready_check",
@@ -1246,7 +1263,8 @@ class LivePresentationDeployment:
             await websocket.send_text(json.dumps({
                 "type": "teacher_connected",
                 "stats": stats,
-                "saved_prompts": [prompt.to_dict() for prompt in self.saved_prompts]
+                "saved_prompts": [prompt.to_dict() for prompt in self.saved_prompts],
+                "presentation_active": self.presentation_active
             }))
             
             print(f"🎤 Teacher connected successfully to {self.deployment_id}")
@@ -1346,6 +1364,12 @@ class LivePresentationDeployment:
                 
             elif message_type == MessageType.SEND_READY_CHECK:
                 await self.start_ready_check()
+            
+            elif message_type == "start_presentation":
+                await self.start_presentation()
+                
+            elif message_type == "end_presentation":
+                await self.end_presentation()
                 
             elif message_type == MessageType.GET_STATS:
                 stats = self.get_presentation_stats()
@@ -1458,6 +1482,11 @@ class LivePresentationDeployment:
     async def send_prompt_to_students(self, prompt_data: Dict[str, Any]):
         """Send a prompt to all connected students"""
         if not prompt_data:
+            return
+        
+        # Only send prompts if presentation is active
+        if not self.presentation_active:
+            print(f"⚠️ Cannot send prompt: presentation is not active")
             return
         
         prompt_id = prompt_data.get("id", str(uuid.uuid4()))
@@ -2310,8 +2339,63 @@ class LivePresentationDeployment:
             for teacher_ws in disconnected_teachers:
                 self.teacher_websockets.discard(teacher_ws)
     
+    async def start_presentation(self):
+        """Start the presentation - makes it active for students"""
+        self.presentation_active = True
+        
+        # Send activation message to all connected students
+        message = {
+            "type": "presentation_started",
+            "message": "The teacher has started the presentation. You may now participate.",
+            "presentation_active": True
+        }
+        
+        for student in self.students.values():
+            if student.status != ConnectionStatus.DISCONNECTED:
+                await student.send_message(message)
+        
+        # Notify teachers
+        await self._notify_teachers_presentation_state_change("started")
+        
+        # Save updated session state
+        await self._save_session_state()
+        
+        print(f"🎤 Presentation started for deployment {self.deployment_id}")
+    
+    async def end_presentation(self):
+        """End the presentation - makes it inactive for students"""
+        self.presentation_active = False
+        
+        # Send deactivation message to all connected students
+        message = {
+            "type": "presentation_ended",
+            "message": "The teacher has ended the presentation. Thank you for participating!",
+            "presentation_active": False
+        }
+        
+        for student in self.students.values():
+            if student.status != ConnectionStatus.DISCONNECTED:
+                await student.send_message(message)
+        
+        # Clear any active ready check
+        self.ready_check_active = False
+        self.ready_students.clear()
+        
+        # Notify teachers
+        await self._notify_teachers_presentation_state_change("ended")
+        
+        # Save updated session state
+        await self._save_session_state()
+        
+        print(f"🎤 Presentation ended for deployment {self.deployment_id}")
+
     async def start_ready_check(self):
         """Start a ready check for all students"""
+        # Only allow ready checks if presentation is active
+        if not self.presentation_active:
+            print(f"⚠️ Cannot start ready check: presentation is not active")
+            return
+            
         self.ready_check_active = True
         self.ready_students.clear()
         
@@ -2333,6 +2417,31 @@ class LivePresentationDeployment:
         
         print(f"🎤 Ready check started for {len(self.students)} students")
     
+    async def _notify_teachers_presentation_state_change(self, action: str):
+        """Notify teachers about presentation state changes"""
+        message = {
+            "type": "presentation_state_changed",
+            "action": action,  # "started" or "ended"
+            "presentation_active": self.presentation_active,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        print(f"🎤 Notifying {len(self.teacher_websockets)} teachers that presentation was {action}")
+        
+        disconnected_teachers = set()
+        for teacher_ws in self.teacher_websockets:
+            try:
+                await teacher_ws.send_text(json.dumps(message))
+                print(f"✅ Presentation state change sent to teacher")
+            except Exception as e:
+                print(f"❌ Failed to send presentation state change to teacher: {e}")
+                disconnected_teachers.add(teacher_ws)
+        
+        # Remove disconnected teachers
+        for teacher_ws in disconnected_teachers:
+            self.teacher_websockets.discard(teacher_ws)
+            print(f"🗑️ Removed disconnected teacher websocket")
+
     async def _notify_teachers_connection_update(self):
         """Notify all teachers of connection/status updates"""
         stats = self.get_presentation_stats()
@@ -2437,6 +2546,7 @@ class LivePresentationDeployment:
             "deployment_id": self.deployment_id,
             "title": self.title,
             "session_active": self.session_active,
+            "presentation_active": self.presentation_active,
             "ready_check_active": self.ready_check_active,
             "total_students": total_students,
             "connected_students": connected_students,

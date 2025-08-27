@@ -44,6 +44,7 @@ export const useLivePresentationWebSocket = ({
   const [groupSummary, setGroupSummary] = useState<GroupSummaryMessage | null>(null);
   const [waitingForSummary, setWaitingForSummary] = useState(false);
   const [summaryGenerating, setSummaryGenerating] = useState(false);
+  const [presentationActive, setPresentationActive] = useState(false);
   const messageTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Teacher states
@@ -85,7 +86,43 @@ export const useLivePresentationWebSocket = ({
         if (message.group_info) {
           setGroupInfo(message.group_info);
         }
+        // Set presentation active state from message
+        if (typeof message.presentation_active === 'boolean') {
+          setPresentationActive(message.presentation_active);
+        }
         // Don't set live presentation message for welcome, it's handled in waiting screen
+        break;
+
+      case 'waiting_for_teacher':
+        setWelcomeMessage(message.message);
+        if (message.group_info) {
+          setGroupInfo(message.group_info);
+        }
+        // Set presentation active state from message
+        if (typeof message.presentation_active === 'boolean') {
+          setPresentationActive(message.presentation_active);
+        }
+        break;
+
+      case 'presentation_started':
+        setPresentationActive(true);
+        setMessageWithTimeout(
+          message.message || "The teacher has started the presentation. You may now participate.",
+          5000
+        );
+        break;
+
+      case 'presentation_ended':
+        setPresentationActive(false);
+        setCurrentPrompt(null); // Clear any active prompt
+        setReadyCheckActive(false); // Clear any ready check
+        setGroupSummary(null); // Clear any summary
+        setWaitingForSummary(false);
+        setSummaryGenerating(false);
+        setMessageWithTimeout(
+          message.message || "The teacher has ended the presentation. Thank you for participating!",
+          10000
+        );
         break;
 
       case 'prompt_received':
@@ -144,6 +181,17 @@ export const useLivePresentationWebSocket = ({
         if (isTeacher) {
           setStats(message.stats);
           setSavedPrompts(message.saved_prompts || []);
+          // Set presentation active state from message
+          if (typeof message.presentation_active === 'boolean') {
+            setPresentationActive(message.presentation_active);
+          }
+        }
+        break;
+
+      case 'presentation_state_changed':
+        if (isTeacher) {
+          setPresentationActive(message.presentation_active);
+          console.log(`🎤 Presentation ${message.action}:`, message.presentation_active);
         }
         break;
 
@@ -410,6 +458,14 @@ export const useLivePresentationWebSocket = ({
     sendMessage({ type: 'rebuild_variable_mapping' });
   }, [sendMessage]);
 
+  const startPresentation = useCallback(() => {
+    sendMessage({ type: 'start_presentation' });
+  }, [sendMessage]);
+
+  const endPresentation = useCallback(() => {
+    sendMessage({ type: 'end_presentation' });
+  }, [sendMessage]);
+
   // Connect on mount, disconnect on unmount
   useEffect(() => {
     let isMounted = true;
@@ -487,6 +543,7 @@ export const useLivePresentationWebSocket = ({
     groupSummary,
     waitingForSummary,
     summaryGenerating,
+    presentationActive,
     
     // Teacher state
     stats,
@@ -503,6 +560,8 @@ export const useLivePresentationWebSocket = ({
     startReadyCheck,
     requestStats,
     rebuildVariableMapping,
+    startPresentation,
+    endPresentation,
     
     // Connection actions
     connect,

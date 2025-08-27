@@ -14,6 +14,7 @@ class LivePresentationSession(SQLModel, table=True):
     
     # Session state
     session_active: bool = Field(default=False)
+    presentation_active: bool = Field(default=False)
     ready_check_active: bool = Field(default=False)
     
     # Current prompt data

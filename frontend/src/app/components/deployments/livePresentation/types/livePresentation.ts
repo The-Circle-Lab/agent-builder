@@ -37,6 +37,7 @@ export interface PresentationStats {
   deployment_id: string;
   title: string;
   session_active: boolean;
+  presentation_active: boolean;
   ready_check_active: boolean;
   total_students: number;
   connected_students: number;
@@ -79,6 +80,10 @@ export interface LivePresentationInfo {
 // WebSocket message types
 export type MessageType = 
   | 'welcome'
+  | 'waiting_for_teacher'
+  | 'presentation_started'
+  | 'presentation_ended'
+  | 'presentation_state_changed'
   | 'prompt_received'
   | 'group_info'
   | 'group_info_sent'
@@ -101,6 +106,33 @@ export interface WelcomeMessage {
   type: 'welcome';
   message: string;
   group_info?: GroupInfo;
+  presentation_active?: boolean;
+}
+
+export interface WaitingForTeacherMessage {
+  type: 'waiting_for_teacher';
+  message: string;
+  group_info?: GroupInfo;
+  presentation_active?: boolean;
+}
+
+export interface PresentationStartedMessage {
+  type: 'presentation_started';
+  message: string;
+  presentation_active: boolean;
+}
+
+export interface PresentationEndedMessage {
+  type: 'presentation_ended';
+  message: string;
+  presentation_active: boolean;
+}
+
+export interface PresentationStateChangedMessage {
+  type: 'presentation_state_changed';
+  action: 'started' | 'ended';
+  presentation_active: boolean;
+  timestamp: string;
 }
 
 export interface PromptReceivedMessage {
@@ -141,6 +173,7 @@ export interface TeacherConnectedMessage {
   type: 'teacher_connected';
   stats: PresentationStats;
   saved_prompts?: LivePresentationPrompt[];
+  presentation_active?: boolean;
 }
 
 export interface StudentResponseReceivedMessage {
@@ -170,6 +203,10 @@ export interface GroupSummaryGeneratedMessage {
 
 export type TypedWebSocketMessage = 
   | WelcomeMessage
+  | WaitingForTeacherMessage
+  | PresentationStartedMessage
+  | PresentationEndedMessage
+  | PresentationStateChangedMessage
   | PromptReceivedMessage 
   | GroupInfoMessage
   | GroupSummaryMessage
@@ -223,7 +260,22 @@ export interface RebuildVariableMappingMessage {
   type: 'rebuild_variable_mapping';
 }
 
-export type TeacherMessage = SendPromptMessage | SendGroupInfoMessage | SendReadyCheckMessage | GetStatsMessage | RebuildVariableMappingMessage;
+export interface StartPresentationMessage {
+  type: 'start_presentation';
+}
+
+export interface EndPresentationMessage {
+  type: 'end_presentation';
+}
+
+export type TeacherMessage = 
+  | SendPromptMessage 
+  | SendGroupInfoMessage 
+  | SendReadyCheckMessage 
+  | GetStatsMessage 
+  | RebuildVariableMappingMessage
+  | StartPresentationMessage
+  | EndPresentationMessage;
 
 
 

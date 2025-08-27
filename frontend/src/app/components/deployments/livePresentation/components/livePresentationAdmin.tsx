@@ -33,11 +33,14 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
     stats,
     savedPrompts,
     studentResponses,
+    presentationActive,
     sendPrompt,
     sendGroupInfo,
     startReadyCheck,
     requestStats,
-    manualReconnect
+    manualReconnect,
+    startPresentation,
+    endPresentation
   } = useLivePresentationWebSocket({
     deploymentId,
     isTeacher: true
@@ -209,10 +212,13 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
               stats={stats}
               savedPrompts={savedPrompts}
               connectionStatus={connectionStatus}
+              presentationActive={presentationActive}
               onSendPrompt={handleSendPrompt}
               onSendGroupInfo={sendGroupInfo}
               onStartReadyCheck={startReadyCheck}
               onRefreshStats={handleRefreshStats}
+              onStartPresentation={startPresentation}
+              onEndPresentation={endPresentation}
               manualReconnect={manualReconnect}
             />
           )}

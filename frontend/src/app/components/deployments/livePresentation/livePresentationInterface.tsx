@@ -34,6 +34,7 @@ export default function LivePresentationInterface({
     groupSummary,
     waitingForSummary,
     summaryGenerating,
+    presentationActive,
     sendReady,
     sendResponse
   } = useLivePresentationWebSocket({
@@ -143,7 +144,18 @@ export default function LivePresentationInterface({
           />
         ) : (
           <div className="bg-white rounded-lg shadow-md p-8 text-center">
-            {livePresentationMessage ? (
+            {!presentationActive ? (
+              <>
+                <div className="border-l-4 border-yellow-500 bg-yellow-50 p-6 mb-6 rounded-r-lg">
+                  <h2 className="text-3xl font-bold text-yellow-600 mb-2">
+                    Wait for the teacher to start the presentation
+                  </h2>
+                  <p className="text-yellow-700">
+                    You're connected and ready. The presentation will begin when your instructor is ready.
+                  </p>
+                </div>
+              </>
+            ) : livePresentationMessage ? (
               <>
                 <div className="border-l-4 border-indigo-500 bg-indigo-50 p-6 mb-6 rounded-r-lg">
                   <h2 className="text-3xl font-bold text-indigo-600 mb-2">
