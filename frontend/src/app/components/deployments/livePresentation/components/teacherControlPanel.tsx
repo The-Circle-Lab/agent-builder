@@ -7,7 +7,8 @@ import {
   ChartBarIcon,
   ExclamationTriangleIcon,
   HeartIcon,
-  StopIcon
+  StopIcon,
+  WifiIcon
 } from '@heroicons/react/24/outline';
 import { 
   LivePresentationPrompt, 
@@ -25,6 +26,7 @@ interface TeacherControlPanelProps {
   onRefreshStats: () => void;
   onStartPresentation: () => void;
   onEndPresentation: () => void;
+  onTestConnections: () => void;
   manualReconnect?: () => void;
 }
 
@@ -39,6 +41,7 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
   onRefreshStats,
   onStartPresentation,
   onEndPresentation,
+  onTestConnections,
   manualReconnect
 }) => {
   const [selectedPrompt, setSelectedPrompt] = useState<LivePresentationPrompt | null>(null);
@@ -191,6 +194,19 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
             <HeartIcon className="h-6 w-6" />
             <span className="font-medium">Thank You</span>
           </button>
+          <button
+            onClick={onTestConnections}
+            disabled={!isConnected}
+            className={`flex items-center justify-center space-x-2 p-4 rounded-lg border-2 border-dashed transition-colors ${
+              isConnected
+                ? 'border-purple-300 text-purple-700 hover:border-purple-400 hover:bg-purple-50'
+                : 'border-gray-300 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            <WifiIcon className="h-6 w-6" />
+            <span className="font-medium">Test Connections</span>
+          </button>
+
           <button
             onClick={onRefreshStats}
             className="flex items-center justify-center space-x-2 p-4 rounded-lg border-2 border-dashed border-blue-300 text-blue-700 hover:border-blue-400 hover:bg-blue-50 transition-colors"

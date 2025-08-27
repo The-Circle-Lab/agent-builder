@@ -1258,6 +1258,9 @@ class LivePresentationDeployment:
             self.teacher_websockets.add(websocket)
             print(f"🎤 Teacher websocket added. New count: {len(self.teacher_websockets)}")
             
+            # Clean up any disconnected students before sending stats
+            await self._cleanup_disconnected_students()
+            
             # Send current stats
             stats = self.get_presentation_stats()
             print(f"🎤 Sending teacher_connected message with stats: total_students={stats.get('total_students', 0)}, connected_students={stats.get('connected_students', 0)}")
@@ -1372,6 +1375,22 @@ class LivePresentationDeployment:
                 
             elif message_type == "end_presentation":
                 await self.end_presentation()
+                
+            elif message_type == "test_connections":
+                # Test all student connections and report results
+                failed_count = await self._test_all_student_connections()
+                stats = self.get_presentation_stats()
+                
+                # Send test results to teacher
+                try:
+                    await websocket.send_text(json.dumps({
+                        "type": "connection_test_result",
+                        "message": f"Connection test complete. {failed_count} dead connections removed.",
+                        "failed_count": failed_count,
+                        "stats": stats
+                    }))
+                except Exception as e:
+                    print(f"❌ Failed to send connection test result to teacher: {e}")
                 
             elif message_type == MessageType.GET_STATS:
                 stats = self.get_presentation_stats()
@@ -2395,8 +2414,44 @@ class LivePresentationDeployment:
             print(f"🧹 Cleaning up disconnected student: {self.students[user_id].user_name}")
             await self.disconnect_student(user_id)
 
+    async def _test_all_student_connections(self):
+        """Test all student WebSocket connections with a ping-like message"""
+        print(f"🔍 Testing {len(self.students)} student connections...")
+        failed_students = []
+        
+        test_message = {
+            "type": "connection_test",
+            "message": "Testing connection"
+        }
+        
+        for user_id, student in list(self.students.items()):
+            if student.status != ConnectionStatus.DISCONNECTED:
+                try:
+                    # Test the connection by sending a small message
+                    await student.websocket.send_text(json.dumps(test_message))
+                    print(f"✅ Connection test OK: {student.user_name}")
+                except Exception as e:
+                    print(f"❌ Connection test FAILED: {student.user_name} - {e}")
+                    failed_students.append(user_id)
+        
+        # Clean up failed connections
+        for user_id in failed_students:
+            print(f"🧹 Removing student with failed connection test: {self.students[user_id].user_name}")
+            await self.disconnect_student(user_id)
+        
+        print(f"🔍 Connection test complete. {len(failed_students)} students removed.")
+        return len(failed_students)
+
     async def start_presentation(self):
         """Start the presentation - makes it active for students"""
+        print(f"🎤 Starting presentation for deployment {self.deployment_id}")
+        print(f"🎤 Students before connection test: {len(self.students)}")
+        
+        # Test all student connections first and clean up any dead ones
+        failed_count = await self._test_all_student_connections()
+        print(f"🎤 Connection test removed {failed_count} dead connections")
+        print(f"🎤 Students after connection test: {len(self.students)}")
+        
         self.presentation_active = True
         
         # Send activation message to all connected students

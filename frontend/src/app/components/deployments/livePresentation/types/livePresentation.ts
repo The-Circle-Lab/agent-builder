@@ -95,6 +95,8 @@ export type MessageType =
   | 'connection_update'
   | 'student_response_received'
   | 'stats_update'
+  | 'connection_test'
+  | 'connection_test_result'
   | 'error';
 
 export interface WebSocketMessage {
@@ -133,6 +135,18 @@ export interface PresentationStateChangedMessage {
   action: 'started' | 'ended';
   presentation_active: boolean;
   timestamp: string;
+}
+
+export interface ConnectionTestMessage {
+  type: 'connection_test';
+  message: string;
+}
+
+export interface ConnectionTestResultMessage {
+  type: 'connection_test_result';
+  message: string;
+  failed_count: number;
+  stats: PresentationStats;
 }
 
 export interface PromptReceivedMessage {
@@ -213,6 +227,8 @@ export type TypedWebSocketMessage =
   | ReadyCheckMessage
   | StatsUpdateMessage
   | ConnectionUpdateMessage
+  | ConnectionTestMessage
+  | ConnectionTestResultMessage
   | ErrorMessage
   | TeacherConnectedMessage
   | StudentResponseReceivedMessage
@@ -268,6 +284,10 @@ export interface EndPresentationMessage {
   type: 'end_presentation';
 }
 
+export interface TestConnectionsMessage {
+  type: 'test_connections';
+}
+
 export type TeacherMessage = 
   | SendPromptMessage 
   | SendGroupInfoMessage 
@@ -275,7 +295,8 @@ export type TeacherMessage =
   | GetStatsMessage 
   | RebuildVariableMappingMessage
   | StartPresentationMessage
-  | EndPresentationMessage;
+  | EndPresentationMessage
+  | TestConnectionsMessage;
 
 
 

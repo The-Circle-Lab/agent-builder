@@ -40,7 +40,8 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
     requestStats,
     manualReconnect,
     startPresentation,
-    endPresentation
+    endPresentation,
+    testConnections
   } = useLivePresentationWebSocket({
     deploymentId,
     isTeacher: true
@@ -219,6 +220,7 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
               onRefreshStats={handleRefreshStats}
               onStartPresentation={startPresentation}
               onEndPresentation={endPresentation}
+              onTestConnections={testConnections}
               manualReconnect={manualReconnect}
             />
           )}

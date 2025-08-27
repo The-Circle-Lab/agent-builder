@@ -195,6 +195,22 @@ export const useLivePresentationWebSocket = ({
         }
         break;
 
+      case 'connection_test':
+        // Student receives connection test - no special handling needed, just logged
+        console.log('🔍 Received connection test from server');
+        break;
+
+      case 'connection_test_result':
+        // Teacher receives connection test results
+        if (isTeacher && message.stats) {
+          setStats(message.stats);
+          setMessageWithTimeout(
+            `${message.message} (${message.failed_count} students removed)`,
+            5000
+          );
+        }
+        break;
+
       case 'connection_update':
         if (isTeacher && message.stats) {
           setStats(message.stats);
@@ -466,6 +482,10 @@ export const useLivePresentationWebSocket = ({
     sendMessage({ type: 'end_presentation' });
   }, [sendMessage]);
 
+  const testConnections = useCallback(() => {
+    sendMessage({ type: 'test_connections' });
+  }, [sendMessage]);
+
   // Connect on mount, disconnect on unmount
   useEffect(() => {
     let isMounted = true;
@@ -562,6 +582,7 @@ export const useLivePresentationWebSocket = ({
     rebuildVariableMapping,
     startPresentation,
     endPresentation,
+    testConnections,
     
     // Connection actions
     connect,
