@@ -9,7 +9,7 @@ from .deployment_shared import _load_deployment_for_user, _authenticate_websocke
 import os
 
 router = APIRouter()
-@router.post("/deploy/{deployment_id}/refresh-variables")
+@router.post("/{deployment_id}/refresh-variables")
 async def refresh_page_variables_endpoint(
     deployment_id: str,
     db: Session = Depends(get_session)
@@ -28,6 +28,7 @@ async def refresh_page_variables_endpoint(
     # For simplicity and to avoid breaking, proceed unconditionally in this version.
 
     try:
+        print(f"🔄 [API] Received refresh-variables for {deployment_id}")
         from services.pages_manager import get_active_page_deployment, restore_page_deployment_state
         page_info = get_active_page_deployment(deployment_id)
         if not page_info or "page_deployment" not in page_info:
