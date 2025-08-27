@@ -402,8 +402,25 @@ class LivePresentationDeployment:
                         print(f"🎤 Available themes: {theme_titles}")
                 else:
                     print(f"⚠️ THEME variable '{selected_theme_variable.name}' is empty")
+                    # DB fallback for themes
+                    try:
+                        db_theme_data = self._get_latest_theme_data_from_database()
+                        if db_theme_data:
+                            self._theme_data = db_theme_data
+                            self._list_variable_cache[selected_theme_variable.name] = self._theme_data
+                            print(f"✅ Loaded {len(self._theme_data)} themes from DB fallback")
+                    except Exception as _e:
+                        pass
             else:
                 print(f"⚠️ No THEME type variables found in behavior variables")
+                # DB fallback if no theme variables present
+                try:
+                    db_theme_data = self._get_latest_theme_data_from_database()
+                    if db_theme_data:
+                        self._theme_data = db_theme_data
+                        print(f"✅ Loaded {len(self._theme_data)} themes from DB fallback (no variables present)")
+                except Exception as _e:
+                    pass
         
         except Exception as e:
             print(f"❌ Error during theme variable auto-detection: {e}")
@@ -477,10 +494,72 @@ class LivePresentationDeployment:
         except Exception as e:
             print(f"❌ Error retrieving group assignment from database: {e}")
             return None
+
+    def _get_latest_theme_data_from_database(self) -> Optional[List[Dict[str, Any]]]:
+        """Get the latest theme assignment data from database for this deployment"""
+        if not self._db_session:
+            print(f"🔍 No database session available for theme assignment lookup")
+            return None
+        
+        try:
+            from models.database.theme_models import ThemeAssignment, Theme, ThemeStudentAssociation
+            from models.database.page_models import PageDeploymentState
+            from sqlmodel import select
+            
+            main_deployment_id = self.deployment_id.split('_page_')[0]
+            page_deployment_state = self._db_session.exec(
+                select(PageDeploymentState).where(
+                    PageDeploymentState.deployment_id == main_deployment_id
+                )
+            ).first()
+            if not page_deployment_state:
+                print(f"🔍 No page deployment state found for {main_deployment_id}")
+                return None
+            
+            latest_assignment = self._db_session.exec(
+                select(ThemeAssignment)
+                .where(ThemeAssignment.page_deployment_id == page_deployment_state.id)
+                .order_by(ThemeAssignment.created_at.desc())
+            ).first()
+            if not latest_assignment:
+                print(f"🔍 No theme assignments found for page deployment {main_deployment_id}")
+                return None
+            
+            themes = self._db_session.exec(
+                select(Theme).where(Theme.assignment_id == latest_assignment.id)
+            ).all()
+            theme_list: List[Dict[str, Any]] = []
+            for theme in themes:
+                student_assoc = self._db_session.exec(
+                    select(ThemeStudentAssociation).where(ThemeStudentAssociation.theme_id == theme.id)
+                ).all()
+                student_names = [assoc.student_name for assoc in student_assoc if getattr(assoc, 'student_name', None)]
+                theme_list.append({
+                    "title": getattr(theme, 'title', 'Untitled'),
+                    "description": getattr(theme, 'description', ''),
+                    "cluster_id": getattr(theme, 'cluster_id', 0),
+                    "document_count": getattr(theme, 'document_count', 0),
+                    "student_count": getattr(theme, 'student_count', len(student_names)),
+                    "student_names": student_names,
+                })
+            print(f"✅ Loaded {len(theme_list)} themes from database assignment")
+            return theme_list if theme_list else None
+        except Exception as e:
+            print(f"❌ Error retrieving theme assignment from database: {e}")
+            return None
     
     def refresh_group_variable_data(self):
         """Manually refresh group variable data from parent page deployment"""
         print(f"🔄 Manual refresh of group variable data requested")
+        try:
+            # Best effort: refresh page variables from DB first
+            from asyncio import create_task
+            try:
+                create_task(self._refresh_page_variables_from_database())  # type: ignore[attr-defined]
+            except Exception:
+                pass
+        except Exception:
+            pass
         self._auto_detect_group_variable()
         # Also refresh theme variables
         self._auto_detect_theme_variables()
@@ -1117,6 +1196,12 @@ class LivePresentationDeployment:
             # Try to auto-detect group variables if we don't have data yet
             print(f"🔍 DEBUG: input_variable_data is None: {self.input_variable_data is None}")
             print(f"🔍 DEBUG: parent_page_deployment exists: {self._parent_page_deployment is not None}")
+            
+            # Refresh page variables from DB so Celery updates are visible
+            try:
+                await self._refresh_page_variables_from_database()  # type: ignore[attr-defined]
+            except Exception as _e:
+                pass
             
             if self.input_variable_data is None:
                 if self._parent_page_deployment:
