@@ -7,19 +7,21 @@ import {
   ChartBarIcon,
   ExclamationTriangleIcon,
   HeartIcon,
-  StopIcon,
-  WifiIcon
+  StopIcon
 } from '@heroicons/react/24/outline';
 import { 
   LivePresentationPrompt, 
   PresentationStats 
 } from '../types/livePresentation';
+import { RoomcastModal } from './RoomcastModal';
+import { API_CONFIG } from '@/lib/constants';
 
 interface TeacherControlPanelProps {
   stats: PresentationStats | null;
   savedPrompts: LivePresentationPrompt[];
   connectionStatus: 'connecting' | 'connected' | 'disconnected' | 'error';
   presentationActive: boolean;
+  deploymentId: string;
   onSendPrompt: (prompt: LivePresentationPrompt) => void;
   onSendGroupInfo: () => void;
   onStartReadyCheck: () => void;
@@ -35,18 +37,21 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
   savedPrompts,
   connectionStatus,
   presentationActive,
+  deploymentId,
   onSendPrompt,
   onSendGroupInfo,
   onStartReadyCheck,
   onRefreshStats,
   onStartPresentation,
   onEndPresentation,
-  onTestConnections,
   manualReconnect
 }) => {
   const [selectedPrompt, setSelectedPrompt] = useState<LivePresentationPrompt | null>(null);
+  const [showRoomcastModal, setShowRoomcastModal] = useState(false);
+  const [togglingRoomcast, setTogglingRoomcast] = useState(false);
 
   const isConnected = connectionStatus === 'connected';
+  const isRoomcastEnabled = stats?.roomcast?.enabled || false;
 
   const formatDate = (dateString: string) => {
     return new Date(dateString).toLocaleTimeString();
@@ -65,11 +70,63 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
     }
   };
 
+  const handleStartPresentation = () => {
+    if (isRoomcastEnabled) {
+      setShowRoomcastModal(true);
+    } else {
+      onStartPresentation();
+    }
+  };
+
+  const handleToggleRoomcast = async () => {
+    if (!deploymentId || togglingRoomcast) return;
+    setTogglingRoomcast(true);
+    try {
+      const url = `${API_CONFIG.BASE_URL}/api/deploy/live-presentation/${deploymentId}/roomcast/toggle`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ enabled: !isRoomcastEnabled })
+      });
+      if (!response.ok) {
+        console.warn('Failed to toggle roomcast:', response.status);
+      }
+    } catch (e) {
+      console.warn('Error toggling roomcast:', e);
+    } finally {
+      setTogglingRoomcast(false);
+      onRefreshStats();
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Presentation Controls */}
       <div className="bg-white rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Presentation Control</h3>
+        <div className="mb-4 flex items-center justify-between">
+          <div className="flex flex-col">
+            <span className="text-sm font-medium text-gray-900">Roomcast Support</span>
+            <span className="text-xs text-gray-600">Enable room display devices via 5-character code</span>
+          </div>
+          <button
+            onClick={handleToggleRoomcast}
+            disabled={!isConnected || togglingRoomcast}
+            aria-pressed={isRoomcastEnabled}
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+              isConnected && !togglingRoomcast
+                ? (isRoomcastEnabled ? 'bg-indigo-600' : 'bg-gray-200')
+                : 'bg-gray-200 opacity-60 cursor-not-allowed'
+            }`}
+          >
+            <span
+              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                isRoomcastEnabled ? 'translate-x-6' : 'translate-x-1'
+              }`}
+            />
+          </button>
+        </div>
         
         {!presentationActive ? (
           <div className="text-center py-8">
@@ -82,7 +139,7 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
               Students are waiting for you to start the presentation. Click the button below to begin.
             </p>
             <button
-              onClick={onStartPresentation}
+              onClick={handleStartPresentation}
               disabled={!isConnected}
               className={`inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md ${
                 isConnected
@@ -92,6 +149,11 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
             >
               <PlayIcon className="h-5 w-5 mr-2" />
               Start Presentation
+              {isRoomcastEnabled && (
+                <span className="ml-2 text-xs bg-indigo-200 text-indigo-800 px-2 py-1 rounded">
+                  Roomcast
+                </span>
+              )}
             </button>
           </div>
         ) : (
@@ -193,18 +255,6 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
           >
             <HeartIcon className="h-6 w-6" />
             <span className="font-medium">Thank You</span>
-          </button>
-          <button
-            onClick={onTestConnections}
-            disabled={!isConnected}
-            className={`flex items-center justify-center space-x-2 p-4 rounded-lg border-2 border-dashed transition-colors ${
-              isConnected
-                ? 'border-purple-300 text-purple-700 hover:border-purple-400 hover:bg-purple-50'
-                : 'border-gray-300 text-gray-400 cursor-not-allowed'
-            }`}
-          >
-            <WifiIcon className="h-6 w-6" />
-            <span className="font-medium">Test Connections</span>
           </button>
 
           <button
@@ -398,6 +448,17 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
           </div>
         )}
       </div>
+
+      {/* Roomcast Modal */}
+      <RoomcastModal
+        isOpen={showRoomcastModal}
+        onClose={() => setShowRoomcastModal(false)}
+        onStartWithoutRoomcast={() => {
+          setShowRoomcastModal(false);
+          onStartPresentation();
+        }}
+        deploymentId={deploymentId}
+      />
     </div>
   );
 };

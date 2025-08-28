@@ -214,6 +214,7 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
               savedPrompts={savedPrompts}
               connectionStatus={connectionStatus}
               presentationActive={presentationActive}
+              deploymentId={deploymentId}
               onSendPrompt={handleSendPrompt}
               onSendGroupInfo={sendGroupInfo}
               onStartReadyCheck={startReadyCheck}

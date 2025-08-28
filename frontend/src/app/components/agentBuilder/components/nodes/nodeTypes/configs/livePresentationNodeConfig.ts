@@ -21,7 +21,14 @@ export class LivePresentationNodeConfig extends BaseNodeConfig {
       rows: 3,
       defaultValue: "",
       placeholder: "Describe what this live presentation will cover",
-    }
+    },
+    {
+      key: "roomcast",
+      label: "Roomcast",
+      type: "checkbox",
+      defaultValue: false,
+      placeholder: "Enable roomcasting",
+    },
   ] as const satisfies readonly PropertyDefinition[];
 }
 

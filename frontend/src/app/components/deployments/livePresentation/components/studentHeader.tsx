@@ -3,7 +3,8 @@ import {
   UserIcon, 
   SignalIcon, 
   UserGroupIcon,
-  ExclamationTriangleIcon
+  ExclamationTriangleIcon,
+  TvIcon
 } from '@heroicons/react/24/outline';
 import { GroupInfo } from '../types/livePresentation';
 
@@ -15,6 +16,7 @@ interface StudentHeaderProps {
   readyCheckActive: boolean;
   isReady: boolean;
   onReady: () => void;
+  isRoomcastMode?: boolean;
 }
 
 export const StudentHeader: React.FC<StudentHeaderProps> = ({
@@ -24,7 +26,8 @@ export const StudentHeader: React.FC<StudentHeaderProps> = ({
   groupInfo,
   readyCheckActive,
   isReady,
-  onReady
+  onReady,
+  isRoomcastMode = false
 }) => {
   const getConnectionColor = () => {
     switch (connectionStatus) {
@@ -51,16 +54,25 @@ export const StudentHeader: React.FC<StudentHeaderProps> = ({
   };
 
   return (
-    <div className="bg-white shadow-sm border-b border-gray-200">
+    <div className={`shadow-sm border-b ${isRoomcastMode ? 'bg-indigo-50 border-indigo-200' : 'bg-white border-gray-200'}`}>
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex items-center justify-between h-16">
           {/* Left side - Title and user */}
           <div className="flex items-center space-x-4">
+            {isRoomcastMode && (
+              <div className="flex items-center space-x-2 text-indigo-600">
+                <TvIcon className="h-5 w-5" />
+                <span className="text-sm font-medium">Roomcast Mode</span>
+              </div>
+            )}
             <div>
               <h1 className="text-lg font-semibold text-gray-900">{title}</h1>
               <div className="flex items-center space-x-2 text-sm text-gray-600">
                 <UserIcon className="h-4 w-4" />
                 <span>{userName}</span>
+                {isRoomcastMode && (
+                  <span className="text-xs text-indigo-600">• Check group display for instructions</span>
+                )}
               </div>
             </div>
           </div>

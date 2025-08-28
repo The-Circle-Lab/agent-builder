@@ -8,7 +8,8 @@ import {
   GroupInfo,
   StudentResponse,
   TeacherMessage,
-  GroupSummaryMessage
+  GroupSummaryMessage,
+  RoomcastStatus
 } from '../types/livePresentation';
 
 interface UseLivePresentationWebSocketProps {
@@ -51,6 +52,7 @@ export const useLivePresentationWebSocket = ({
   const [stats, setStats] = useState<PresentationStats | null>(null);
   const [savedPrompts, setSavedPrompts] = useState<LivePresentationPrompt[]>([]);
   const [studentResponses, setStudentResponses] = useState<StudentResponse[]>([]);
+  const [roomcastStatus, setRoomcastStatus] = useState<RoomcastStatus | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -268,12 +270,32 @@ export const useLivePresentationWebSocket = ({
         }
         break;
 
+      case 'roomcast_status':
+        console.log('📺 Roomcast status updated:', message);
+        setRoomcastStatus(message.status);
+        
+        // For students: show a message about roomcast mode change
+        if (!isTeacher) {
+          if (message.status.enabled) {
+            setMessageWithTimeout(
+              "The presentation is now in Roomcast mode. Look for displays around the room showing content for your group.",
+              8000
+            );
+          } else {
+            setMessageWithTimeout(
+              "Roomcast mode has been disabled. Continue following the presentation normally.",
+              5000
+            );
+          }
+        }
+        break;
+
       case 'error':
         setSocketState(prev => ({ ...prev, error: message.message }));
         break;
 
       default:
-        console.log('Unknown message type:', (message as WebSocketMessage).type);
+        console.log('Unknown message type:', (message as TypedWebSocketMessage).type);
     }
   }, [isTeacher, setMessageWithTimeout, userName]);
 
@@ -569,6 +591,7 @@ export const useLivePresentationWebSocket = ({
     stats,
     savedPrompts,
     studentResponses,
+    roomcastStatus,
     
     // Student actions
     sendReady,

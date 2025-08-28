@@ -33,6 +33,15 @@ export interface GroupStats {
   members: string[];
 }
 
+export interface RoomcastStatus {
+  enabled: boolean;
+  code: string | null;
+  code_expires_at: string | null;
+  expected_groups: string[];
+  connected_groups: string[];
+  waiting: boolean;
+}
+
 export interface PresentationStats {
   deployment_id: string;
   title: string;
@@ -46,6 +55,7 @@ export interface PresentationStats {
   group_stats: Record<string, GroupStats>;
   current_prompt?: LivePresentationPrompt & { sent_at: string };
   saved_prompts_count: number;
+  roomcast?: RoomcastStatus;
 }
 
 export interface StudentResponse {
@@ -75,6 +85,11 @@ export interface LivePresentationInfo {
   title: string;
   description: string;
   saved_prompts: LivePresentationPrompt[];
+  roomcast?: {
+    enabled: boolean;
+    code: string | null;
+    expected_groups: string[];
+  };
 }
 
 // WebSocket message types
@@ -97,6 +112,11 @@ export type MessageType =
   | 'stats_update'
   | 'connection_test'
   | 'connection_test_result'
+  | 'roomcast_status'
+  | 'roomcast_connected'
+  | 'roomcast_registered'
+  | 'roomcast_prompt'
+  | 'roomcast_group_info'
   | 'error';
 
 export interface WebSocketMessage {
@@ -234,7 +254,12 @@ export type TypedWebSocketMessage =
   | StudentResponseReceivedMessage
   | SummaryGenerationStartedMessage
   | GroupInfoSentMessage
-  | GroupSummaryGeneratedMessage;
+  | GroupSummaryGeneratedMessage
+  | RoomcastStatusMessage
+  | RoomcastConnectedMessage
+  | RoomcastRegisteredMessage
+  | RoomcastPromptMessage
+  | RoomcastGroupInfoMessage;
 
 // Student message types
 export interface StudentReadyMessage {
@@ -298,6 +323,40 @@ export type TeacherMessage =
   | EndPresentationMessage
   | TestConnectionsMessage;
 
+// Roomcast message types
+export interface RoomcastStatusMessage {
+  type: 'roomcast_status';
+  status: RoomcastStatus;
+}
 
+export interface RoomcastConnectedMessage {
+  type: 'roomcast_connected';
+  deployment_id: string;
+  expected_groups: string[];
+  connected_groups: string[];
+}
 
+export interface RoomcastRegisteredMessage {
+  type: 'roomcast_registered';
+  group_name: string;
+}
+
+export interface RoomcastPromptMessage {
+  type: 'roomcast_prompt';
+  group_name: string;
+  prompt: LivePresentationPrompt;
+}
+
+export interface RoomcastGroupInfoMessage {
+  type: 'roomcast_group_info';
+  group_name: string;
+  members: string[];
+}
+
+export interface RoomcastCodeInfo {
+  deployment_id: string;
+  title: string;
+  expected_groups: string[];
+  roomcast_enabled: boolean;
+}
 
