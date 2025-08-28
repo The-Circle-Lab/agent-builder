@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Test script to create student users and have them submit text introductions
-and TWO different PDF responses to a prompt deployment for testing the grouping 
+and ONE PDF response to a prompt deployment for testing the grouping 
 agent that leverages both text and document embeddings.
 
 Usage:
@@ -14,12 +14,11 @@ Usage:
     --registration_key <REG_KEY>
 
 Notes:
-  - The script assumes the prompt page has 3 submission requirements:
+  - The script assumes the prompt page has 2 submission requirements:
     - submission_index 0: Text introduction (mediaType: 'text')  
-    - submission_index 1: PDF upload #1 (mediaType: 'pdf')
-    - submission_index 2: PDF upload #2 (mediaType: 'pdf')
+    - submission_index 1: PDF upload (mediaType: 'pdf')
   - Uses introduction responses from test_student_grouping_data.py
-  - Two different random PDFs are assigned per student from the provided directory.
+  - One random PDF is assigned per student from the provided directory.
   - You can override defaults via CLI flags.
 """
 
@@ -105,29 +104,21 @@ class StudentPDFData:
         self.docs_dir = docs_dir
         self.session = requests.Session()
 
-    def pick_random_pdfs(self, count: int) -> List[Tuple[Path, Path]]:
-        """Pick pairs of different PDFs for each student"""
+    def pick_random_pdfs(self, count: int) -> List[Path]:
+        """Pick one random PDF for each student"""
         pdfs = [p for p in self.docs_dir.glob("**/*.pdf") if p.is_file()]
         if not pdfs:
             raise ValueError(f"No PDF files found under: {self.docs_dir}")
-        if len(pdfs) < 2:
-            raise ValueError(f"Need at least 2 PDFs for pairs, found only {len(pdfs)}")
         
         random.shuffle(pdfs)
-        pdf_pairs = []
+        selected_pdfs = []
         
         for i in range(count):
-            # Pick two different PDFs for each student
-            pdf1_idx = (i * 2) % len(pdfs)
-            pdf2_idx = (i * 2 + 1) % len(pdfs)
-            
-            # Ensure they're different
-            if pdf1_idx == pdf2_idx:
-                pdf2_idx = (pdf2_idx + 1) % len(pdfs)
-            
-            pdf_pairs.append((pdfs[pdf1_idx], pdfs[pdf2_idx]))
+            # Pick one PDF per student, cycling through available PDFs
+            pdf_idx = i % len(pdfs)
+            selected_pdfs.append(pdfs[pdf_idx])
         
-        return pdf_pairs
+        return selected_pdfs
 
     def generate_students(self, count: int) -> List[Dict]:
         used_emails = set()
@@ -254,11 +245,9 @@ class StudentPDFData:
             print(f"❌ Error uploading PDF {submission_index} for {student['email']}: {e}")
             return False
 
-    def process_student(self, student: Dict, pdf_pair: Tuple[Path, Path]) -> bool:
-        pdf1, pdf2 = pdf_pair
+    def process_student(self, student: Dict, pdf_path: Path) -> bool:
         print(f"\n🔄 Processing student: {student['first_name']} {student['last_name']}")
-        print(f"   📄 PDF 1: {pdf1.name}")
-        print(f"   📄 PDF 2: {pdf2.name}")
+        print(f"   📄 PDF: {pdf_path.name}")
 
         # Fresh session per student
         self.session = requests.Session()
@@ -282,20 +271,15 @@ class StudentPDFData:
             return False
         time.sleep(0.1)
 
-        # Submit to submission_index 1: First PDF
-        if not self.submit_pdf(student, pdf1, submission_index=1):
-            return False
-        time.sleep(0.1)
-
-        # Submit to submission_index 2: Second PDF
-        if not self.submit_pdf(student, pdf2, submission_index=2):
+        # Submit to submission_index 1: PDF
+        if not self.submit_pdf(student, pdf_path, submission_index=1):
             return False
 
         return True
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Generate students and submit text introductions + two different PDFs for a three-submission-requirement prompt deployment")
+    parser = argparse.ArgumentParser(description="Generate students and submit text introductions + one PDF for a two-submission-requirement prompt deployment")
     parser.add_argument("--docs_dir", required=True, help="Absolute path to directory containing PDF files")
     parser.add_argument("--count", type=int, default=20, help="Number of students to simulate")
     parser.add_argument("--base_url", default=DEFAULT_BASE_URL, help="Backend base URL")
@@ -309,7 +293,7 @@ def main():
         raise SystemExit(f"Provided docs_dir does not exist or is not a directory: {docs_dir}")
 
     print("=" * 60)
-    print("🧪 STUDENT TEXT + TWO PDF GROUPING TEST DATA GENERATOR")
+    print("🧪 STUDENT TEXT + ONE PDF GROUPING TEST DATA GENERATOR")
     print("=" * 60)
     print("📋 Configuration:")
     print(f"  - Base URL: {args.base_url}")
@@ -318,8 +302,7 @@ def main():
     print(f"  - Page Deployment ID: {args.deployment_id}_page_1")
     print(f"  - Docs Dir: {docs_dir}")
     print(f"  - submission_index 0: Text introduction")
-    print(f"  - submission_index 1: PDF upload #1")
-    print(f"  - submission_index 2: PDF upload #2")
+    print(f"  - submission_index 1: PDF upload")
 
     # Quick server check
     try:
@@ -339,19 +322,19 @@ def main():
     )
 
     students = driver.generate_students(args.count)
-    pdf_pairs = driver.pick_random_pdfs(args.count)
+    pdfs = driver.pick_random_pdfs(args.count)
 
-    print(f"\n🎯 Processing {len(students)} students with introductions and {len(pdf_pairs)} PDF pairs...")
+    print(f"\n🎯 Processing {len(students)} students with introductions and {len(pdfs)} PDFs...")
     print(f"📊 Each student will submit:")
     print(f"  - 1 text introduction")
-    print(f"  - 2 different PDF files")
+    print(f"  - 1 PDF file")
     
     successful = 0
     failed = 0
 
-    for i, (student, pdf_pair) in enumerate(zip(students, pdf_pairs), start=1):
+    for i, (student, pdf_path) in enumerate(zip(students, pdfs), start=1):
         print(f"\n--- Student {i}/{len(students)} ---")
-        if driver.process_student(student, pdf_pair):
+        if driver.process_student(student, pdf_path):
             successful += 1
         else:
             failed += 1
@@ -364,10 +347,10 @@ def main():
     print(f"  📈 Success Rate: {rate:.1f}%")
 
     if successful > 0:
-        print("\n🎉 Success! Text introductions and dual PDF submissions have been recorded.")
+        print("\n🎉 Success! Text introductions and PDF submissions have been recorded.")
         print("🔬 You can now run the group assignment behavior that uses both text and document embeddings.")
-        print(f"📈 Total submission requirements per student: 3 (1 text + 2 PDFs)")
-        print(f"📊 Total submissions created: {successful * 3}")
+        print(f"📈 Total submission requirements per student: 2 (1 text + 1 PDF)")
+        print(f"📊 Total submissions created: {successful * 2}")
 
 
 if __name__ == "__main__":

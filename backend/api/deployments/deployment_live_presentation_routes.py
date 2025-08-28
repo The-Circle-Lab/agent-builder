@@ -7,8 +7,191 @@ from api.auth import get_current_user
 from models.database.db_models import User
 from .deployment_shared import _load_deployment_for_user, _authenticate_websocket_user
 import os
+from services.deployment_types.live_presentation import LivePresentationDeployment, ROOMCAST_REGISTRY
 
 router = APIRouter()
+
+@router.get("/live-presentation/{deployment_id}/roomcast/status")
+async def get_roomcast_status(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session)
+):
+    """Get roomcast status, join code, and expected groups (teachers only)."""
+    from scripts.permission_helpers import user_is_instructor
+    if not user_is_instructor(current_user, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only instructors can view roomcast status")
+
+    deployment = await _load_deployment_for_user(deployment_id, current_user, db)
+    if not deployment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deployment not found")
+
+    mcp_deployment = deployment["mcp_deployment"]
+    service = mcp_deployment.get_live_presentation_service()
+    if not service:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not a live presentation deployment")
+
+    return service.get_roomcast_status()
+
+@router.post("/live-presentation/{deployment_id}/roomcast/toggle")
+async def toggle_roomcast_support(
+    deployment_id: str,
+    payload: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session)
+):
+    """Enable/disable roomcast support for a deployment (teachers only)."""
+    from scripts.permission_helpers import user_is_instructor
+    if not user_is_instructor(current_user, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only instructors can toggle roomcast")
+
+    deployment = await _load_deployment_for_user(deployment_id, current_user, db)
+    if not deployment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deployment not found")
+
+    mcp_deployment = deployment["mcp_deployment"]
+    service = mcp_deployment.get_live_presentation_service()
+    if not service:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not a live presentation deployment")
+
+    enabled = bool(payload.get("enabled", False))
+    service.roomcast_enabled = enabled
+    # If disabling, clear any active join code and stop waiting
+    if not enabled:
+        try:
+            service._clear_roomcast_session()
+        except Exception:
+            pass
+    
+    # If enabling roomcast, ensure variable mappings are refreshed
+    if enabled:
+        try:
+            # Try to refresh parent page deployment reference and variables
+            service._try_get_parent_page_deployment()
+            service._auto_detect_group_variable()
+            service._auto_detect_theme_variables()
+            print(f"✅ Refreshed variable mappings for roomcast deployment {deployment_id}")
+        except Exception as e:
+            print(f"⚠️ Error refreshing variable mappings for roomcast: {e}")
+    
+    # Notify all connected users (teachers and students) about the roomcast status change
+    try:
+        await service._notify_all_roomcast_status()
+    except Exception as e:
+        print(f"❌ Error notifying users about roomcast status change: {e}")
+    
+    return service.get_roomcast_status()
+
+@router.post("/live-presentation/{deployment_id}/roomcast/start")
+async def start_roomcast(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session)
+):
+    """Explicitly create/refresh a roomcast session code (teachers only)."""
+    from scripts.permission_helpers import user_is_instructor
+    if not user_is_instructor(current_user, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only instructors can start roomcast")
+
+    deployment = await _load_deployment_for_user(deployment_id, current_user, db)
+    if not deployment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deployment not found")
+
+    mcp_deployment = deployment["mcp_deployment"]
+    service = mcp_deployment.get_live_presentation_service()
+    if not service:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not a live presentation deployment")
+
+    if not service.roomcast_enabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Roomcast not enabled for this deployment")
+
+    service._prepare_roomcast_session()
+    return service.get_roomcast_status()
+
+@router.post("/live-presentation/{deployment_id}/roomcast/cancel")
+async def cancel_roomcast(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session)
+):
+    """Cancel waiting for roomcasts; clears the code and marks not waiting (teachers only)."""
+    from scripts.permission_helpers import user_is_instructor
+    if not user_is_instructor(current_user, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only instructors can cancel roomcast")
+
+    deployment = await _load_deployment_for_user(deployment_id, current_user, db)
+    if not deployment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deployment not found")
+
+    mcp_deployment = deployment["mcp_deployment"]
+    service = mcp_deployment.get_live_presentation_service()
+    if not service:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not a live presentation deployment")
+
+    service._clear_roomcast_session()
+    return service.get_roomcast_status()
+
+@router.websocket("/ws/live-presentation/roomcast/{code}")
+async def websocket_roomcast_endpoint(
+    websocket: WebSocket,
+    code: str
+):
+    """WebSocket endpoint for unauthenticated roomcast devices using 5-char code."""
+    try:
+        await websocket.accept()
+
+        # Lookup service by code
+        service: LivePresentationDeployment = ROOMCAST_REGISTRY.get(code)
+        if not service:
+            await websocket.send_text(json.dumps({"type": "error", "message": "invalid_code"}))
+            await websocket.close()
+            return
+
+        # Ensure code not expired
+        if service.roomcast_code_expires_at and service.roomcast_code_expires_at < __import__("datetime").datetime.now():
+            await websocket.send_text(json.dumps({"type": "error", "message": "code_expired"}))
+            await websocket.close()
+            return
+
+        ok = await service.connect_roomcast(websocket)
+        if not ok:
+            await websocket.send_text(json.dumps({"type": "error", "message": "failed_to_connect"}))
+            await websocket.close()
+            return
+
+        try:
+            while True:
+                data = await websocket.receive_text()
+                message = json.loads(data)
+                await service.handle_roomcast_message(websocket, message)
+        except WebSocketDisconnect:
+            await service.disconnect_roomcast(websocket)
+        except Exception as _e:
+            await service.disconnect_roomcast(websocket)
+            try:
+                await websocket.close()
+            except:
+                pass
+    except Exception as e:
+        try:
+            await websocket.close()
+        except:
+            pass
+
+@router.get("/live-presentation/roomcast/{code}/info")
+async def get_roomcast_code_info(code: str):
+    """Public endpoint: resolve a roomcast code to minimal info for display devices."""
+    service: LivePresentationDeployment = ROOMCAST_REGISTRY.get(code)
+    if not service:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="invalid_code")
+    if service.roomcast_code_expires_at and service.roomcast_code_expires_at < __import__("datetime").datetime.now():
+        raise HTTPException(status_code=status.HTTP_410_GONE, detail="code_expired")
+    return {
+        "deployment_id": service.deployment_id,
+        "title": service.title,
+        "expected_groups": service._get_expected_group_names(),
+        "roomcast_enabled": service.roomcast_enabled
+    }
 @router.post("/{deployment_id}/refresh-variables")
 async def refresh_page_variables_endpoint(
     deployment_id: str,

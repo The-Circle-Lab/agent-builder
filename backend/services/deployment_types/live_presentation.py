@@ -2,12 +2,18 @@ import asyncio
 import json
 import uuid
 from datetime import datetime, timedelta
+import secrets
+import string
 from typing import Dict, Any, List, Optional, Set
 from fastapi import WebSocket, WebSocketDisconnect
 from enum import Enum
 
 # Import response summarizer for group summary generation
 from .response_summarizer import ResponseSummarizer, QuestionContext, StudentResponse
+
+# Global registry mapping 5-char roomcast codes to live presentation services
+# This enables unauthenticated devices to connect by code without loading deployments
+ROOMCAST_REGISTRY: Dict[str, Any] = {}
 
 #aa
 class ConnectionStatus(str, Enum):
@@ -128,6 +134,7 @@ class LivePresentationDeployment:
         self.config = config
         self.title = config.get("title", "Live Presentation")
         self.description = config.get("description", "")
+        self.roomcast_enabled = bool(config.get("roomcast", False))
         
         # Parse saved prompts from config
         self.saved_prompts: List[LivePresentationPrompt] = []
@@ -141,6 +148,13 @@ class LivePresentationDeployment:
         # WebSocket connections
         self.students: Dict[str, StudentConnection] = {}  # user_id -> StudentConnection
         self.teacher_websockets: Set[WebSocket] = set()
+        # Roomcast connections (unauthenticated displays per group)
+        self.roomcast_websockets: Set[WebSocket] = set()
+        self.roomcast_devices: Dict[str, Dict[str, Any]] = {}
+        self._roomcast_ws_lookup: Dict[WebSocket, str] = {}
+        self.roomcast_code: Optional[str] = None
+        self.roomcast_code_expires_at: Optional[datetime] = None
+        self.roomcast_waiting: bool = False
         
         # Session data
         self.session_active = False
@@ -182,6 +196,7 @@ class LivePresentationDeployment:
         print(f"🎤 LivePresentationDeployment created: {deployment_id}")
         print(f"   Title: {self.title}")
         print(f"   Saved Prompts: {len(self.saved_prompts)}")
+        print(f"   Roomcast enabled: {self.roomcast_enabled}")
     
     def _add_system_prompts(self):
         """Add built-in system prompts that are always available"""
@@ -270,9 +285,10 @@ class LivePresentationDeployment:
         if not self._parent_page_deployment:
             print(f"🔍 No parent page deployment available for auto-detection")
             # Try to get it from the deployment manager
-            self._try_get_parent_page_deployment()
-            if not self._parent_page_deployment:
-                print(f"🔍 Still no parent page deployment available after trying to get it")
+            if self._try_get_parent_page_deployment():
+                print(f"✅ Successfully retrieved parent page deployment for group auto-detection")
+            else:
+                print(f"❌ Failed to retrieve parent page deployment for group auto-detection")
                 return
         
         try:
@@ -359,7 +375,12 @@ class LivePresentationDeployment:
         """Auto-detect and cache theme variables for use in list prompts"""
         if not self._parent_page_deployment:
             print(f"🔍 No parent page deployment available for theme auto-detection")
-            return
+            # Try to get it from the deployment manager
+            if self._try_get_parent_page_deployment():
+                print(f"✅ Successfully retrieved parent page deployment for theme auto-detection")
+            else:
+                print(f"❌ Failed to retrieve parent page deployment for theme auto-detection")
+                return
         
         try:
             # Look for LIST type variables that contain themes
@@ -548,6 +569,29 @@ class LivePresentationDeployment:
             print(f"❌ Error retrieving theme assignment from database: {e}")
             return None
     
+    def clear_list_variable_cache(self):
+        """Clear the list variable cache to force fresh lookups"""
+        self._list_variable_cache.clear()
+        print(f"🎤 List variable cache cleared")
+    
+    def refresh_variable_mappings(self):
+        """Refresh all variable mappings from parent page deployment"""
+        try:
+            # Clear cache first
+            self.clear_list_variable_cache()
+            
+            # Try to get parent page deployment if missing
+            if not self._parent_page_deployment:
+                self._try_get_parent_page_deployment()
+            
+            # Re-detect variables
+            self._auto_detect_group_variable()
+            self._auto_detect_theme_variables()
+            
+            print(f"✅ Variable mappings refreshed for deployment {self.deployment_id}")
+        except Exception as e:
+            print(f"❌ Error refreshing variable mappings: {e}")
+    
     def refresh_group_variable_data(self):
         """Manually refresh group variable data from parent page deployment"""
         print(f"🔄 Manual refresh of group variable data requested")
@@ -579,10 +623,13 @@ class LivePresentationDeployment:
                 
                 if page_deployment_info and "page_deployment" in page_deployment_info:
                     self._parent_page_deployment = page_deployment_info["page_deployment"]
-                    print(f"🎤 Successfully retrieved parent page deployment from pages_manager")
+                    print(f"✅ Successfully retrieved parent page deployment from pages_manager for {main_deployment_id}")
+                    # Auto-detect variables now that we have the parent
+                    self._auto_detect_group_variable()
+                    self._auto_detect_theme_variables()
                     return True
                 else:
-                    print(f"⚠️ Could not find parent page deployment in pages_manager")
+                    print(f"⚠️ Could not find parent page deployment in pages_manager for {main_deployment_id}")
                     
         except Exception as e:
             print(f"❌ Error trying to get parent page deployment: {e}")
@@ -1250,6 +1297,19 @@ class LivePresentationDeployment:
                 }
             await student.send_message(welcome_message)
             
+            # Immediately inform the newly connected student if roomcast mode is active
+            if self.roomcast_enabled:
+                try:
+                    # Use the same structure as broadcast notifications so frontend sets state correctly
+                    status = self.get_roomcast_status()
+                    await student.send_message({
+                        "type": "roomcast_status",
+                        "status": status
+                    })
+                    print(f"📡 Sent initial roomcast_status (cached) to newly connected student {user_name}")
+                except Exception as e:
+                    print(f"⚠️ Failed to send initial roomcast_status to {user_name}: {e}")
+            
             # Check for recent prompts (within 10 minutes) and send to late-joining student
             # Only send recent prompts if the presentation is active
             if self.presentation_active:
@@ -1342,6 +1402,13 @@ class LivePresentationDeployment:
             # Add teacher websocket
             self.teacher_websockets.add(websocket)
             print(f"🎤 Teacher websocket added. New count: {len(self.teacher_websockets)}")
+            
+            # Ensure variable mappings are up to date when first teacher connects
+            if len(self.teacher_websockets) == 1:  # First teacher connecting
+                try:
+                    self.refresh_variable_mappings()
+                except Exception as e:
+                    print(f"⚠️ Error refreshing variable mappings on teacher connect: {e}")
             
             # Clean up any disconnected students before sending stats
             await self._cleanup_disconnected_students()
@@ -1674,6 +1741,8 @@ class LivePresentationDeployment:
                 await self.disconnect_student(user_id)
             
             print(f"🎤 Standard prompt sent to {sent_count} students")
+            # Also broadcast to roomcast displays
+            await self._broadcast_prompt_to_roomcast(self.current_prompt, group_item_map=None)
         
         # Save updated session state
         await self._save_session_state()
@@ -1804,6 +1873,8 @@ class LivePresentationDeployment:
                     await self.disconnect_student(user_id)
             
             print(f"✅ Successfully sent prompts with group-specific list items to all students")
+            # Broadcast display prompt per group to roomcast devices
+            await self._broadcast_prompt_to_roomcast(self.current_prompt, group_item_map=group_assignments)
             
         except Exception as e:
             print(f"❌ Error sending prompt with group list items: {e}")
@@ -1814,7 +1885,12 @@ class LivePresentationDeployment:
         """Get list data from a specific variable by ID with caching"""
         if not self._parent_page_deployment:
             print(f"🔍 No parent page deployment available for list variable lookup")
-            return None
+            # Try to get it from deployment manager if not available
+            if self._try_get_parent_page_deployment():
+                print(f"✅ Successfully retrieved parent page deployment for variable lookup")
+            else:
+                print(f"❌ Failed to retrieve parent page deployment for variable lookup")
+                return None
         
         # Check cache first
         if variable_id in self._list_variable_cache:
@@ -1925,11 +2001,6 @@ class LivePresentationDeployment:
             # Cache the negative result for errors too
             self._list_variable_cache[variable_id] = None
             return None
-    
-    def clear_list_variable_cache(self):
-        """Clear the list variable cache (call when variables are updated)"""
-        self._list_variable_cache.clear()
-        print(f"🔄 Cleared list variable cache")
     
     def diagnose_list_variable_configuration(self) -> Dict[str, Any]:
         """Diagnose list variable configuration for prompts"""
@@ -2137,11 +2208,16 @@ class LivePresentationDeployment:
                 "group_name": group_name
             }
             
-            for student in students:
-                if student.status != ConnectionStatus.DISCONNECTED:
-                    await student.send_message(generation_started_message)
-            
-            print(f"📢 Notified {group_name} members that summary generation started")
+            # Only send to students if roomcast not enabled; else roomcast device will handle display
+            if not self.roomcast_enabled:
+                for student in students:
+                    if student.status != ConnectionStatus.DISCONNECTED:
+                        await student.send_message(generation_started_message)
+                print(f"📢 Notified {group_name} members that summary generation started")
+            else:
+                # Send to roomcast device for progress UI
+                await self._notify_roomcast_summary_generation_started(group_name, generation_started_message)
+                print(f"📢 Notified roomcast for {group_name} that summary generation started (students suppressed)")
             
             # Get the original prompt text
             prompt_text = "Unknown prompt"
@@ -2206,21 +2282,47 @@ class LivePresentationDeployment:
                 }
             }
             
-            # Send summary to all group members
             sent_count = 0
-            for student in students:
-                if student.status != ConnectionStatus.DISCONNECTED:
-                    await student.send_message(summary_message)
-                    sent_count += 1
-                    print(f"📤 Sent group summary to {student.user_name}")
-            
-            print(f"✅ Group summary sent to {sent_count} members of {group_name}")
+            if not self.roomcast_enabled:
+                # Send summary to all group members (legacy behavior)
+                for student in students:
+                    if student.status != ConnectionStatus.DISCONNECTED:
+                        await student.send_message(summary_message)
+                        sent_count += 1
+                        print(f"📤 Sent group summary to {student.user_name}")
+                print(f"✅ Group summary sent to {sent_count} members of {group_name}")
+            else:
+                # Send summary only to roomcast device for the group
+                await self._notify_roomcast_group_summary(group_name, summary_message)
+                print(f"✅ Group summary sent to roomcast for {group_name} (student delivery suppressed)")
             
             # Notify teachers about the summary generation
             await self._notify_teachers_group_summary_generated(prompt_id, group_name, summary_result, sent_count)
             
         except Exception as e:
             print(f"❌ Error generating group summary for {group_name}: {e}")
+
+    async def _notify_roomcast_summary_generation_started(self, group_name: str, message: Dict[str, Any]):
+        try:
+            device = self.roomcast_devices.get(group_name)
+            if not device:
+                return
+            ws: WebSocket = device.get("websocket")  # type: ignore
+            if ws:
+                await ws.send_text(json.dumps(message))
+        except Exception as e:
+            print(f"❌ Failed to notify roomcast summary generation started for {group_name}: {e}")
+
+    async def _notify_roomcast_group_summary(self, group_name: str, message: Dict[str, Any]):
+        try:
+            device = self.roomcast_devices.get(group_name)
+            if not device:
+                return
+            ws: WebSocket = device.get("websocket")  # type: ignore
+            if ws:
+                await ws.send_text(json.dumps(message))
+        except Exception as e:
+            print(f"❌ Failed to send group summary to roomcast for {group_name}: {e}")
     
     async def _notify_teachers_group_summary_generated(self, prompt_id: str, group_name: str, summary_result, sent_count: int):
         """Notify teachers that a group summary was generated"""
@@ -2300,6 +2402,8 @@ class LivePresentationDeployment:
         for user_id in failed_students:
             print(f"🧹 Removing student with failed WebSocket during prompt: {self.students[user_id].user_name}")
             await self.disconnect_student(user_id)
+        # Also attempt to show the prompt on roomcast displays
+        await self._broadcast_prompt_to_roomcast(self.current_prompt, group_item_map=None)
     
     async def _get_list_item_for_late_joining_student(self, student: "StudentConnection", prompt_id: str, list_variable_id: str) -> Optional[Any]:
         """Get the appropriate list item for a late-joining student based on their group assignment"""
@@ -2486,6 +2590,9 @@ class LivePresentationDeployment:
             # Remove disconnected teachers
             for teacher_ws in disconnected_teachers:
                 self.teacher_websockets.discard(teacher_ws)
+
+        # Also send group info to roomcast devices (per group)
+        await self._broadcast_group_info_to_roomcast()
     
     async def _cleanup_disconnected_students(self):
         """Remove students with failed WebSocket connections"""
@@ -2538,6 +2645,11 @@ class LivePresentationDeployment:
         print(f"🎤 Students after connection test: {len(self.students)}")
         
         self.presentation_active = True
+
+        # If roomcast was waiting, remove the join code now that presentation is starting
+        # but keep already connected devices active
+        if self.roomcast_enabled:
+            self._remove_roomcast_code_only()
         
         # Send activation message to all connected students
         message = {
@@ -2560,6 +2672,10 @@ class LivePresentationDeployment:
         
         # Notify teachers (after cleanup so they get accurate counts)
         await self._notify_teachers_presentation_state_change("started")
+
+        # If roomcast enabled, send current roomcast status to everyone
+        if self.roomcast_enabled:
+            await self._notify_all_roomcast_status()
         
         # Save updated session state
         await self._save_session_state()
@@ -2570,6 +2686,15 @@ class LivePresentationDeployment:
     async def end_presentation(self):
         """End the presentation - makes it inactive for students"""
         self.presentation_active = False
+        # Clear any cached prompt so late joiners after end don't see stale content
+        if self.current_prompt is not None:
+            print(f"🧹 Clearing cached current_prompt on presentation end (was: {self.current_prompt.get('id')})")
+        self.current_prompt = None
+        try:
+            # Also proactively clean up any stored recent prompts in database (best effort)
+            await self._cleanup_expired_prompts()
+        except Exception as e:
+            print(f"⚠️ Failed to cleanup expired prompts on end: {e}")
         
         # Send deactivation message to all connected students
         message = {
@@ -2602,6 +2727,8 @@ class LivePresentationDeployment:
         
         print(f"🎤 Presentation ended for deployment {self.deployment_id}")
         print(f"🎤 Active students after cleanup: {len(self.students)}")
+        # Clear roomcast code on end
+        self._clear_roomcast_session()
 
     async def start_ready_check(self):
         """Start a ready check for all students"""
@@ -2724,6 +2851,26 @@ class LivePresentationDeployment:
         for teacher_ws in disconnected_teachers:
             self.teacher_websockets.discard(teacher_ws)
             print(f"🗑️ Removed disconnected teacher websocket")
+
+        # Also notify matching roomcast device (for progress display) if enabled
+        try:
+            if self.roomcast_enabled and student.group_info and student.group_info.get("group_name"):
+                await self._notify_roomcast_response_received(student.group_info.get("group_name"), message)
+        except Exception as e:
+            print(f"❌ Failed to notify roomcast of response: {e}")
+
+    async def _notify_roomcast_response_received(self, group_name: str, message: Dict[str, Any]):
+        """Send a student_response_received style message to the roomcast device for a group."""
+        try:
+            device = self.roomcast_devices.get(group_name)
+            if not device:
+                return
+            ws: WebSocket = device.get("websocket")  # type: ignore
+            if ws:
+                await ws.send_text(json.dumps(message))
+                print(f"📺 Sent response progress update to roomcast for {group_name}")
+        except Exception as e:
+            print(f"❌ Error sending response progress to roomcast {group_name}: {e}")
     
     def get_presentation_stats(self) -> Dict[str, Any]:
         """Get current presentation statistics"""
@@ -2767,6 +2914,15 @@ class LivePresentationDeployment:
                         }
                     }
         
+        # Roomcast stats
+        roomcast_status = {
+            "enabled": self.roomcast_enabled,
+            "code": self.roomcast_code,
+            "code_expires_at": self.roomcast_code_expires_at.isoformat() if self.roomcast_code_expires_at else None,
+            "connected_devices": list(self.roomcast_devices.keys()),
+            "expected_groups": self._get_expected_group_names()
+        }
+
         return {
             "deployment_id": self.deployment_id,
             "title": self.title,
@@ -2779,7 +2935,8 @@ class LivePresentationDeployment:
             "students": students_list,
             "group_stats": group_stats,
             "current_prompt": self.current_prompt,
-            "saved_prompts_count": len(self.saved_prompts)
+            "saved_prompts_count": len(self.saved_prompts),
+            "roomcast": roomcast_status
         }
     
     def get_student_responses(self, prompt_id: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -2803,7 +2960,12 @@ class LivePresentationDeployment:
             "deployment_id": self.deployment_id,
             "title": self.title,
             "description": self.description,
-            "saved_prompts": [prompt.to_dict() for prompt in self.saved_prompts]
+            "saved_prompts": [prompt.to_dict() for prompt in self.saved_prompts],
+            "roomcast": {
+                "enabled": self.roomcast_enabled,
+                "code": self.roomcast_code,
+                "expected_groups": self._get_expected_group_names()
+            }
         }
     
     def is_fully_initialized(self) -> bool:
@@ -2813,10 +2975,303 @@ class LivePresentationDeployment:
                 hasattr(self, 'saved_prompts') and
                 hasattr(self, 'students') and
                 hasattr(self, 'teacher_websockets'))
+
+    # -----------------------------
+    # Roomcast support (backend)
+    # -----------------------------
+
+    @classmethod
+    def get_service_for_roomcast_code(cls, code: str) -> Optional["LivePresentationDeployment"]:
+        return ROOMCAST_REGISTRY.get(code)
+
+    def _generate_roomcast_code(self) -> str:
+        alphabet = string.ascii_uppercase + string.digits
+        # Ensure uniqueness across running services
+        while True:
+            code = ''.join(secrets.choice(alphabet) for _ in range(5))
+            if code not in ROOMCAST_REGISTRY:
+                return code
+
+    def _prepare_roomcast_session(self):
+        try:
+            code_unchanged = self.roomcast_code is not None and self.roomcast_code_expires_at and self.roomcast_code_expires_at > datetime.now()
+            if not code_unchanged:
+                # Clear any previous
+                self._clear_roomcast_session()
+                self.roomcast_code = self._generate_roomcast_code()
+                # Code valid for 2 hours
+                self.roomcast_code_expires_at = datetime.now() + timedelta(hours=2)
+                ROOMCAST_REGISTRY[self.roomcast_code] = self
+                self.roomcast_waiting = True
+                print(f"📺 Roomcast code generated for {self.deployment_id}: {self.roomcast_code}")
+            else:
+                print(f"📺 Reusing existing roomcast code for {self.deployment_id}: {self.roomcast_code}")
+        except Exception as e:
+            print(f"❌ Failed to prepare roomcast session: {e}")
+
+    def _clear_roomcast_session(self):
+        try:
+            if self.roomcast_code:
+                ROOMCAST_REGISTRY.pop(self.roomcast_code, None)
+            self.roomcast_code = None
+            self.roomcast_code_expires_at = None
+            self.roomcast_waiting = False
+            # Do not disconnect roomcast websockets here; keep existing devices connected
+            # so they continue receiving messages during the active presentation.
+            # Route handlers manage websocket lifecycle.
+        except Exception as _e:
+            pass
+
+    def _remove_roomcast_code_only(self):
+        """Remove the join code without affecting connected devices."""
+        try:
+            if self.roomcast_code:
+                ROOMCAST_REGISTRY.pop(self.roomcast_code, None)
+            self.roomcast_code = None
+            self.roomcast_code_expires_at = None
+            self.roomcast_waiting = False
+        except Exception:
+            pass
+
+    def _get_expected_group_names(self) -> List[str]:
+        groups: List[str] = []
+        if self.input_variable_data and isinstance(self.input_variable_data, dict):
+            groups = list(self.input_variable_data.keys())
+        elif self.input_variable_data and isinstance(self.input_variable_data, list):
+            # Theme format
+            for theme in self.input_variable_data:
+                if isinstance(theme, dict) and 'student_names' in theme and 'title' in theme:
+                    groups.append(theme.get('title', 'Unknown'))
+        return groups
+
+    def get_roomcast_status(self) -> Dict[str, Any]:
+        return {
+            "enabled": self.roomcast_enabled,
+            "code": self.roomcast_code,
+            "code_expires_at": self.roomcast_code_expires_at.isoformat() if self.roomcast_code_expires_at else None,
+            "expected_groups": self._get_expected_group_names(),
+            "connected_groups": list(self.roomcast_devices.keys()),
+            "waiting": self.roomcast_waiting
+        }
+
+    async def connect_roomcast(self, websocket: WebSocket) -> bool:
+        try:
+            self.roomcast_websockets.add(websocket)
+            # Send welcome and expected groups
+            await websocket.send_text(json.dumps({
+                "type": "roomcast_connected",
+                "deployment_id": self.deployment_id,
+                "expected_groups": self._get_expected_group_names(),
+                "connected_groups": list(self.roomcast_devices.keys())
+            }))
+            return True
+        except Exception as e:
+            print(f"❌ Error connecting roomcast: {e}")
+            return False
+
+    async def register_roomcast_for_group(self, websocket: WebSocket, group_name: str) -> Dict[str, Any]:
+        # Ensure only one device per group
+        result: Dict[str, Any] = {"ok": False}
+        try:
+            expected = self._get_expected_group_names()
+            if expected and group_name not in expected:
+                result.update({"error": "invalid_group", "message": f"Group '{group_name}' not expected"})
+                return result
+            if group_name in self.roomcast_devices:
+                result.update({"error": "group_taken", "message": f"Group '{group_name}' already has a device"})
+                return result
+            self.roomcast_devices[group_name] = {"websocket": websocket, "connected_at": datetime.now()}
+            self._roomcast_ws_lookup[websocket] = group_name
+            print(f"📺 Roomcast registered for group '{group_name}'")
+            await websocket.send_text(json.dumps({
+                "type": "roomcast_registered",
+                "group_name": group_name
+            }))
+            # Do not auto-send group info; wait for explicit teacher action
+            # Notify everyone of updated roomcast status
+            await self._notify_all_roomcast_status()
+            result.update({"ok": True})
+            # Optional: if all expected groups are filled, teacher is no longer waiting
+            if expected:
+                connected = set(self.roomcast_devices.keys())
+                missing = [g for g in expected if g not in connected]
+                if not missing:
+                    # All groups have devices; do not auto-start, but mark not waiting
+                    self.roomcast_waiting = False
+                    # We keep devices but remove the join code to prevent extra devices
+                    if self.roomcast_code:
+                        ROOMCAST_REGISTRY.pop(self.roomcast_code, None)
+                        self.roomcast_code = None
+                        self.roomcast_code_expires_at = None
+                    await self._notify_all_roomcast_status()
+            return result
+        except Exception as e:
+            print(f"❌ Error registering roomcast: {e}")
+            result.update({"error": "internal_error", "message": str(e)})
+            return result
+
+    async def disconnect_roomcast(self, websocket: WebSocket):
+        try:
+            group = self._roomcast_ws_lookup.pop(websocket, None)
+            if group and group in self.roomcast_devices:
+                self.roomcast_devices.pop(group, None)
+            self.roomcast_websockets.discard(websocket)
+            print(f"📺 Roomcast disconnected for group '{group}'")
+            await self._notify_all_roomcast_status()
+        except Exception as _e:
+            pass
+
+    async def handle_roomcast_message(self, websocket: WebSocket, message: Dict[str, Any]):
+        try:
+            msg_type = message.get("type")
+            if msg_type == "register_roomcast":
+                group_name = message.get("group_name")
+                if not isinstance(group_name, str) or not group_name:
+                    await websocket.send_text(json.dumps({"type": "error", "message": "group_name required"}))
+                    return
+                await self.register_roomcast_for_group(websocket, group_name)
+            elif msg_type == "ping":
+                await websocket.send_text(json.dumps({"type": "pong", "ts": datetime.now().isoformat()}))
+            else:
+                await websocket.send_text(json.dumps({"type": "error", "message": "unknown_message_type"}))
+        except Exception as e:
+            print(f"❌ Error handling roomcast message: {e}")
+
+    async def _broadcast_prompt_to_roomcast(self, prompt: Dict[str, Any], group_item_map: Optional[Dict[str, Any]]):
+        # Send full instructions to roomcast displays. If group_item_map provided, tailor per group
+        if not self.roomcast_websockets:
+            return
+        try:
+            if group_item_map:
+                for group_name, item in group_item_map.items():
+                    device = self.roomcast_devices.get(group_name)
+                    if not device:
+                        continue
+                    ws: WebSocket = device["websocket"]
+                    message = {
+                        "type": "roomcast_prompt",
+                        "group_name": group_name,
+                        "prompt": {**prompt, "assigned_list_item": item}
+                    }
+                    try:
+                        await ws.send_text(json.dumps(message))
+                    except Exception:
+                        await self.disconnect_roomcast(ws)
+            else:
+                # Same prompt to all connected roomcast devices
+                sent_ws: Set[WebSocket] = set()
+                # Send to registered devices keyed by group
+                for group_name, device in list(self.roomcast_devices.items()):
+                    ws: WebSocket = device["websocket"]
+                    message = {
+                        "type": "roomcast_prompt",
+                        "group_name": group_name,
+                        "prompt": prompt
+                    }
+                    try:
+                        await ws.send_text(json.dumps(message))
+                        sent_ws.add(ws)
+                    except Exception:
+                        await self.disconnect_roomcast(ws)
+                # Also send to any connected but unregistered roomcast websockets
+                for ws in list(self.roomcast_websockets):
+                    if ws in sent_ws:
+                        continue
+                    message = {
+                        "type": "roomcast_prompt",
+                        "group_name": "",
+                        "prompt": prompt
+                    }
+                    try:
+                        await ws.send_text(json.dumps(message))
+                    except Exception:
+                        await self.disconnect_roomcast(ws)
+        except Exception as e:
+            print(f"❌ Error broadcasting prompt to roomcast: {e}")
+
+    async def _broadcast_group_info_to_roomcast(self):
+        # Send current group info to corresponding roomcast devices
+        for group_name in list(self.roomcast_devices.keys()):
+            await self._send_group_info_to_roomcast_group(group_name)
+
+    async def _send_group_info_to_roomcast_group(self, group_name: str):
+        try:
+            device = self.roomcast_devices.get(group_name)
+            # If the group device is connected, send directly; otherwise broadcast to all roomcast sockets
+            ws: Optional[WebSocket] = device["websocket"] if device else None
+            # Build group members list from available data
+            members: List[str] = []
+            if self.input_variable_data and isinstance(self.input_variable_data, dict):
+                members = self.input_variable_data.get(group_name, []) if isinstance(self.input_variable_data.get(group_name, []), list) else []
+            elif self.input_variable_data and isinstance(self.input_variable_data, list):
+                for theme in self.input_variable_data:
+                    if isinstance(theme, dict) and theme.get('title') == group_name:
+                        members = theme.get('student_names', [])
+                        break
+            message = {
+                "type": "roomcast_group_info",
+                "group_name": group_name,
+                "members": members
+            }
+            if ws:
+                try:
+                    await ws.send_text(json.dumps(message))
+                except Exception:
+                    await self.disconnect_roomcast(ws)
+            else:
+                # Broadcast to all connected roomcast websockets if not registered yet
+                for rws in list(self.roomcast_websockets):
+                    try:
+                        await rws.send_text(json.dumps(message))
+                    except Exception:
+                        await self.disconnect_roomcast(rws)
+        except Exception as e:
+            print(f"❌ Error sending group info to roomcast: {e}")
+
+    async def _notify_teachers_roomcast_status(self):
+        try:
+            status = self.get_roomcast_status()
+            message = {"type": "roomcast_status", "status": status}
+            disconnected_teachers = set()
+            for teacher_ws in self.teacher_websockets:
+                try:
+                    await teacher_ws.send_text(json.dumps(message))
+                except Exception:
+                    disconnected_teachers.add(teacher_ws)
+            for teacher_ws in disconnected_teachers:
+                self.teacher_websockets.discard(teacher_ws)
+        except Exception as _e:
+            pass
+    
+    async def _notify_students_roomcast_status(self):
+        """Notify all connected students about roomcast status changes"""
+        try:
+            status = self.get_roomcast_status()
+            message = {"type": "roomcast_status", "status": status}
+            disconnected_students = []
+            for student in self.students.values():
+                if student.status != ConnectionStatus.DISCONNECTED:
+                    success = await student.send_message(message)
+                    if not success:
+                        disconnected_students.append(student.user_id)
+            
+            # Clean up disconnected students
+            for user_id in disconnected_students:
+                await self.disconnect_student(user_id)
+                
+            print(f"📺 Notified {len(self.students) - len(disconnected_students)} students about roomcast status change (enabled: {status['enabled']})")
+        except Exception as e:
+            print(f"❌ Error notifying students about roomcast status: {e}")
+    
+    async def _notify_all_roomcast_status(self):
+        """Notify both teachers and students about roomcast status changes"""
+        await self._notify_teachers_roomcast_status()
+        await self._notify_students_roomcast_status()
     
     def cleanup(self):
         """Cleanup resources"""
         print(f"🎤 LivePresentationDeployment {self.deployment_id} cleaned up")
+        self._clear_roomcast_session()
 
     def validate_list_variable_configuration(self) -> Dict[str, Any]:
         """Validate that each prompt's list variable configuration is correct"""
