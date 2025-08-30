@@ -433,31 +433,6 @@ export default function WorkflowEditor({
         return shouldShowNewPageButton ? (
           <div className="absolute bottom-6 left-6 z-10">
             <div className="flex flex-col space-y-3">
-              {/* New Variable List Button */}
-              <button
-                onClick={() => {
-                  const newGlobalVariables: Node = {
-                    id: `globalvariables-${Date.now()}`,
-                    position: { x: 100, y: 100 },
-                    data: { 
-                      label: 'Global Variables',
-                      backgroundColor: '#10B981',
-                      opacity: 0.15,
-                      width: 250,
-                      variables: []
-                    },
-                    type: "globalVariables",
-                  };
-                  setNodes((nds: Node[]) => [...nds, newGlobalVariables]);
-                }}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg font-medium shadow-lg transition duration-200 transform hover:scale-[1.02] active:scale-[0.98] flex items-center space-x-2"
-                title="Create new variable list"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                </svg>
-                <span>New Variable List</span>
-              </button>
 
               {/* New Behaviour Button */}
               <button
