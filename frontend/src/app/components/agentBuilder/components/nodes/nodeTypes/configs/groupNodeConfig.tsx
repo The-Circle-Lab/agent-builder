@@ -19,6 +19,16 @@ export class GroupNodeConfig extends BaseNodeConfig {
       ],
     },
     {
+      key: "group_size_mode",
+      label: "Group Size Mode",
+      type: "radio",
+      defaultValue: "students_per_group",
+      options: [
+        "students_per_group",
+        "number_of_groups"
+      ],
+    },
+    {
       key: "group_size",
       label: "Group Size",
       type: "number",

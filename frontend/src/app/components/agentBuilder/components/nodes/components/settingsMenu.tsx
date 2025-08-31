@@ -278,10 +278,14 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
         );
 
       case "number":
+        const dynamicLabel = key === "group_size" ? 
+          ((formData as Record<string, unknown>)["group_size_mode"] === "number_of_groups" ? 
+            "Number of Groups" : "Students per Group") : label;
+        
         return (
           <div key={key}>
             <label className="block text-sm font-medium text-gray-200 mb-2">
-              {label}
+              {dynamicLabel}
             </label>
             <input
               type="number"
@@ -355,6 +359,29 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
             <div className="flex justify-between text-xs text-gray-400 mt-1">
               <span>{min}</span>
               <span>{max}</span>
+            </div>
+          </div>
+        );
+
+      case "radio":
+        return (
+          <div key={key}>
+            <div className="space-y-2">
+              {options?.map((option) => (
+                <label key={option} className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    value={option}
+                    checked={value === option}
+                    onChange={(e) => handleInputChange(key, e.target.value)}
+                    className="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500"
+                  />
+                  <span className="text-white">
+                    {option === "students_per_group" ? "Students per group" : 
+                     option === "number_of_groups" ? "Number of groups" : option}
+                  </span>
+                </label>
+              ))}
             </div>
           </div>
         );

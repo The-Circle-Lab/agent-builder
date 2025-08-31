@@ -26,10 +26,10 @@ export interface Variable {
 export interface PropertyDefinition {
   key: string;
   label: string;
-  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions" | "submissionPrompts" | "livePresentationPrompts" | "variablesList" | "submissionPromptSelector" | "listVariableSelector";
+  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions" | "submissionPrompts" | "livePresentationPrompts" | "variablesList" | "submissionPromptSelector" | "listVariableSelector" | "radio";
   defaultValue: string | number | boolean | string[] | TestCase[] | MultipleChoiceQuestion[] | SubmissionPrompt[] | LivePresentationPrompt[] | Variable[] | string[];
   placeholder?: string;
-  options?: string[]; // For select type
+  options?: string[]; // For select and radio types
   min?: number; // For number and range types
   max?: number; // For number and range types
   step?: number; // For range type

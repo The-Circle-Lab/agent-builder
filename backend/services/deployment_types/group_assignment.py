@@ -23,6 +23,7 @@ class GroupAssignmentBehavior:
             config: Dictionary containing group assignment configuration
         """
         self.group_size = config.get('group_size', 4)
+        self.group_size_mode = config.get('group_size_mode', 'students_per_group')  # students_per_group or number_of_groups
         self.grouping_method = config.get('grouping_method', 'mixed')  # homogeneous, diverse, mixed
         # Default to True for explanations, even if not specified in config
         self.include_explanations = config.get('include_explanations', True)
@@ -104,7 +105,7 @@ class GroupAssignmentBehavior:
             
             # Perform grouping using our computed vectors
             vectors_array = np.asarray(vectors)
-            group_indices = _hierarchical_assign(vectors_array, self.group_size, self.grouping_method)
+            group_indices = _hierarchical_assign(vectors_array, self.group_size, self.grouping_method, self.group_size_mode)
             
             # Memory cleanup
             del vectors, vectors_array
@@ -613,6 +614,7 @@ class GroupAssignmentBehavior:
         """Get the current configuration of the group assignment behavior."""
         return {
             "group_size": self.group_size,
+            "group_size_mode": self.group_size_mode,
             "grouping_method": self.grouping_method,
             "include_explanations": self.include_explanations,
             "label": self.label,
@@ -623,6 +625,8 @@ class GroupAssignmentBehavior:
         """Update the configuration of the group assignment behavior."""
         if 'group_size' in config:
             self.group_size = config['group_size']
+        if 'group_size_mode' in config:
+            self.group_size_mode = config['group_size_mode']
         if 'grouping_method' in config:
             self.grouping_method = config['grouping_method']
         if 'include_explanations' in config:
@@ -652,24 +656,31 @@ def compute_linkage(vectors, method="average", metric="cosine"):
     return linkage(dist_matrix, method=method)
 
 # Balance groups to target size using hierarchical clustering
-def _cut_to_buckets(link, group_size, strategy: str = "homogeneous"):
+def _cut_to_buckets(link, group_size, strategy: str = "homogeneous", group_size_mode: str = "students_per_group"):
     from scipy.cluster.hierarchy import fcluster
     
     # Get the number of students
     n = link.shape[0] + 1
     print(f"🔍 CUT_TO_BUCKETS DEBUG: Number of students (n): {n}")
+    print(f"🔍 CUT_TO_BUCKETS DEBUG: Group size mode: {group_size_mode}")
     
-    # Calculate optimal number of groups with improved logic for small student counts
-    if n < group_size:
-        # If we have fewer students than the target group size, create smaller groups
-        # For example: 2 students with target size 4 -> create 2 groups of size 1
-        # Or 3 students with target size 4 -> create 2 groups (sizes 2 and 1)
-        num_groups = min(n, max(2, n // 2)) if n > 1 else 1  # At least 2 groups if possible, but not more than n
-        print(f"🔍 CUT_TO_BUCKETS DEBUG: Small student count - creating {num_groups} smaller groups")
+    # Calculate optimal number of groups based on the selected mode
+    if group_size_mode == "number_of_groups":
+        # group_size represents the desired number of groups
+        num_groups = min(group_size, n)  # Can't have more groups than students
+        print(f"🔍 CUT_TO_BUCKETS DEBUG: Number of groups mode - creating {num_groups} groups")
     else:
-        # Normal case: enough students for target group size
-        num_groups = (n + group_size - 1) // group_size
-        print(f"🔍 CUT_TO_BUCKETS DEBUG: Normal case - calculated {num_groups} groups")
+        # group_size represents students per group (original behavior)
+        if n < group_size:
+            # If we have fewer students than the target group size, create smaller groups
+            # For example: 2 students with target size 4 -> create 2 groups of size 1
+            # Or 3 students with target size 4 -> create 2 groups (sizes 2 and 1)
+            num_groups = min(n, max(2, n // 2)) if n > 1 else 1  # At least 2 groups if possible, but not more than n
+            print(f"🔍 CUT_TO_BUCKETS DEBUG: Small student count - creating {num_groups} smaller groups")
+        else:
+            # Normal case: enough students for target group size
+            num_groups = (n + group_size - 1) // group_size
+            print(f"🔍 CUT_TO_BUCKETS DEBUG: Normal case - calculated {num_groups} groups")
     
     print(f"🔍 CUT_TO_BUCKETS DEBUG: Target group size: {group_size}")
     print(f"🔍 CUT_TO_BUCKETS DEBUG: Final num_groups: {num_groups}")
@@ -711,14 +722,14 @@ def _cut_to_buckets(link, group_size, strategy: str = "homogeneous"):
     
     return result
 
-def _hierarchical_assign(vectors, group_size, mode):
+def _hierarchical_assign(vectors, group_size, mode, group_size_mode="students_per_group"):
     print(f"🔍 HIERARCHICAL DEBUG: Input vectors shape: {np.asarray(vectors).shape}")
-    print(f"🔍 HIERARCHICAL DEBUG: Group size: {group_size}, Mode: {mode}")
+    print(f"🔍 HIERARCHICAL DEBUG: Group size: {group_size}, Mode: {mode}, Group size mode: {group_size_mode}")
     
     link = compute_linkage(np.asarray(vectors), method="average", metric="cosine")
     print(f"🔍 HIERARCHICAL DEBUG: Linkage matrix shape: {link.shape}")
     
-    result = _cut_to_buckets(link, group_size, mode)
+    result = _cut_to_buckets(link, group_size, mode, group_size_mode)
     print(f"🔍 HIERARCHICAL DEBUG: _cut_to_buckets returned: {result}")
     print(f"🔍 HIERARCHICAL DEBUG: Number of groups from _cut_to_buckets: {len(result)}")
     
@@ -895,13 +906,14 @@ Write 2 concise sentences explaining why these students were grouped together fo
     return explanations
 
 @tool
-def assign_groups(student_json: list, group_size: int = 4, mode:str = "homogeneous"):
+def assign_groups(student_json: list, group_size: int = 4, mode:str = "homogeneous", group_size_mode: str = "students_per_group"):
     """Assign students to groups by converting their text descriptions to vectors and using hierarchical clustering.
     
     Args:
         student_json: List of student dictionaries with 'text' and 'name' keys
-        group_size: Target size for each group
+        group_size: Target size for each group (or number of groups if group_size_mode is 'number_of_groups')
         mode: Clustering strategy ('homogeneous', 'diverse', or 'mixed')
+        group_size_mode: Either 'students_per_group' or 'number_of_groups'
     
     Returns:
         Dictionary mapping group names to lists of student names
@@ -912,24 +924,25 @@ def assign_groups(student_json: list, group_size: int = 4, mode:str = "homogeneo
         vectors.append(vec)
         names.append(students["name"])
 
-    groups = _hierarchical_assign(vectors, group_size, mode)
+    groups = _hierarchical_assign(vectors, group_size, mode, group_size_mode)
     return {f"Group{i+1}": [names[j] for j in group] 
             for i, group in enumerate(groups)}
 
 @tool
-def assign_groups_with_explanations(student_json: list, group_size: int = 4, mode: str = "homogeneous"):
+def assign_groups_with_explanations(student_json: list, group_size: int = 4, mode: str = "homogeneous", group_size_mode: str = "students_per_group"):
     """Assign students to groups and provide AI-generated explanations for each group formation.
     
     Args:
         student_json: List of student dictionaries with 'text' and 'name' keys
-        group_size: Target size for each group
+        group_size: Target size for each group (or number of groups if group_size_mode is 'number_of_groups')
         mode: Clustering strategy ('homogeneous', 'diverse', or 'mixed')
+        group_size_mode: Either 'students_per_group' or 'number_of_groups'
     
     Returns:
         Dictionary with 'groups' and 'explanations' keys
     """
     # First get the groups
-    groups = assign_groups.func(student_json, group_size, mode)
+    groups = assign_groups.func(student_json, group_size, mode, group_size_mode)
     
     # Generate explanations
     explanations = _generate_group_explanations(groups, student_json, mode)
