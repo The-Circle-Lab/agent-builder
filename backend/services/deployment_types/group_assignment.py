@@ -2,13 +2,18 @@ import numpy as np
 from scipy.cluster.hierarchy import linkage, to_tree
 from scipy.spatial.distance import pdist, squareform
 from typing import Dict, Any, List, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import threading
+import os
+
+# Suppress HuggingFace tokenizer parallelism warnings in concurrent environments
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from langchain.tools import tool
 from langchain_community.embeddings import FastEmbedEmbeddings
 from langchain_community.vectorstores import Qdrant
 from langchain_openai import ChatOpenAI
 from langchain.schema import SystemMessage, HumanMessage
-import os
 
 class GroupAssignmentBehavior:
     """
@@ -440,7 +445,7 @@ class GroupAssignmentBehavior:
         return filtered_students
 
     def _build_student_vectors(self, student_data: List[Dict[str, Any]], db_session: Optional[Any]) -> List[Tuple[str, List[float]]]:
-        """Construct a vector per student using text and any PDF submissions.
+        """Construct a vector per student using text and any PDF submissions with concurrent processing.
         - If `pdf_document_ids` present in student dict, fetch vectors from Qdrant for those IDs.
         - Combine with text embedding by averaging.
         - If no PDF vectors found, use text embedding only.
@@ -452,9 +457,8 @@ class GroupAssignmentBehavior:
         embeddings = FastEmbedEmbeddings()
         qdrant_client = create_qdrant_client()
 
-        results: List[Tuple[str, List[float]]] = []
-
-        for student in student_data:
+        def _build_single_student_vector(student: Dict[str, Any]) -> Tuple[str, List[float]]:
+            """Build vector for a single student."""
             name = student["name"]
             text = student.get("text", "")
             pdf_ids = student.get("pdf_document_ids", []) or []
@@ -505,7 +509,32 @@ class GroupAssignmentBehavior:
             else:
                 combined_vec = embeddings.embed_query("")
 
-            results.append((name, combined_vec))
+            return name, combined_vec
+
+        # Use concurrent processing for vector building
+        max_workers = min(4, len(student_data))  # Limit to 4 workers to avoid overwhelming Qdrant
+        print(f"🚀 Building vectors for {len(student_data)} students using {max_workers} concurrent workers")
+        
+        results: List[Tuple[str, List[float]]] = []
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_student = {
+                executor.submit(_build_single_student_vector, student): student["name"]
+                for student in student_data
+            }
+            
+            # Collect results as they complete
+            for future in as_completed(future_to_student):
+                student_name = future_to_student[future]
+                try:
+                    name, vector = future.result()
+                    results.append((name, vector))
+                    print(f"✅ Completed vector for {student_name}")
+                except Exception as e:
+                    print(f"❌ Error building vector for {student_name}: {e}")
+                    # Fallback to empty vector
+                    results.append((student_name, embeddings.embed_query("")))
 
         return results
 
@@ -735,8 +764,95 @@ def _hierarchical_assign(vectors, group_size, mode, group_size_mode="students_pe
     
     return result
 
+def _generate_single_llm_explanation(
+    group_id: str, 
+    members: List[str], 
+    student_profiles: Dict[str, str], 
+    strategy: str, 
+    prompt_context: Optional[str], 
+    selected_prompts: Optional[List[Dict[str, Any]]], 
+    llm: ChatOpenAI
+) -> Tuple[str, str]:
+    """Generate a single group explanation using LLM. Returns (group_id, explanation)."""
+    try:
+        # Get the profiles for members in this group
+        member_profiles = [f"{name}: {student_profiles.get(name, 'No description')}" 
+                          for name in members]
+        profiles_text = "\n".join(member_profiles)
+
+        # Add guidance and require citing concrete traits/interests or brief quotes from PDF snippets.
+        guidance = (
+            "When possible, cite specific phrases or concrete topics from the PDF snippets (e.g., 'robotics', 'data visualization', 'sustainability'). "
+            "Avoid generic statements. Two concise sentences maximum."
+        )
+        
+        # Build the assignment context
+        assignment_context = ""
+        if prompt_context:
+            assignment_context = f"\nOriginal assignment: {prompt_context}\n"
+        
+        # Build context about which prompts were used for grouping
+        prompts_context = ""
+        if selected_prompts:
+            prompt_questions = [prompt.get('prompt', 'Unknown prompt')[:100] for prompt in selected_prompts]
+            prompts_context = f"\nGrouping was based on responses to these specific questions: {'; '.join(prompt_questions)}\n"
+        
+        # Create the explanation prompt
+        prompt = f"""You are an instructor assistant helping students understand their team formation.
+The course is forming project teams using a '{strategy}' strategy.{assignment_context}{prompts_context}
+Students in **{group_id}**: {', '.join(members)}.
+
+Student profiles (including content from their submitted documents):
+{profiles_text}
+
+Write 2 concise sentences explaining why these students were grouped together for this assignment. Base your explanation on specific themes, topics, or approaches from their submitted materials. {guidance}"""
+
+        # Get explanation from LLM
+        response = llm.invoke([
+            SystemMessage(content="You are a helpful academic writing assistant."),
+            HumanMessage(content=prompt)
+        ])
+        return group_id, response.content.strip()
+    except Exception as e:
+        print(f"Error generating explanation for {group_id}: {e}")
+        return group_id, f"This group has been formed based on the {strategy} strategy to balance skills and interests."
+
+def _generate_single_rule_based_explanation(
+    group_id: str, 
+    members: List[str], 
+    student_profiles: Dict[str, str], 
+    strategy: str, 
+    prompts_info: str
+) -> Tuple[str, str]:
+    """Generate a single rule-based explanation. Returns (group_id, explanation)."""
+    # Simple rule-based explanation
+    member_texts = [student_profiles.get(name, "") for name in members]
+    
+    # Look for common keywords
+    common_interests = []
+    all_text = " ".join(member_texts).lower()
+    
+    # Check for common themes
+    if any(word in all_text for word in ["programming", "coding", "development", "software"]):
+        common_interests.append("programming/development")
+    if any(word in all_text for word in ["research", "science", "lab"]):
+        common_interests.append("research")
+    if any(word in all_text for word in ["art", "design", "creative"]):
+        common_interests.append("creative work")
+    if any(word in all_text for word in ["data", "analytics", "visualization"]):
+        common_interests.append("data analysis")
+    if any(word in all_text for word in ["business", "finance", "economics"]):
+        common_interests.append("business/economics")
+    
+    if common_interests:
+        explanation = f"This group shares interests in {', '.join(common_interests[:2])}{prompts_info}. The diverse perspectives within the group will complement each other well for collaborative projects."
+    else:
+        explanation = f"This group brings together diverse backgrounds and skills using the {strategy} strategy{prompts_info}. The variety of experiences will create opportunities for mutual learning and innovation."
+    
+    return group_id, explanation
+
 def _generate_group_explanations(groups: dict, student_data: list, strategy: str, use_llm: bool = True, db_session: Optional[Any] = None, prompt_context: Optional[str] = None, selected_prompts: Optional[List[Dict[str, Any]]] = None) -> dict:
-    """Generate explanations for why students were grouped together using LLM or simple rules."""
+    """Generate explanations for why students were grouped together using LLM or simple rules with concurrent processing."""
     print(f"🎯 EXPLANATION FUNCTION CALLED:")
     print(f"   Groups: {list(groups.keys())}")
     print(f"   Students: {len(student_data)}")
@@ -807,6 +923,10 @@ def _generate_group_explanations(groups: dict, student_data: list, strategy: str
     
     explanations = {}
     
+    # Determine optimal thread count (max 8 to avoid overwhelming API rate limits)
+    max_workers = min(8, len(groups))
+    print(f"🚀 Using {max_workers} concurrent workers for explanation generation")
+    
     if use_llm and os.getenv("OPENAI_API_KEY"):
         # Initialize the LLM
         try:
@@ -815,49 +935,29 @@ def _generate_group_explanations(groups: dict, student_data: list, strategy: str
                 api_key=os.getenv("OPENAI_API_KEY")
             )
             
-            for group_id, members in groups.items():
-                # Get the profiles for members in this group
-                member_profiles = [f"{name}: {student_profiles.get(name, 'No description')}" 
-                                  for name in members]
-                profiles_text = "\n".join(member_profiles)
-
-                # Add guidance and require citing concrete traits/interests or brief quotes from PDF snippets.
-                guidance = (
-                    "When possible, cite specific phrases or concrete topics from the PDF snippets (e.g., 'robotics', 'data visualization', 'sustainability'). "
-                    "Avoid generic statements. Two concise sentences maximum."
-                )
+            # Use ThreadPoolExecutor for concurrent LLM calls
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                # Submit all tasks
+                future_to_group = {
+                    executor.submit(
+                        _generate_single_llm_explanation,
+                        group_id,
+                        members,
+                        student_profiles,
+                        strategy,
+                        prompt_context,
+                        selected_prompts,
+                        llm
+                    ): group_id
+                    for group_id, members in groups.items()
+                }
                 
-                # Build the assignment context
-                assignment_context = ""
-                if prompt_context:
-                    assignment_context = f"\nOriginal assignment: {prompt_context}\n"
-                
-                # Build context about which prompts were used for grouping
-                prompts_context = ""
-                if selected_prompts:
-                    prompt_questions = [prompt.get('prompt', 'Unknown prompt')[:100] for prompt in selected_prompts]
-                    prompts_context = f"\nGrouping was based on responses to these specific questions: {'; '.join(prompt_questions)}\n"
-                
-                # Create the explanation prompt
-                prompt = f"""You are an instructor assistant helping students understand their team formation.
-The course is forming project teams using a '{strategy}' strategy.{assignment_context}{prompts_context}
-Students in **{group_id}**: {', '.join(members)}.
-
-Student profiles (including content from their submitted documents):
-{profiles_text}
-
-Write 2 concise sentences explaining why these students were grouped together for this assignment. Base your explanation on specific themes, topics, or approaches from their submitted materials. {guidance}"""
-
-                try:
-                    # Get explanation from LLM
-                    response = llm.invoke([
-                        SystemMessage(content="You are a helpful academic writing assistant."),
-                        HumanMessage(content=prompt)
-                    ])
-                    explanations[group_id] = response.content.strip()
-                except Exception as e:
-                    print(f"Error generating explanation for {group_id}: {e}")
-                    explanations[group_id] = f"This group has been formed based on the {strategy} strategy to balance skills and interests."
+                # Collect results as they complete
+                for future in as_completed(future_to_group):
+                    group_id, explanation = future.result()
+                    explanations[group_id] = explanation
+                    print(f"✅ Completed explanation for {group_id}")
+                    
         except Exception as e:
             print(f"Error initializing LLM: {e}")
             use_llm = False
@@ -872,34 +972,28 @@ Write 2 concise sentences explaining why these students were grouped together fo
             prompt_count = len(selected_prompts)
             prompts_info = f" based on responses to {prompt_count} selected submission prompt{'s' if prompt_count != 1 else ''}"
         
-        for group_id, members in groups.items():
-            # Simple rule-based explanation
-            member_texts = [student_profiles.get(name, "") for name in members]
+        # Use ThreadPoolExecutor for concurrent rule-based generation
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            # Submit all tasks
+            future_to_group = {
+                executor.submit(
+                    _generate_single_rule_based_explanation,
+                    group_id,
+                    members,
+                    student_profiles,
+                    strategy,
+                    prompts_info
+                ): group_id
+                for group_id, members in groups.items()
+            }
             
-            # Look for common keywords
-            common_interests = []
-            all_text = " ".join(member_texts).lower()
-            
-            # Check for common themes
-            if any(word in all_text for word in ["programming", "coding", "development", "software"]):
-                common_interests.append("programming/development")
-            if any(word in all_text for word in ["research", "science", "lab"]):
-                common_interests.append("research")
-            if any(word in all_text for word in ["art", "design", "creative"]):
-                common_interests.append("creative work")
-            if any(word in all_text for word in ["data", "analytics", "visualization"]):
-                common_interests.append("data analysis")
-            if any(word in all_text for word in ["business", "finance", "economics"]):
-                common_interests.append("business/economics")
-            
-            if common_interests:
-                explanation = f"This group shares interests in {', '.join(common_interests[:2])}{prompts_info}. The diverse perspectives within the group will complement each other well for collaborative projects."
-            else:
-                explanation = f"This group brings together diverse backgrounds and skills using the {strategy} strategy{prompts_info}. The variety of experiences will create opportunities for mutual learning and innovation."
-            
-            explanations[group_id] = explanation
+            # Collect results as they complete
+            for future in as_completed(future_to_group):
+                group_id, explanation = future.result()
+                explanations[group_id] = explanation
+                print(f"✅ Completed rule-based explanation for {group_id}")
     
-    print(f"🎯 EXPLANATIONS COMPLETED: {len(explanations)} explanations generated")
+    print(f"🎯 EXPLANATIONS COMPLETED: {len(explanations)} explanations generated concurrently")
     for group_id, explanation in explanations.items():
         print(f"   {group_id}: {explanation[:150]}...")
     
