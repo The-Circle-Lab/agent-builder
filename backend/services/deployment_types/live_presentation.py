@@ -27,6 +27,8 @@ class MessageType(str, Enum):
     SEND_GROUP_INFO = "send_group_info"
     SEND_READY_CHECK = "send_ready_check"
     GET_STATS = "get_stats"
+    START_TIMER = "start_timer"
+    STOP_TIMER = "stop_timer"
     
     # Student messages
     STUDENT_READY = "student_ready"
@@ -36,6 +38,10 @@ class MessageType(str, Enum):
     # System messages
     CONNECTION_UPDATE = "connection_update"
     PROMPT_RECEIVED = "prompt_received"
+    TIMER_UPDATE = "timer_update"
+    TIMER_STARTED = "timer_started"
+    TIMER_STOPPED = "timer_stopped"
+    TIMER_EXPIRED = "timer_expired"
     ERROR = "error"
 
 class LivePresentationPrompt:
@@ -162,6 +168,13 @@ class LivePresentationDeployment:
         self.current_prompt: Optional[Dict[str, Any]] = None
         self.ready_check_active = False
         self.ready_students: Set[str] = set()
+        
+        # Timer data
+        self.timer_active = False
+        self.timer_start_time: Optional[datetime] = None
+        self.timer_duration_seconds: int = 0
+        self.timer_remaining_seconds: int = 0
+        self.timer_task: Optional[asyncio.Task] = None
         
         # Variable data (for group info, list items, etc.)
         self.input_variable_data: Optional[Any] = None
@@ -1522,6 +1535,14 @@ class LivePresentationDeployment:
             elif message_type == MessageType.SEND_READY_CHECK:
                 await self.start_ready_check()
             
+            elif message_type == MessageType.START_TIMER:
+                minutes = message.get("minutes", 0)
+                seconds = message.get("seconds", 0)
+                await self.start_timer(minutes, seconds)
+            
+            elif message_type == MessageType.STOP_TIMER:
+                await self.stop_timer()
+            
             elif message_type == "start_presentation":
                 await self.start_presentation()
                 
@@ -2766,6 +2787,168 @@ class LivePresentationDeployment:
         
         print(f"🎤 Ready check started for {len(self.students)} students")
     
+    async def start_timer(self, minutes: int, seconds: int):
+        """Start a countdown timer for the specified duration"""
+        if not self.presentation_active:
+            print(f"⚠️ Cannot start timer: presentation is not active")
+            return
+        
+        # Stop any existing timer
+        await self.stop_timer()
+        
+        total_seconds = minutes * 60 + seconds
+        if total_seconds <= 0:
+            print(f"⚠️ Invalid timer duration: {minutes}m {seconds}s")
+            return
+        
+        self.timer_active = True
+        self.timer_start_time = datetime.now()
+        self.timer_duration_seconds = total_seconds
+        self.timer_remaining_seconds = total_seconds
+        
+        print(f"⏰ Starting timer for {minutes}m {seconds}s ({total_seconds}s)")
+        
+        # Create background task to handle timer updates
+        self.timer_task = asyncio.create_task(self._timer_countdown_task())
+        
+        # Notify all connected users about timer start
+        message = {
+            "type": "timer_started",
+            "duration_seconds": total_seconds,
+            "remaining_seconds": total_seconds,
+            "start_time": self.timer_start_time.isoformat()
+        }
+        
+        await self._broadcast_timer_message(message)
+    
+    async def stop_timer(self):
+        """Stop the current timer"""
+        if not self.timer_active:
+            return
+        
+        print(f"⏰ Stopping timer")
+        
+        self.timer_active = False
+        self.timer_start_time = None
+        self.timer_duration_seconds = 0
+        self.timer_remaining_seconds = 0
+        
+        # Cancel the timer task if it exists
+        if self.timer_task and not self.timer_task.done():
+            self.timer_task.cancel()
+            try:
+                await self.timer_task
+            except asyncio.CancelledError:
+                pass
+        self.timer_task = None
+        
+        # Notify all connected users about timer stop
+        message = {
+            "type": "timer_stopped"
+        }
+        
+        await self._broadcast_timer_message(message)
+    
+    async def _timer_countdown_task(self):
+        """Background task that handles timer countdown and periodic updates"""
+        try:
+            last_update_time = datetime.now()
+            
+            while self.timer_active and self.timer_remaining_seconds > 0:
+                await asyncio.sleep(1)  # Wait 1 second
+                
+                if not self.timer_active:
+                    break
+                
+                # Calculate actual remaining time based on start time
+                if self.timer_start_time:
+                    elapsed = (datetime.now() - self.timer_start_time).total_seconds()
+                    self.timer_remaining_seconds = max(0, self.timer_duration_seconds - int(elapsed))
+                
+                # Send update every 10 seconds or when timer expires
+                current_time = datetime.now()
+                time_since_last_update = (current_time - last_update_time).total_seconds()
+                
+                should_send_update = (
+                    time_since_last_update >= 10 or  # Every 10 seconds
+                    self.timer_remaining_seconds <= 0  # When timer expires
+                )
+                
+                if should_send_update:
+                    message = {
+                        "type": "timer_update",
+                        "remaining_seconds": self.timer_remaining_seconds,
+                        "duration_seconds": self.timer_duration_seconds
+                    }
+                    
+                    if self.timer_remaining_seconds <= 0:
+                        message["type"] = "timer_expired"
+                        print(f"⏰ Timer expired!")
+                        self.timer_active = False
+                    
+                    await self._broadcast_timer_message(message)
+                    last_update_time = current_time
+                
+                if self.timer_remaining_seconds <= 0:
+                    break
+            
+        except asyncio.CancelledError:
+            print(f"⏰ Timer countdown task cancelled")
+            raise
+        except Exception as e:
+            print(f"❌ Error in timer countdown task: {e}")
+        finally:
+            if self.timer_active:
+                self.timer_active = False
+    
+    async def _broadcast_timer_message(self, message: Dict[str, Any]):
+        """Broadcast timer message to students, teachers, and roomcast devices"""
+        # Students should only see timer when roomcast is NOT enabled
+        if not self.roomcast_enabled:
+            failed_students: List[str] = []
+            for user_id, student in list(self.students.items()):
+                if student.status != ConnectionStatus.DISCONNECTED:
+                    success = await student.send_message(message)
+                    if not success:
+                        failed_students.append(user_id)
+            for user_id in failed_students:
+                print(f"🧹 Removing student with failed WebSocket during timer update: {self.students[user_id].user_name}")
+                await self.disconnect_student(user_id)
+        
+        # Send to teachers
+        disconnected_teachers = set()
+        for teacher_ws in self.teacher_websockets:
+            try:
+                await teacher_ws.send_text(json.dumps(message))
+            except Exception as e:
+                print(f"❌ Failed to send timer message to teacher: {e}")
+                disconnected_teachers.add(teacher_ws)
+        
+        # Remove disconnected teachers
+        self.teacher_websockets -= disconnected_teachers
+        
+        # Send to roomcast devices whenever roomcast is enabled (regardless of waiting state)
+        if self.roomcast_enabled:
+            await self._broadcast_timer_to_roomcast(message)
+    
+    async def _broadcast_timer_to_roomcast(self, message: Dict[str, Any]):
+        """Broadcast timer message to all roomcast devices"""
+        disconnected_roomcasts = set()
+        for roomcast_ws in self.roomcast_websockets:
+            try:
+                roomcast_message = {
+                    **message,
+                    "group_name": self._roomcast_ws_lookup.get(roomcast_ws, "Unknown")
+                }
+                await roomcast_ws.send_text(json.dumps(roomcast_message))
+            except Exception as e:
+                print(f"❌ Failed to send timer message to roomcast: {e}")
+                disconnected_roomcasts.add(roomcast_ws)
+        
+        # Remove disconnected roomcast devices
+        for ws in disconnected_roomcasts:
+            await self.disconnect_roomcast(ws)
+    
     async def _notify_teachers_presentation_state_change(self, action: str):
         """Notify teachers about presentation state changes"""
         message = {
@@ -2936,7 +3119,13 @@ class LivePresentationDeployment:
             "group_stats": group_stats,
             "current_prompt": self.current_prompt,
             "saved_prompts_count": len(self.saved_prompts),
-            "roomcast": roomcast_status
+            "roomcast": roomcast_status,
+            "timer": {
+                "active": self.timer_active,
+                "remaining_seconds": self.timer_remaining_seconds if self.timer_active else 0,
+                "duration_seconds": self.timer_duration_seconds if self.timer_active else 0,
+                "start_time": self.timer_start_time.isoformat() if self.timer_start_time else None
+            }
         }
     
     def get_student_responses(self, prompt_id: Optional[str] = None) -> List[Dict[str, Any]]:
@@ -3271,6 +3460,12 @@ class LivePresentationDeployment:
     def cleanup(self):
         """Cleanup resources"""
         print(f"🎤 LivePresentationDeployment {self.deployment_id} cleaned up")
+        
+        # Stop timer if active
+        if self.timer_active and self.timer_task and not self.timer_task.done():
+            self.timer_task.cancel()
+            self.timer_active = False
+        
         self._clear_roomcast_session()
 
     def validate_list_variable_configuration(self) -> Dict[str, Any]:

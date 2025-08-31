@@ -7,13 +7,16 @@ import {
   ChartBarIcon,
   ExclamationTriangleIcon,
   HeartIcon,
-  StopIcon
+  StopIcon,
+  ClockIcon
 } from '@heroicons/react/24/outline';
 import { 
   LivePresentationPrompt, 
   PresentationStats 
 } from '../types/livePresentation';
 import { RoomcastModal } from './RoomcastModal';
+import { TimerModal } from './TimerModal';
+import { Timer } from './Timer';
 import { API_CONFIG } from '@/lib/constants';
 
 interface TeacherControlPanelProps {
@@ -29,6 +32,11 @@ interface TeacherControlPanelProps {
   onStartPresentation: () => void;
   onEndPresentation: () => void;
   onTestConnections: () => void;
+  onStartTimer: (minutes: number, seconds: number) => void;
+  onStopTimer: () => void;
+  timerActive: boolean;
+  timerRemainingSeconds: number;
+  timerDurationSeconds: number;
   manualReconnect?: () => void;
 }
 
@@ -44,10 +52,16 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
   onRefreshStats,
   onStartPresentation,
   onEndPresentation,
+  onStartTimer,
+  onStopTimer,
+  timerActive,
+  timerRemainingSeconds,
+  timerDurationSeconds,
   manualReconnect
 }) => {
   const [selectedPrompt, setSelectedPrompt] = useState<LivePresentationPrompt | null>(null);
   const [showRoomcastModal, setShowRoomcastModal] = useState(false);
+  const [showTimerModal, setShowTimerModal] = useState(false);
   const [togglingRoomcast, setTogglingRoomcast] = useState(false);
 
   const isConnected = connectionStatus === 'connected';
@@ -102,31 +116,61 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
 
   return (
     <div className="space-y-6">
+      {/* Timer Display - Fixed position when active */}
+      {timerActive && timerDurationSeconds > 0 && (
+        <div className="bg-white rounded-lg shadow p-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 mb-2">Active Timer</h3>
+              <p className="text-sm text-gray-600">Timer is running for students and roomcast displays</p>
+            </div>
+            <div className="flex items-center space-x-4">
+              <Timer
+                remainingSeconds={timerRemainingSeconds}
+                durationSeconds={timerDurationSeconds}
+                size="small"
+                className="bg-blue-50 rounded-full p-2"
+              />
+              <button
+                onClick={() => setShowTimerModal(true)}
+                className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+              >
+                Manage Timer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Presentation Controls */}
       <div className="bg-white rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Presentation Control</h3>
-        <div className="mb-4 flex items-center justify-between">
-          <div className="flex flex-col">
-            <span className="text-sm font-medium text-gray-900">Roomcast Support</span>
-            <span className="text-xs text-gray-600">Enable room display devices via 5-character code</span>
-          </div>
-          <button
-            onClick={handleToggleRoomcast}
-            disabled={!isConnected || togglingRoomcast}
-            aria-pressed={isRoomcastEnabled}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-              isConnected && !togglingRoomcast
-                ? (isRoomcastEnabled ? 'bg-indigo-600' : 'bg-gray-200')
-                : 'bg-gray-200 opacity-60 cursor-not-allowed'
-            }`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                isRoomcastEnabled ? 'translate-x-6' : 'translate-x-1'
+        
+        {/* Roomcast Support Toggle - Only show when presentation is not active */}
+        {!presentationActive && (
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex flex-col">
+              <span className="text-sm font-medium text-gray-900">Roomcast Support</span>
+              <span className="text-xs text-gray-600">Enable room display devices via 5-character code</span>
+            </div>
+            <button
+              onClick={handleToggleRoomcast}
+              disabled={!isConnected || togglingRoomcast}
+              aria-pressed={isRoomcastEnabled}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                isConnected && !togglingRoomcast
+                  ? (isRoomcastEnabled ? 'bg-indigo-600' : 'bg-gray-200')
+                  : 'bg-gray-200 opacity-60 cursor-not-allowed'
               }`}
-            />
-          </button>
-        </div>
+            >
+              <span
+                className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                  isRoomcastEnabled ? 'translate-x-6' : 'translate-x-1'
+                }`}
+              />
+            </button>
+          </div>
+        )}
         
         {!presentationActive ? (
           <div className="text-center py-8">
@@ -217,7 +261,7 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
       <div className="bg-white rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
         
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
           <button
             onClick={onStartReadyCheck}
             disabled={!isConnected || !presentationActive}
@@ -242,6 +286,21 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
           >
             <UserGroupIcon className="h-6 w-6" />
             <span className="font-medium">Send Group Info</span>
+          </button>
+
+          <button
+            onClick={() => setShowTimerModal(true)}
+            disabled={!isConnected || !presentationActive}
+            className={`flex items-center justify-center space-x-2 p-4 rounded-lg border-2 border-dashed transition-colors ${
+              isConnected && presentationActive
+                ? (timerActive 
+                  ? 'border-orange-300 text-orange-700 hover:border-orange-400 hover:bg-orange-50'
+                  : 'border-indigo-300 text-indigo-700 hover:border-indigo-400 hover:bg-indigo-50')
+                : 'border-gray-300 text-gray-400 cursor-not-allowed'
+            }`}
+          >
+            <ClockIcon className="h-6 w-6" />
+            <span className="font-medium">{timerActive ? 'Timer Active' : 'Timer'}</span>
           </button>
 
           <button
@@ -458,6 +517,18 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
           onStartPresentation();
         }}
         deploymentId={deploymentId}
+      />
+
+      {/* Timer Modal */}
+      <TimerModal
+        isOpen={showTimerModal}
+        onClose={() => setShowTimerModal(false)}
+        onStartTimer={onStartTimer}
+        onStopTimer={onStopTimer}
+        timerActive={timerActive}
+        timerRemainingSeconds={timerRemainingSeconds}
+        timerDurationSeconds={timerDurationSeconds}
+        disabled={!isConnected || !presentationActive}
       />
     </div>
   );

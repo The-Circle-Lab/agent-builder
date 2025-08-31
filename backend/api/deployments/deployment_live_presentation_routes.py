@@ -192,6 +192,59 @@ async def get_roomcast_code_info(code: str):
         "expected_groups": service._get_expected_group_names(),
         "roomcast_enabled": service.roomcast_enabled
     }
+@router.post("/live-presentation/{deployment_id}/timer/start")
+async def start_timer(
+    deployment_id: str,
+    payload: Dict[str, Any],
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session)
+):
+    """Start a timer for the live presentation (teachers only)"""
+    from scripts.permission_helpers import user_is_instructor
+    if not user_is_instructor(current_user, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only instructors can control timer")
+
+    deployment = await _load_deployment_for_user(deployment_id, current_user, db)
+    if not deployment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deployment not found")
+
+    mcp_deployment = deployment["mcp_deployment"]
+    service = mcp_deployment.get_live_presentation_service()
+    if not service:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not a live presentation deployment")
+
+    minutes = payload.get("minutes", 0)
+    seconds = payload.get("seconds", 0)
+    
+    if minutes < 0 or seconds < 0 or (minutes == 0 and seconds == 0):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid timer duration")
+
+    await service.start_timer(minutes, seconds)
+    return {"message": f"Timer started for {minutes}m {seconds}s", "minutes": minutes, "seconds": seconds}
+
+@router.post("/live-presentation/{deployment_id}/timer/stop")
+async def stop_timer(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_session)
+):
+    """Stop the timer for the live presentation (teachers only)"""
+    from scripts.permission_helpers import user_is_instructor
+    if not user_is_instructor(current_user, db):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only instructors can control timer")
+
+    deployment = await _load_deployment_for_user(deployment_id, current_user, db)
+    if not deployment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Deployment not found")
+
+    mcp_deployment = deployment["mcp_deployment"]
+    service = mcp_deployment.get_live_presentation_service()
+    if not service:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Not a live presentation deployment")
+
+    await service.stop_timer()
+    return {"message": "Timer stopped"}
+
 @router.post("/{deployment_id}/refresh-variables")
 async def refresh_page_variables_endpoint(
     deployment_id: str,

@@ -56,6 +56,14 @@ export interface PresentationStats {
   current_prompt?: LivePresentationPrompt & { sent_at: string };
   saved_prompts_count: number;
   roomcast?: RoomcastStatus;
+  timer?: TimerStatus;
+}
+
+export interface TimerStatus {
+  active: boolean;
+  remaining_seconds: number;
+  duration_seconds: number;
+  start_time: string | null;
 }
 
 export interface StudentResponse {
@@ -117,6 +125,10 @@ export type MessageType =
   | 'roomcast_registered'
   | 'roomcast_prompt'
   | 'roomcast_group_info'
+  | 'timer_started'
+  | 'timer_stopped'
+  | 'timer_update'
+  | 'timer_expired'
   | 'error';
 
 export interface WebSocketMessage {
@@ -235,6 +247,29 @@ export interface GroupSummaryGeneratedMessage {
   prompt_id: string;
 }
 
+export interface TimerStartedMessage {
+  type: 'timer_started';
+  duration_seconds: number;
+  remaining_seconds: number;
+  start_time: string;
+}
+
+export interface TimerStoppedMessage {
+  type: 'timer_stopped';
+}
+
+export interface TimerUpdateMessage {
+  type: 'timer_update';
+  remaining_seconds: number;
+  duration_seconds: number;
+}
+
+export interface TimerExpiredMessage {
+  type: 'timer_expired';
+  remaining_seconds: number;
+  duration_seconds: number;
+}
+
 export type TypedWebSocketMessage = 
   | WelcomeMessage
   | WaitingForTeacherMessage
@@ -255,6 +290,10 @@ export type TypedWebSocketMessage =
   | SummaryGenerationStartedMessage
   | GroupInfoSentMessage
   | GroupSummaryGeneratedMessage
+  | TimerStartedMessage
+  | TimerStoppedMessage
+  | TimerUpdateMessage
+  | TimerExpiredMessage
   | RoomcastStatusMessage
   | RoomcastConnectedMessage
   | RoomcastRegisteredMessage
@@ -313,6 +352,16 @@ export interface TestConnectionsMessage {
   type: 'test_connections';
 }
 
+export interface StartTimerMessage {
+  type: 'start_timer';
+  minutes: number;
+  seconds: number;
+}
+
+export interface StopTimerMessage {
+  type: 'stop_timer';
+}
+
 export type TeacherMessage = 
   | SendPromptMessage 
   | SendGroupInfoMessage 
@@ -321,7 +370,9 @@ export type TeacherMessage =
   | RebuildVariableMappingMessage
   | StartPresentationMessage
   | EndPresentationMessage
-  | TestConnectionsMessage;
+  | TestConnectionsMessage
+  | StartTimerMessage
+  | StopTimerMessage;
 
 // Roomcast message types
 export interface RoomcastStatusMessage {

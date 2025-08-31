@@ -34,6 +34,9 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
     savedPrompts,
     studentResponses,
     presentationActive,
+    timerActive,
+    timerRemainingSeconds,
+    timerDurationSeconds,
     sendPrompt,
     sendGroupInfo,
     startReadyCheck,
@@ -41,7 +44,9 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
     manualReconnect,
     startPresentation,
     endPresentation,
-    testConnections
+    testConnections,
+    startTimer,
+    stopTimer
   } = useLivePresentationWebSocket({
     deploymentId,
     isTeacher: true
@@ -222,6 +227,11 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
               onStartPresentation={startPresentation}
               onEndPresentation={endPresentation}
               onTestConnections={testConnections}
+              onStartTimer={startTimer}
+              onStopTimer={stopTimer}
+              timerActive={timerActive}
+              timerRemainingSeconds={timerRemainingSeconds}
+              timerDurationSeconds={timerDurationSeconds}
               manualReconnect={manualReconnect}
             />
           )}

@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { 
   TvIcon, 
   UserGroupIcon, 
@@ -17,8 +17,12 @@ import {
   RoomcastGroupInfoMessage,
   LivePresentationPrompt,
   StudentResponseReceivedMessage,
-  GroupSummaryMessage
+  GroupSummaryMessage,
+  TimerStartedMessage,
+  TimerUpdateMessage,
+  TimerExpiredMessage
 } from '../../components/deployments/livePresentation/types/livePresentation';
+import { Timer } from '../../components/deployments/livePresentation/components/Timer';
 
 interface RoomcastInterfaceProps {
   code: string;
@@ -44,6 +48,13 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
   const [responsesByStudent, setResponsesByStudent] = useState<Record<string, { response?: string; timestamp?: string }>>({});
   const [summaryGenerating, setSummaryGenerating] = useState(false);
   const [groupSummary, setGroupSummary] = useState<{ text: string; key_themes?: string[]; response_count?: number } | null>(null);
+  const [timerActive, setTimerActive] = useState(false);
+  const [timerRemainingSeconds, setTimerRemainingSeconds] = useState(0);
+  const [timerDurationSeconds, setTimerDurationSeconds] = useState(0);
+  const [timerStartTime, setTimerStartTime] = useState<string | null>(null);
+  // Local drift tracking
+  const lastTimerSyncRef = useRef<number | null>(null);
+  const lastServerRemainingRef = useRef<number>(0);
   const [wsRef, setWsRef] = useState<WebSocket | null>(null);
   const debug = (...args: unknown[]) => console.log('[Roomcast]', ...args);
 
@@ -116,6 +127,15 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           setCurrentPrompt(promptMsg.prompt);
           // Clear previous group info when new prompt arrives
           setGroupMembers([]);
+          // If timer already hit 0, remove timer instance on new display content
+          if (timerRemainingSeconds === 0) {
+            debug('roomcast_prompt: clearing expired timer before displaying new content');
+            setTimerActive(false);
+            setTimerDurationSeconds(0);
+            setTimerStartTime(null);
+            lastTimerSyncRef.current = null;
+            lastServerRemainingRef.current = 0;
+          }
         }
         break;
       case 'roomcast_group_info':
@@ -154,12 +174,55 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           setGroupSummary(gs.summary || null);
         }
         break;
+      case 'timer_started':
+        {
+          const timerMsg = msg as unknown as TimerStartedMessage;
+          debug('timer_started', timerMsg);
+          setTimerActive(true);
+          setTimerRemainingSeconds(timerMsg.remaining_seconds);
+          setTimerDurationSeconds(timerMsg.duration_seconds);
+          setTimerStartTime(timerMsg.start_time);
+          lastTimerSyncRef.current = Date.now();
+          lastServerRemainingRef.current = timerMsg.remaining_seconds;
+        }
+        break;
+      case 'timer_stopped':
+        {
+          debug('timer_stopped');
+          setTimerActive(false);
+          setTimerRemainingSeconds(0);
+          setTimerDurationSeconds(0);
+          setTimerStartTime(null);
+          lastTimerSyncRef.current = null;
+        }
+        break;
+      case 'timer_update':
+        {
+          const timerMsg = msg as unknown as TimerUpdateMessage;
+          debug('timer_update', timerMsg);
+          if (timerActive) {
+            setTimerRemainingSeconds(timerMsg.remaining_seconds);
+            lastTimerSyncRef.current = Date.now();
+            lastServerRemainingRef.current = timerMsg.remaining_seconds;
+          }
+        }
+        break;
+      case 'timer_expired':
+        {
+          const timerMsg = msg as unknown as TimerExpiredMessage;
+          debug('timer_expired', timerMsg);
+          setTimerRemainingSeconds(0);
+          lastTimerSyncRef.current = Date.now();
+          lastServerRemainingRef.current = 0;
+          // Timer will be marked as inactive by a subsequent timer_stopped message
+        }
+        break;
       case 'error':
         debug('roomcast_error', msg);
         setConnectionState({ status: 'error', error: (msg as { message?: string }).message || 'Unknown error' });
         break;
     }
-  }, []);
+  }, [timerRemainingSeconds, timerActive]);
 
   const connectWebSocket = useCallback(() => {
     if (!codeInfo || wsRef) return;
@@ -268,6 +331,30 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
   useEffect(() => {
     debug('connectionState changed', connectionState);
   }, [connectionState]);
+
+  // Local ticking for timer on roomcast display
+  useEffect(() => {
+    if (!timerActive || !timerStartTime || timerDurationSeconds <= 0) return;
+    const startMs = new Date(timerStartTime).getTime();
+    const endMs = startMs + timerDurationSeconds * 1000;
+
+    const tick = () => {
+      const now = Date.now();
+      const remaining = Math.max(0, Math.round((endMs - now) / 1000));
+      if (lastTimerSyncRef.current) {
+        const elapsed = now - lastTimerSyncRef.current;
+        const derived = Math.max(0, lastServerRemainingRef.current - Math.round(elapsed / 1000));
+        const drift = Math.abs(derived - remaining);
+        setTimerRemainingSeconds(drift > 2 ? remaining : derived);
+      } else {
+        setTimerRemainingSeconds(remaining);
+      }
+    };
+
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [timerActive, timerStartTime, timerDurationSeconds]);
 
   // Render connection states
   if (connectionState.status === 'error') {
@@ -444,6 +531,18 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {/* Timer Display - Centered above content prompts/waiting message */}
+        {timerActive && timerDurationSeconds > 0 && (
+          <div className="flex justify-center mb-8">
+            <Timer
+              remainingSeconds={timerRemainingSeconds}
+              durationSeconds={timerDurationSeconds}
+              size="large"
+              className="bg-white/95 backdrop-blur-sm shadow-2xl rounded-full p-4 border-2 border-indigo-200"
+            />
           </div>
         )}
 

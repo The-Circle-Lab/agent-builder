@@ -54,6 +54,15 @@ export const useLivePresentationWebSocket = ({
   const [studentResponses, setStudentResponses] = useState<StudentResponse[]>([]);
   const [roomcastStatus, setRoomcastStatus] = useState<RoomcastStatus | null>(null);
 
+  // Timer states
+  const [timerActive, setTimerActive] = useState(false);
+  const [timerRemainingSeconds, setTimerRemainingSeconds] = useState(0);
+  const [timerDurationSeconds, setTimerDurationSeconds] = useState(0);
+  const [timerStartTime, setTimerStartTime] = useState<string | null>(null);
+  // Track last server push for timer to allow drift correction
+  const lastTimerSyncRef = useRef<number | null>(null);
+  const lastServerRemainingRef = useRef<number>(0);
+
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const reconnectAttempts = useRef(0);
@@ -290,6 +299,38 @@ export const useLivePresentationWebSocket = ({
         }
         break;
 
+      case 'timer_started':
+        setTimerActive(true);
+        setTimerRemainingSeconds(message.remaining_seconds);
+        setTimerDurationSeconds(message.duration_seconds);
+        setTimerStartTime(message.start_time);
+  lastTimerSyncRef.current = Date.now();
+  lastServerRemainingRef.current = message.remaining_seconds;
+        break;
+
+      case 'timer_stopped':
+        setTimerActive(false);
+        setTimerRemainingSeconds(0);
+        setTimerDurationSeconds(0);
+        setTimerStartTime(null);
+  lastTimerSyncRef.current = null;
+        break;
+
+      case 'timer_update':
+        if (timerActive) {
+          setTimerRemainingSeconds(message.remaining_seconds);
+          lastTimerSyncRef.current = Date.now();
+          lastServerRemainingRef.current = message.remaining_seconds;
+        }
+        break;
+
+      case 'timer_expired':
+        setTimerRemainingSeconds(0);
+  lastTimerSyncRef.current = Date.now();
+  lastServerRemainingRef.current = 0;
+        // Timer will be marked as inactive by a subsequent timer_stopped message
+        break;
+
       case 'error':
         setSocketState(prev => ({ ...prev, error: message.message }));
         break;
@@ -298,6 +339,34 @@ export const useLivePresentationWebSocket = ({
         console.log('Unknown message type:', (message as TypedWebSocketMessage).type);
     }
   }, [isTeacher, setMessageWithTimeout, userName]);
+
+  // Local ticking for timer (frontend countdown) with drift correction vs server syncs
+  useEffect(() => {
+    if (!timerActive || !timerStartTime || timerDurationSeconds <= 0) return;
+
+    const startMs = new Date(timerStartTime).getTime();
+    const endMs = startMs + timerDurationSeconds * 1000;
+
+    const tick = () => {
+      const now = Date.now();
+      const remaining = Math.max(0, Math.round((endMs - now) / 1000));
+
+      // If we have a recent server sync (within last 12s) prefer monotonic decrement from that to smooth out jitter
+      if (lastTimerSyncRef.current) {
+        const elapsedSinceSyncMs = now - lastTimerSyncRef.current;
+        const derivedFromSync = Math.max(0, lastServerRemainingRef.current - Math.round(elapsedSinceSyncMs / 1000));
+        // If drift between calculated absolute remaining and derivedFromSync is > 2s, snap to absolute
+        const drift = Math.abs(derivedFromSync - remaining);
+        setTimerRemainingSeconds(drift > 2 ? remaining : derivedFromSync);
+      } else {
+        setTimerRemainingSeconds(remaining);
+      }
+    };
+
+    tick(); // initial
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [timerActive, timerStartTime, timerDurationSeconds]);
 
   const connect = useCallback(() => {
     // Prevent multiple simultaneous connection attempts
@@ -508,6 +577,21 @@ export const useLivePresentationWebSocket = ({
     sendMessage({ type: 'test_connections' });
   }, [sendMessage]);
 
+  const startTimer = useCallback((minutes: number, seconds: number) => {
+    sendMessage({ type: 'start_timer', minutes, seconds });
+  }, [sendMessage]);
+
+  const stopTimer = useCallback(() => {
+    // Optimistically clear local timer state immediately
+    setTimerActive(false);
+    setTimerRemainingSeconds(0);
+    setTimerDurationSeconds(0);
+    setTimerStartTime(null);
+    lastTimerSyncRef.current = null;
+    lastServerRemainingRef.current = 0;
+    sendMessage({ type: 'stop_timer' });
+  }, [sendMessage]);
+
   // Connect on mount, disconnect on unmount
   useEffect(() => {
     let isMounted = true;
@@ -593,6 +677,12 @@ export const useLivePresentationWebSocket = ({
     studentResponses,
     roomcastStatus,
     
+    // Timer state
+    timerActive,
+    timerRemainingSeconds,
+    timerDurationSeconds,
+    timerStartTime,
+    
     // Student actions
     sendReady,
     sendResponse,
@@ -606,6 +696,8 @@ export const useLivePresentationWebSocket = ({
     startPresentation,
     endPresentation,
     testConnections,
+    startTimer,
+    stopTimer,
     
     // Connection actions
     connect,

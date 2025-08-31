@@ -82,3 +82,5 @@ backend/uploads/
 cookies.txt
 student_cookies.txt
 test_cookies.txt
+
+*.db.bk

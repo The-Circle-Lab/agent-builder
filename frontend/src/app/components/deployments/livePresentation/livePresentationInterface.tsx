@@ -7,6 +7,7 @@ import { StudentHeader } from './components/studentHeader';
 import { PromptDisplay } from './components/promptDisplay';
 import { InteractivePromptDisplay } from './components/InteractivePromptDisplay';
 import { WaitingScreen } from './components/waitingScreen';
+import { Timer } from './components/Timer';
 import { LivePresentationInfo } from './types/livePresentation';
 import { API_CONFIG } from '@/lib/constants';
 
@@ -35,6 +36,9 @@ export default function LivePresentationInterface({ deploymentId, userName }: Li
     summaryGenerating,
     presentationActive,
     roomcastStatus,
+    timerActive,
+    timerRemainingSeconds,
+    timerDurationSeconds,
     sendReady,
     sendResponse
   } = useLivePresentationWebSocket({ deploymentId, isTeacher: false, userName });
@@ -179,8 +183,11 @@ export default function LivePresentationInterface({ deploymentId, userName }: Li
         onReady={sendReady}
         isRoomcastMode={false}
       />
+      
+  {/* Timer Display - moved: show centered under the current prompt when active */}
+      
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {currentPrompt ? (
+  {currentPrompt ? (
           <PromptDisplay
             prompt={currentPrompt}
             onResponse={handleResponse}
@@ -206,6 +213,17 @@ export default function LivePresentationInterface({ deploymentId, userName }: Li
                 <p className="text-gray-600">Your instructor will send the next prompt shortly.</p>
               </>
             )}
+          </div>
+        )}
+        {/* Centered timer under the prompt */}
+        {currentPrompt && timerActive && timerDurationSeconds > 0 && (
+          <div className="flex justify-center mt-6">
+            <Timer
+              remainingSeconds={timerRemainingSeconds}
+              durationSeconds={timerDurationSeconds}
+              size="medium"
+              className="bg-white/90 backdrop-blur-sm shadow-lg rounded-full p-2"
+            />
           </div>
         )}
         {groupSummary && (
