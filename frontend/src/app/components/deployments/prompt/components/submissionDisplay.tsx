@@ -34,9 +34,41 @@ export default function SubmissionDisplay({
   const isSubmitted = !!submittedResponse;
   const isLinkType = currentRequirement.mediaType === 'hyperlink';
   const isPdfType = currentRequirement.mediaType === 'pdf';
+  const isListType = currentRequirement.mediaType === 'list';
 
   const handleInputChange = (value: string) => {
     onResponseChange(submissionIndex, value);
+  };
+
+  // Helper functions for list handling
+  const getListItems = (): string[] => {
+    if (!isListType) return [];
+    try {
+      return submissionResponse ? JSON.parse(submissionResponse) : [];
+    } catch {
+      // If not valid JSON, try splitting by newlines
+      return submissionResponse ? submissionResponse.split('\n').filter(item => item.trim()) : [];
+    }
+  };
+
+  const handleListItemChange = (itemIndex: number, value: string) => {
+    if (!isListType) return;
+    
+    const items = getListItems();
+    const requiredItems = currentRequirement.items || 1;
+    
+    // Ensure array has enough slots
+    while (items.length < requiredItems) {
+      items.push('');
+    }
+    
+    items[itemIndex] = value;
+    onResponseChange(submissionIndex, JSON.stringify(items));
+  };
+
+  const getListItem = (itemIndex: number): string => {
+    const items = getListItems();
+    return items[itemIndex] || '';
   };
 
   const navigateToNext = () => {
@@ -68,7 +100,9 @@ export default function SubmissionDisplay({
                 ? 'bg-red-100 text-red-800'
                 : isLinkType 
                   ? 'bg-purple-100 text-purple-800' 
-                  : 'bg-blue-100 text-blue-800'
+                  : isListType
+                    ? 'bg-orange-100 text-orange-800'
+                    : 'bg-blue-100 text-blue-800'
             }`}>
               {isPdfType ? (
                 <>
@@ -79,6 +113,11 @@ export default function SubmissionDisplay({
                 <>
                   <LinkIcon className="w-3 h-3 mr-1" />
                   Link Required
+                </>
+              ) : isListType ? (
+                <>
+                  <PencilIcon className="w-3 h-3 mr-1" />
+                  List ({currentRequirement.items} items)
                 </>
               ) : (
                 <>
@@ -133,6 +172,30 @@ export default function SubmissionDisplay({
                 >
                   {submittedResponse.user_response}
                 </a>
+              ) : isListType ? (
+                (() => {
+                  try {
+                    const items = JSON.parse(submittedResponse.user_response);
+                    return (
+                      <div className="bg-white p-3 rounded border">
+                        <div className="space-y-2">
+                          {items.map((item: string, index: number) => (
+                            <div key={index} className="flex items-start space-x-3">
+                              <span className="text-green-600 text-sm font-medium min-w-[20px]">{index + 1}.</span>
+                              <span className="text-gray-800 flex-1">{item}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  } catch {
+                    return (
+                      <p className="text-gray-800 whitespace-pre-wrap">
+                        {submittedResponse.user_response}
+                      </p>
+                    );
+                  }
+                })()
               ) : (
                 <p className="text-gray-800 whitespace-pre-wrap">
                   {submittedResponse.user_response}
@@ -148,7 +211,7 @@ export default function SubmissionDisplay({
         /* Input Form */
         <div className="mb-6">
           <label htmlFor={`response-${submissionIndex}`} className="block text-sm font-medium text-gray-700 mb-2">
-            Your Response {isLinkType && <span className="text-red-500">*</span>}
+            Your Response {(isLinkType || isListType) && <span className="text-red-500">*</span>}
           </label>
           
           {isPdfType ? (
@@ -170,6 +233,25 @@ export default function SubmissionDisplay({
               className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
               disabled={submitting}
             />
+          ) : isListType ? (
+            <div className="space-y-3">
+              <div className="text-sm text-gray-600 mb-2">
+                Please provide {currentRequirement.items || 1} item(s):
+              </div>
+              {Array.from({ length: currentRequirement.items || 1 }).map((_, index) => (
+                <div key={index} className="flex items-center space-x-3">
+                  <span className="text-sm text-gray-500 w-6">{index + 1}.</span>
+                  <input
+                    type="text"
+                    value={getListItem(index)}
+                    onChange={(e) => handleListItemChange(index, e.target.value)}
+                    placeholder={`Item ${index + 1}`}
+                    className="flex-1 px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                    disabled={submitting}
+                  />
+                </div>
+              ))}
+            </div>
           ) : (
             <textarea
               id={`response-${submissionIndex}`}
@@ -185,6 +267,12 @@ export default function SubmissionDisplay({
           {isLinkType && (
             <p className="mt-1 text-xs text-gray-500">
               Please provide a valid URL starting with http:// or https://
+            </p>
+          )}
+
+          {isListType && (
+            <p className="mt-1 text-xs text-gray-500">
+              Fill in all {currentRequirement.items || 1} items to submit your response
             </p>
           )}
         </div>

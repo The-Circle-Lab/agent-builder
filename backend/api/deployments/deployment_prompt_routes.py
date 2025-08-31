@@ -235,7 +235,8 @@ def get_all_prompt_submissions_for_deployment(deployment_id: str, db_session) ->
                     # Create a unique key for this submission (could be improved with actual prompt IDs)
                     submission_key = f"submission_{sub.submission_index}"
                     
-                    if getattr(sub, 'media_type', None) == 'pdf':
+                    media_type = getattr(sub, 'media_type', None)
+                    if media_type == 'pdf':
                         try:
                             pdf_id = int(sub.user_response)
                             pdf_document_ids.append(pdf_id)
@@ -255,10 +256,35 @@ def get_all_prompt_submissions_for_deployment(deployment_id: str, db_session) ->
                                 "text": sub.user_response,
                                 "submission_index": sub.submission_index
                             }
+                    elif media_type == 'list':
+                        # Stored as JSON array string. Parse and join items into text context.
+                        import json
+                        items_raw = sub.user_response
+                        try:
+                            data = json.loads(items_raw) if items_raw else []
+                            if isinstance(data, list):
+                                list_items = [str(x) for x in data if str(x).strip()]
+                            else:
+                                list_items = [str(data)]
+                        except Exception:
+                            # Fallback: treat as newline separated
+                            list_items = [line.strip() for line in (items_raw or '').splitlines() if line.strip()]
+                        # Add each item to text responses (could weight differently later)
+                        joined_items = " ".join(list_items)
+                        if joined_items:
+                            text_responses.append(joined_items)
+                        submission_responses[submission_key] = {
+                            "media_type": "list",
+                            "response": sub.user_response,  # raw stored JSON string
+                            "items": list_items,
+                            "text": joined_items,
+                            "submission_index": sub.submission_index
+                        }
                     else:
+                        # Treat any other (textarea/hyperlink) as text
                         text_responses.append(sub.user_response)
                         submission_responses[submission_key] = {
-                            "media_type": "text",
+                            "media_type": "text" if media_type != 'hyperlink' else 'hyperlink',
                             "response": sub.user_response,
                             "text": sub.user_response,
                             "submission_index": sub.submission_index
@@ -505,13 +531,33 @@ async def submit_prompt_response(
     # Get submission requirement details
     requirement = session.submission_requirements[request.submission_index]
     
+    # For list mediaType, store a normalized JSON array string
+    user_response_value = request.response.strip()
+    if requirement.get("mediaType") == "list":
+        # Normalize to JSON array string
+        import json
+        raw = user_response_value
+        entries = []
+        parsed = False
+        if raw.startswith("[") and raw.endswith("]"):
+            try:
+                data = json.loads(raw)
+                if isinstance(data, list):
+                    entries = [str(x).strip() for x in data if str(x).strip()]
+                    parsed = True
+            except Exception:
+                parsed = False
+        if not parsed:
+            entries = [line.strip() for line in raw.splitlines() if line.strip()]
+        user_response_value = json.dumps(entries)
+
     # Save the submission
     submission = PromptSubmission(
         session_id=session.id,
         submission_index=request.submission_index,
         prompt_text=requirement["prompt"],
         media_type=requirement["mediaType"],
-        user_response=request.response.strip(),
+        user_response=user_response_value,
     )
     
     db.add(submission)

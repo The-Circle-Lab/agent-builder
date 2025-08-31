@@ -89,6 +89,7 @@ export default function CompletionView({
               const submittedResponse = submittedResponses[index];
               const isLinkType = requirement.mediaType === 'hyperlink';
               const isPdfType = requirement.mediaType === 'pdf';
+              const isListType = requirement.mediaType === 'list';
               
               if (!submittedResponse) return null;
               
@@ -100,6 +101,8 @@ export default function CompletionView({
                         <PaperClipIcon className="h-5 w-5 text-red-600" />
                       ) : isLinkType ? (
                         <LinkIcon className="h-5 w-5 text-purple-600" />
+                      ) : isListType ? (
+                        <PencilIcon className="h-5 w-5 text-orange-600" />
                       ) : (
                         <PencilIcon className="h-5 w-5 text-blue-600" />
                       )}
@@ -115,9 +118,11 @@ export default function CompletionView({
                             ? 'bg-red-100 text-red-800'
                             : isLinkType 
                               ? 'bg-purple-100 text-purple-800' 
-                              : 'bg-blue-100 text-blue-800'
+                              : isListType
+                                ? 'bg-orange-100 text-orange-800'
+                                : 'bg-blue-100 text-blue-800'
                         }`}>
-                          {isPdfType ? 'PDF' : isLinkType ? 'Link' : 'Text'}
+                          {isPdfType ? 'PDF' : isLinkType ? 'Link' : isListType ? 'List' : 'Text'}
                         </span>
                       </div>
                       
@@ -150,6 +155,30 @@ export default function CompletionView({
                           >
                             {submittedResponse.user_response}
                           </a>
+                        ) : isListType ? (
+                          (() => {
+                            try {
+                              const items = JSON.parse(submittedResponse.user_response);
+                              return (
+                                <div className="bg-white p-3 rounded border">
+                                  <div className="space-y-2">
+                                    {items.map((item: string, itemIndex: number) => (
+                                      <div key={itemIndex} className="flex items-start space-x-3">
+                                        <span className="text-orange-600 text-sm font-medium min-w-[20px]">{itemIndex + 1}.</span>
+                                        <span className="text-gray-800 flex-1">{item}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              );
+                            } catch {
+                              return (
+                                <p className="text-black whitespace-pre-wrap">
+                                  {submittedResponse.user_response}
+                                </p>
+                              );
+                            }
+                          })()
                         ) : (
                           <p className="text-black whitespace-pre-wrap">
                             {submittedResponse.user_response}

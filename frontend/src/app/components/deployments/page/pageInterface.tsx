@@ -16,6 +16,13 @@ export default function PageInterface({ deploymentId, deploymentName, onBack }: 
     setCurrentPage,
   } = usePageDeployment(deploymentId);
 
+  const handlePageComplete = () => {
+    // Always return to assignments when user clicks "Return to Assignments"
+    if (onBack) {
+      onBack();
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col bg-gray-50">
       {/* Page Header with Navigation */}
@@ -34,6 +41,7 @@ export default function PageInterface({ deploymentId, deploymentName, onBack }: 
         deploymentName={deploymentName}
         loading={loading}
         error={error}
+        onPageComplete={handlePageComplete}
       />
     </div>
   );

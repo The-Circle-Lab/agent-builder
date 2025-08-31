@@ -380,29 +380,39 @@ class ThemeCreatorBehavior:
                         try:
                             submission_index = int(parts[-1])  # Last part is the index
                             submission_key = f"submission_{submission_index}"
-                            variable_type = parts[-2]  # Second to last is the type (text/pdf)
+                            variable_type = parts[-2]  # Second to last is the type (text/pdf/list)
                             
                             if submission_key in student['submission_responses']:
                                 response = student['submission_responses'][submission_key]
                                 media_type = response.get('media_type', '')
-                                
+
                                 print(f"    🔍 Found {submission_key}: {media_type} type")
-                                
-                                # Match variable type with media type for validation
-                                if (variable_type == 'text' and media_type == 'text') or \
-                                   (variable_type == 'pdf' and media_type == 'pdf'):
-                                    
+
+                                # Normalize type matching including list
+                                type_match = False
+                                if variable_type == 'text' and media_type == 'text':
+                                    type_match = True
+                                elif variable_type == 'pdf' and media_type == 'pdf':
+                                    type_match = True
+                                elif variable_type == 'list' and media_type == 'list':
+                                    type_match = True
+
+                                if type_match:
                                     filtered_responses[submission_key] = response
-                                    
-                                    if media_type == 'text':
-                                        # Extract text content for theme analysis
+
+                                    if media_type == 'text' or media_type == 'hyperlink':
                                         text_content = response.get('text', '') or response.get('response', '')
                                         if text_content:
                                             selected_texts.append(text_content)
                                             print(f"      ✅ Added text: {text_content[:50]}...")
-                                    
+                                    elif media_type == 'list':
+                                        items = response.get('items') or []
+                                        if isinstance(items, list) and items:
+                                            list_text = ' '.join([str(i) for i in items if str(i).strip()])
+                                            if list_text:
+                                                selected_texts.append(list_text)
+                                                print(f"      ✅ Added list items text: {list_text[:50]}...")
                                     elif media_type == 'pdf':
-                                        # Extract PDF document ID for theme analysis
                                         try:
                                             pdf_id = int(response.get('response', ''))
                                             selected_pdf_ids.append(pdf_id)

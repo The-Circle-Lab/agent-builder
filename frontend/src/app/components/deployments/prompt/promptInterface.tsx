@@ -125,7 +125,7 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
         [submissionIndex]: {
           submission_index: responseData.submission_index,
           prompt_text: responseData.prompt_text,
-          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf',
+          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf' | 'list',
           user_response: responseData.user_response,
           submitted_at: responseData.submitted_at,
         },
@@ -170,7 +170,7 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
         [submissionIndex]: {
           submission_index: responseData.submission_index,
           prompt_text: responseData.prompt_text,
-          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf',
+          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf' | 'list',
           user_response: responseData.user_response,
           submitted_at: responseData.submitted_at,
         },
@@ -233,6 +233,33 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
       const urlPattern = /^https?:\/\/.+/i;
       if (!urlPattern.test(response.trim())) {
         setError('Please provide a valid URL starting with http:// or https://');
+        return;
+      }
+    }
+
+    // Validation for list inputs
+    if (currentRequirement.mediaType === 'list') {
+      try {
+        const items = JSON.parse(response);
+        const requiredItems = currentRequirement.items || 1;
+        
+        if (!Array.isArray(items)) {
+          setError('Invalid list format');
+          return;
+        }
+        
+        if (items.length !== requiredItems) {
+          setError(`Please provide exactly ${requiredItems} item(s)`);
+          return;
+        }
+        
+        const emptyItems = items.filter(item => !item || !item.trim());
+        if (emptyItems.length > 0) {
+          setError('All list items must be filled in');
+          return;
+        }
+      } catch {
+        setError('Invalid list format');
         return;
       }
     }

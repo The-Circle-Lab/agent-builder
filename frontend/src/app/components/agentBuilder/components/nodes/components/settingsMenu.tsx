@@ -764,14 +764,24 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const prompts: any[] = Array.isArray(value) ? value : [];
 
-        const updatePrompt = (index: number, field: string, val: string) => {
+        const updatePrompt = (index: number, field: string, val: string | number) => {
           const newPrompts = prompts.map((p, i) => {
             if (i !== index) return p;
 
             if (field === "prompt") {
               return { ...p, prompt: val };
             } else if (field === "mediaType") {
-              return { ...p, mediaType: val };
+              const updatedPrompt = { ...p, mediaType: val };
+              // Reset items to null when changing away from list type
+              if (val !== "list") {
+                updatedPrompt.items = null;
+              } else if (!updatedPrompt.items) {
+                // Initialize items to 1 when switching to list type
+                updatedPrompt.items = 1;
+              }
+              return updatedPrompt;
+            } else if (field === "items") {
+              return { ...p, items: val };
             }
             return p;
           });
@@ -781,7 +791,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
         const addPrompt = () => {
           const newPrompts = [
             ...prompts,
-            { prompt: "", mediaType: "textarea" },
+            { prompt: "", mediaType: "textarea", items: null },
           ];
           handleInputChange(key, newPrompts);
         };
@@ -868,7 +878,32 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                       />
                       <span className="text-sm text-gray-300">PDF Upload</span>
                     </label>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="radio"
+                        name={`mediaType-${pIdx}`}
+                        value="list"
+                        checked={prompt.mediaType === "list"}
+                        onChange={(e) => updatePrompt(pIdx, "mediaType", e.target.value)}
+                        className="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-300">List</span>
+                    </label>
                   </div>
+                  {prompt.mediaType === "list" && 
+                    <div className="mt-2">
+                      <label className="block text-sm font-medium text-gray-300 mb-1">
+                        Number of list items:
+                      </label>
+                      <input
+                        type="number"
+                        value={prompt.items || 1}
+                        onChange={(e) => updatePrompt(pIdx, "items", parseInt(e.target.value) || 1)}
+                        placeholder="Number of list items"
+                        min="1"
+                        className="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>}
                 </div>
               </div>
             ))}

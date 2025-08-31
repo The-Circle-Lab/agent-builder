@@ -1087,6 +1087,7 @@ export default function PageDeploymentAdmin({
                             {selectedPageStats.selectedSession.submissions.map((submission, index) => {
                               const isLinkType = submission.media_type === 'hyperlink';
                               const isPdfType = submission.media_type === 'pdf';
+                              const isListType = submission.media_type === 'list';
                               
                               return (
                                 <div key={index} className="border border-gray-200 rounded-lg p-4">
@@ -1111,9 +1112,11 @@ export default function PageDeploymentAdmin({
                                             ? 'bg-red-100 text-red-800'
                                             : isLinkType 
                                               ? 'bg-purple-100 text-purple-800' 
-                                              : 'bg-blue-100 text-blue-800'
+                                              : isListType
+                                                ? 'bg-orange-100 text-orange-800'
+                                                : 'bg-blue-100 text-blue-800'
                                         }`}>
-                                          {isPdfType ? 'PDF' : isLinkType ? 'Link' : 'Text'}
+                                          {isPdfType ? 'PDF' : isLinkType ? 'Link' : isListType ? 'List' : 'Text'}
                                         </span>
                                       </div>
                                       
@@ -1149,6 +1152,28 @@ export default function PageDeploymentAdmin({
                                           >
                                             {submission.user_response}
                                           </a>
+                                        ) : isListType ? (
+                                          (() => {
+                                            try {
+                                              const items = JSON.parse(submission.user_response);
+                                              return (
+                                                <div className="space-y-1">
+                                                  {items.map((item: string, index: number) => (
+                                                    <div key={index} className="flex items-start space-x-2">
+                                                      <span className="text-gray-500 text-sm">{index + 1}.</span>
+                                                      <span className="text-gray-800">{item}</span>
+                                                    </div>
+                                                  ))}
+                                                </div>
+                                              );
+                                            } catch {
+                                              return (
+                                                <p className="text-gray-800 whitespace-pre-wrap">
+                                                  {submission.user_response}
+                                                </p>
+                                              );
+                                            }
+                                          })()
                                         ) : (
                                           <p className="text-gray-800 whitespace-pre-wrap">
                                             {submission.user_response}

@@ -14,9 +14,10 @@ interface PageContentProps {
   deploymentName: string;
   loading: boolean;
   error: string | null;
+  onPageComplete?: () => void; // Add callback for when a page is completed
 }
 
-export default function PageContent({ pageInfo, deploymentName, loading, error }: PageContentProps) {
+export default function PageContent({ pageInfo, deploymentName, loading, error, onPageComplete }: PageContentProps) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userLoading, setUserLoading] = useState(true);
 
@@ -131,7 +132,7 @@ export default function PageContent({ pageInfo, deploymentName, loading, error }
           <CodeInterface 
             deploymentId={pageInfo.deployment_id}
             workflowName={pageDeploymentName}
-            onBack={() => {}} // No-op since we're embedded in page
+            onBack={onPageComplete || (() => {})} // Use onPageComplete for navigation
           />
         );
       
@@ -140,7 +141,7 @@ export default function PageContent({ pageInfo, deploymentName, loading, error }
           <MCQInterface 
             deploymentId={pageInfo.deployment_id}
             deploymentName={pageDeploymentName}
-            onClose={() => {}} // No-op since we're embedded in page
+            onClose={onPageComplete || (() => {})} // Use onPageComplete for navigation
           />
         );
       
@@ -149,7 +150,7 @@ export default function PageContent({ pageInfo, deploymentName, loading, error }
           <PromptInterface 
             deploymentId={pageInfo.deployment_id}
             deploymentName={pageDeploymentName}
-            onClose={() => {}} // No-op since we're embedded in page
+            onClose={onPageComplete || (() => {})} // Use onPageComplete for navigation
           />
         );
       

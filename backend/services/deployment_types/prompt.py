@@ -21,10 +21,17 @@ class PromptDeployment:
         for i, req in enumerate(submission_requirements):
             if 'prompt' not in req or 'mediaType' not in req:
                 raise ValueError(f"Submission requirement {i} missing 'prompt' or 'mediaType'")
-            if req['mediaType'] not in ['textarea', 'hyperlink', 'pdf']:
+            if req['mediaType'] not in ['textarea', 'hyperlink', 'pdf', 'list']:
                 raise ValueError(
-                    f"Invalid mediaType '{req['mediaType']}' in requirement {i}. Must be 'textarea', 'hyperlink' or 'pdf'"
+                    f"Invalid mediaType '{req['mediaType']}' in requirement {i}. Must be 'textarea', 'hyperlink', 'pdf' or 'list'"
                 )
+            # Additional validation for list type
+            if req['mediaType'] == 'list':
+                items = req.get('items')
+                if items is None:
+                    raise ValueError(f"List submission requirement {i} missing 'items' field")
+                if not isinstance(items, int) or items < 1:
+                    raise ValueError(f"List submission requirement {i} has invalid 'items' value '{items}'. Must be integer >= 1")
 
     def get_main_question(self) -> str:
         """Get the main prompt question"""
@@ -143,6 +150,34 @@ class PromptDeployment:
                 "valid": False,
                 "error": "This submission requires a PDF upload. Use the PDF upload endpoint."
             }
+        elif media_type == 'list':
+            # For list submissions the response should contain the required number of text entries.
+            # We accept either:
+            # 1. A JSON array string: ["item1", "item2", ...]
+            # 2. A newline-separated string with each non-empty line being an item.
+            required_items = requirement.get('items')
+            entries: List[str] = []
+            raw = response.strip()
+            import json
+            parsed = False
+            if raw.startswith('[') and raw.endswith(']'):
+                try:
+                    data = json.loads(raw)
+                    if isinstance(data, list):
+                        entries = [str(x).strip() for x in data if str(x).strip()]
+                        parsed = True
+                except Exception:
+                    parsed = False
+            if not parsed:
+                # Fallback: split by newlines
+                entries = [line.strip() for line in raw.splitlines() if line.strip()]
+            if not isinstance(required_items, int) or required_items < 1:
+                return {"valid": False, "error": "Server configuration error: invalid 'items' value for list requirement"}
+            if len(entries) != required_items:
+                return {
+                    "valid": False,
+                    "error": f"List submission requires exactly {required_items} item(s); received {len(entries)}"
+                }
         
         return {
             "valid": True,
