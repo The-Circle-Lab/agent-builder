@@ -86,9 +86,9 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         errors.confirmPassword = passwordMatchValidation.error;
       }
 
-      // Registration key validation
-      if (!formData.key.trim()) {
-        errors.key = "Registration key is required";
+      // Registration key validation (only required for instructors)
+      if (formData.is_instructor && !formData.key.trim()) {
+        errors.key = "Registration key is required for instructor accounts";
       }
     }
 
@@ -109,12 +109,18 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
         password: formData.password
       });
     } else {
-      await handleAuth(false, {
+      const registerData: RegisterRequest = {
         email: formData.email,
         password: formData.password,
-        key: formData.key,
         is_instructor: formData.is_instructor
-      });
+      };
+      
+      // Only include key if user is registering as instructor
+      if (formData.is_instructor) {
+        registerData.key = formData.key;
+      }
+      
+      await handleAuth(false, registerData);
     }
   };
 
@@ -224,7 +230,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
           {!isLogin && (
             <div>
               <label htmlFor="key" className="block text-sm font-medium text-gray-700 mb-2">
-                Registration Key
+                Registration Key {formData.is_instructor ? "(Required)" : "(Not required for students)"}
               </label>
               <input
                 type="text"
@@ -232,11 +238,11 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
                 name="key"
                 value={formData.key}
                 onChange={handleInputChange}
-                required
+                required={formData.is_instructor}
                 className={`w-full px-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200  text-black ${
                   fieldErrors.key ? 'border-red-300' : 'border-gray-300'
                 }`}
-                placeholder="Enter registration key"
+                placeholder={formData.is_instructor ? "Enter registration key" : "Enter registration key (optional for students)"}
                 aria-invalid={!!fieldErrors.key}
                 aria-describedby={fieldErrors.key ? "key-error" : undefined}
               />
