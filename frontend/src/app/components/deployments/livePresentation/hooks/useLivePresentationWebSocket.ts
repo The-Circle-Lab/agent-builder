@@ -338,7 +338,7 @@ export const useLivePresentationWebSocket = ({
       default:
         console.log('Unknown message type:', (message as TypedWebSocketMessage).type);
     }
-  }, [isTeacher, setMessageWithTimeout, userName]);
+  }, [isTeacher, setMessageWithTimeout, userName, timerActive]);
 
   // Local ticking for timer (frontend countdown) with drift correction vs server syncs
   useEffect(() => {

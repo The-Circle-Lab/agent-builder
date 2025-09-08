@@ -61,7 +61,7 @@ export interface PromptPdfTaskStatus {
   status?: string;
   progress?: number; // 0-100
   stage?: string;
-  result?: any;
+  result?: PromptSubmissionResult;
   error?: string;
 }
 
@@ -204,9 +204,9 @@ export class PromptDeploymentAPI {
         onProgress?.(s);
 
         if (s.state === 'SUCCESS') {
-          const payload: any = s.result ?? {};
-          const result: any = payload.result ?? payload;
-          return result as PromptSubmissionResult;
+          const payload: { result?: PromptSubmissionResult } | PromptSubmissionResult = s.result ?? {};
+          const result: PromptSubmissionResult = ('result' in payload ? payload.result : payload) as PromptSubmissionResult;
+          return result;
         }
         if (s.state === 'FAILURE') {
           throw new Error(s.error || s.status || 'PDF processing failed');

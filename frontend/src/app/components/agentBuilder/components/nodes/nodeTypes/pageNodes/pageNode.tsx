@@ -1,5 +1,5 @@
 import React, { useCallback } from "react";
-import { NodeProps, NodeResizer, Handle, Position } from "@xyflow/react";
+import { NodeProps, NodeResizer } from "@xyflow/react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrash, faGears } from "@fortawesome/free-solid-svg-icons";
 import { BaseNode, BaseNodeProps, BaseNodeData } from "../baseNode";
@@ -213,44 +213,6 @@ function PageNodeComponent({
             </button>
           )}
         </div>
-
-        {/* Input Handle - Left side, vertically centered */}
-        <Handle
-          type="target"
-          position={Position.Left}
-          id="input"
-          className="page-input-handle"
-          style={{ 
-            top: "50%", 
-            left: "-1.25%", 
-            transform: "translateY(-50%)",
-            backgroundColor: backgroundColor,
-            border: `2px solid ${backgroundColor}`,
-            width: "12px",
-            height: "12px",
-            pointerEvents: 'auto',
-            zIndex: 10
-          }}
-        />
-
-        {/* Output Handle - Right side, vertically centered */}
-        <Handle
-          type="source"
-          position={Position.Right}
-          id="output"
-          className="page-output-handle"
-          style={{ 
-            top: "50%", 
-            right: "-1.25%", 
-            transform: "translateY(-50%)",
-            backgroundColor: backgroundColor,
-            border: `2px solid ${backgroundColor}`,
-            width: "12px",
-            height: "12px",
-            pointerEvents: 'auto',
-            zIndex: 10
-          }}
-        />
       </div>
     </div>
   );

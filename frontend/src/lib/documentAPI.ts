@@ -116,7 +116,7 @@ export class DocumentAPI {
 
     // Fall back: if server still processes synchronously
     if (response.ok) {
-      const sync: UploadResponse = await response.json();
+      await response.json();
       return { message: 'Completed', task_id: '' };
     }
 
@@ -149,8 +149,8 @@ export class DocumentAPI {
       const status = await this.getUploadStatus(taskId);
       if (status.state === 'SUCCESS') {
         // Backend returns either { result: { ... } } or the UploadResponse directly in result
-        const payload = (status.result as any) ?? {};
-        return (payload.result ?? payload) as UploadResponse;
+        const payload: { result?: UploadResponse } | UploadResponse = (status.result) ?? {};
+        return ('result' in payload ? payload.result : payload) as UploadResponse;
       }
       if (status.state === 'FAILURE') {
         throw new Error(status.error || status.status || 'Upload failed');
@@ -188,8 +188,8 @@ export class DocumentAPI {
         if (!r.ok) throw new Error(`Prompt PDF status failed: ${r.status}`);
         const s = await r.json();
         if (s.state === 'SUCCESS') {
-          const payload = (s.result as any) ?? {};
-          return (payload.result ?? payload) as PromptSubmissionResponse;
+          const payload: { result?: PromptSubmissionResponse } | PromptSubmissionResponse = (s.result) ?? {};
+          return ('result' in payload ? payload.result : payload) as PromptSubmissionResponse;
         }
         if (s.state === 'FAILURE') {
           throw new Error(s.error || s.status || 'Prompt PDF upload failed');

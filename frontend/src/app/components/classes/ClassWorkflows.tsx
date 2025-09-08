@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { Workflow } from '@/lib/types';
-import { PlusIcon, PencilIcon, RocketLaunchIcon, BeakerIcon } from '@heroicons/react/24/outline';
+import { PlusIcon, PencilIcon, BeakerIcon } from '@heroicons/react/24/outline';
 
 interface ClassWorkflowsProps {
   workflows: Workflow[];
@@ -16,7 +16,6 @@ export default function ClassWorkflows({
   workflows, 
   onCreateWorkflow, 
   onEditWorkflow,
-  onDeployWorkflow,
   onDeleteWorkflow 
 }: ClassWorkflowsProps) {
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -24,7 +23,6 @@ export default function ClassWorkflows({
   const [description, setDescription] = useState('');
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [deployingId, setDeployingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
 
   // Sort workflows by most recent first
@@ -52,18 +50,6 @@ export default function ClassWorkflows({
       setError(err instanceof Error ? err.message : 'Failed to create workflow');
     } finally {
       setCreating(false);
-    }
-  };
-
-  const handleDeploy = async (workflow: Workflow) => {
-    try {
-      setDeployingId(workflow.id);
-      await onDeployWorkflow(workflow);
-    } catch (err) {
-      console.error('Failed to deploy workflow:', err);
-      alert(err instanceof Error ? err.message : 'Failed to deploy workflow');
-    } finally {
-      setDeployingId(null);
     }
   };
 
@@ -200,15 +186,6 @@ export default function ClassWorkflows({
                   >
                     <PencilIcon className="h-4 w-4 mr-2" />
                     Edit
-                  </button>
-                  <button
-                    onClick={() => handleDeploy(workflow)}
-                    disabled={deployingId === workflow.id}
-                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                    title="Deploy workflow"
-                  >
-                    <RocketLaunchIcon className="h-4 w-4 mr-2" />
-                    {deployingId === workflow.id ? 'Deploying...' : 'Deploy'}
                   </button>
                   <button
                     onClick={() => handleDelete(workflow.id, workflow.name)}
