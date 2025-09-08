@@ -2711,6 +2711,49 @@ class LivePresentationDeployment:
         if self.current_prompt is not None:
             print(f"🧹 Clearing cached current_prompt on presentation end (was: {self.current_prompt.get('id')})")
         self.current_prompt = None
+        # Clear per-session / per-run caches so a subsequent restart is a clean slate for late joiners.
+        # (Requirement: "remove all the cache associated with the presentation".)
+        try:
+            # 1. Forget group completion + summary tracking
+            if getattr(self, "_group_completion_status", None):
+                cleared_prompts = len(self._group_completion_status)
+                self._group_completion_status.clear()
+                print(f"🧹 Cleared group completion cache for {cleared_prompts} prompts")
+            # 2. Clear any list variable cache (so regenerated / re-fetched next start)
+            if getattr(self, "_list_variable_cache", None) is not None:
+                cache_size = len(self._list_variable_cache)
+                self._list_variable_cache.clear()
+                print(f"🧹 Cleared list variable cache (had {cache_size} entries)")
+            # 3. Clear per-student transient data: responses + assigned list items + ready status
+            cleared_responses = 0
+            cleared_assigned = 0
+            for student in self.students.values():
+                resp_cnt = len(student.responses)
+                assign_cnt = len(student.assigned_list_items)
+                if resp_cnt:
+                    cleared_responses += resp_cnt
+                    student.responses.clear()
+                if assign_cnt:
+                    cleared_assigned += assign_cnt
+                    student.assigned_list_items.clear()
+                # Reset ready status back to CONNECTED so a fresh ready-check can run next time
+                if hasattr(student, 'status'):
+                    student.status = ConnectionStatus.CONNECTED
+            if cleared_responses or cleared_assigned:
+                print(f"🧹 Cleared {cleared_responses} stored responses and {cleared_assigned} assigned list items from students")
+            # 4. Timer state reset (if it was running we already stopped elsewhere, but ensure counters are zeroed)
+            self.timer_active = False
+            self.timer_start_time = None
+            self.timer_duration_seconds = 0
+            self.timer_remaining_seconds = 0
+            # 5. Ready student tracking (also cleared a few lines below, but do it early for clarity)
+            self.ready_students.clear()
+            # 6. Any roomcast session code is cleared later via _clear_roomcast_session(); ensure waiting flag reset
+            self.roomcast_waiting = False
+            # 7. Mark a timestamp of cache clear for debugging
+            self._last_cache_clear_at = datetime.now().isoformat()
+        except Exception as e:
+            print(f"⚠️ Cache clear encountered an error (continuing): {e}")
         try:
             # Also proactively clean up any stored recent prompts in database (best effort)
             await self._cleanup_expired_prompts()
