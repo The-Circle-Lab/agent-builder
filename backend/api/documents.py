@@ -98,12 +98,10 @@ async def upload_documents(
             detail="Only instructors of this class can upload documents to workflows"
         )
     
-    processed_files = []
-    temp_files = []
-    all_chunks = []
-    
+    # Stage files to temporary locations accessible by the Celery worker, then dispatch async task
+    staged_files: list[dict] = []
+    temp_files: list[str] = []
     try:
-        # Process each uploaded file
         for file in files:
             # Validate file
             if not validate_file(file):
@@ -111,7 +109,6 @@ async def upload_documents(
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail=f"Invalid file type: {file.filename}. Only PDF, DOC, DOCX allowed."
                 )
-            
             # Check file size
             file_content = await file.read()
             max_file_size_mb = config.get("document_processing", {}).get("max_file_size_mb", 20)
@@ -121,148 +118,54 @@ async def upload_documents(
                     status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
                     detail=f"File {file.filename} exceeds {max_file_size_mb}MB limit"
                 )
-            
-            # Create temporary file with secure name
-            temp_file = tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=Path(file.filename or '').suffix.lower(),
-                prefix=f"upload_{uuid.uuid4().hex[:8]}_"
-            )
-            
-            # Write content to temp file
-            temp_file.write(file_content)
-            temp_file.close()
-            temp_files.append(temp_file.name)
-            
-            # Load document
-            docs = load_document(Path(temp_file.name))
-            if not docs:
-                continue
-                
-            # Split into chunks
-            chunk_settings = config.get("document_processing", {}).get("chunk_settings", {})
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunk_settings.get("chunk_size", 800),
-                chunk_overlap=chunk_settings.get("chunk_overlap", 100),
-                add_start_index=chunk_settings.get("add_start_index", True)
-            )
-            chunks = splitter.split_documents(docs)
-            
-            # Generate unique upload ID for this document
-            upload_id = str(uuid.uuid4())
-            
-            # Add metadata
-            for chunk in chunks:
-                chunk.metadata.update({
-                    'user_id': current_user.id,
-                    'filename': file.filename,
-                    'source': file.filename,  # Override the temporary filename with original
-                    'upload_id': upload_id
-                })
-            
-            all_chunks.extend(chunks)
-            processed_files.append({
+
+            # Write to temp file for the worker to pick up (use shared temp dir from config)
+            temp_dir = Path(config.get("paths", {}).get("uploads_temp_dir", "./temp"))
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            temp_path = temp_dir / f"upload_{uuid.uuid4().hex[:8]}_{Path(file.filename or '').name}"
+            with open(temp_path, 'wb') as tf:
+                tf.write(file_content)
+            temp_files.append(str(temp_path))
+            staged_files.append({
+                'temp_path': str(temp_path),
                 'filename': file.filename,
-                'upload_id': upload_id,
-                'chunks': len(chunks),
-                'size': len(file_content),
-                'file_type': Path(file.filename or '').suffix.lower().lstrip('.'),
-                'file_content': file_content  # Store file content for disk storage
+                'content_type': file.content_type or ''
             })
-        
-        if not all_chunks:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No content could be extracted from uploaded files"
-            )
-        
-        # Create embeddings and store in Qdrant
-        embeddings = FastEmbedEmbeddings()
-        
-        # Use workflow-specific collection name
-        user_collection = get_user_collection_name(workflow.workflow_collection_id, current_user.id)
-        
-        vector_store = Qdrant.from_documents(
-            documents=all_chunks,
-            embedding=embeddings,
-            url=config.get("qdrant", {}).get("url", "http://localhost:6333"),
-            prefer_grpc=config.get("qdrant", {}).get("prefer_grpc", False),
-            collection_name=user_collection,
-            ids=[str(uuid.uuid4()) for _ in all_chunks],
+
+        # Enqueue Celery task
+        from services.celery_tasks import process_document_uploads_task
+        async_result = process_document_uploads_task.delay(
+            workflow_id=workflow.id,
+            user_id=current_user.id,
+            files=staged_files,
         )
-        
-        # Save document metadata to database and store files on disk
-        saved_documents = []
-        response_files = []
-        
-        for file_info in processed_files:
-            # Store file on disk and get storage path
-            try:
-                storage_path = store_file(
-                    file_content=file_info['file_content'],
-                    workflow_id=workflow.id,
-                    upload_id=file_info['upload_id'],
-                    filename=file_info['filename']
-                )
-            except Exception as storage_error:
-                # If storage fails, continue without storing the file
-                print(f"Warning: Failed to store file {file_info['filename']}: {storage_error}")
-                storage_path = None
-            
-            document = Document(
-                filename=file_info['filename'],
-                original_filename=file_info['filename'],
-                file_size=file_info['size'],
-                file_type=file_info['file_type'],
-                collection_name=workflow.workflow_collection_id,
-                user_collection_name=user_collection,
-                upload_id=file_info['upload_id'],
-                chunk_count=file_info['chunks'],
-                storage_path=storage_path,
-                uploaded_by_id=current_user.id,
-                workflow_id=workflow.id
-            )
-            db.add(document)
-            saved_documents.append(document)
-            
-            # Create response data without file_content (bytes are not JSON serializable)
-            response_files.append({
-                'filename': file_info['filename'],
-                'upload_id': file_info['upload_id'],
-                'chunks': file_info['chunks'],
-                'size': file_info['size'],
-                'file_type': file_info['file_type'],
-                'storage_path': storage_path
-            })
-        
-        db.commit()
-        
+
+        # Return task id for client polling
         return JSONResponse(
-            status_code=status.HTTP_201_CREATED,
+            status_code=status.HTTP_202_ACCEPTED,
             content={
-                "message": "Documents uploaded and ingested successfully",
-                "workflow_id": workflow.id,
-                "workflow_name": workflow.name,
-                "collection_name": user_collection,
-                "total_chunks": len(all_chunks),
-                "files_processed": response_files
+                'message': 'Upload accepted for processing',
+                'task_id': async_result.id,
             }
         )
-        
     except HTTPException:
+        # If validation error, clean staged temps
+        for p in temp_files:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
         raise
     except Exception as e:
+        for p in temp_files:
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Document processing failed: {str(e)}"
+            detail=f"Failed to enqueue document processing: {str(e)}"
         )
-    finally:
-        # Clean up temporary files
-        for temp_file in temp_files:
-            try:
-                os.unlink(temp_file)
-            except OSError:
-                pass  # File already deleted or doesn't exist
 
 @router.get("/workflows/{workflow_id}/documents")
 async def list_workflow_documents(
@@ -527,3 +430,44 @@ async def delete_collection(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to delete collection: {str(e)}"
         ) 
+
+
+@router.get("/upload/status/{task_id}")
+async def get_upload_status(task_id: str):
+    """Poll the status of an async document upload task."""
+    from services.celery_tasks import celery_app
+    from celery.result import AsyncResult
+
+    try:
+        result = AsyncResult(task_id, app=celery_app)
+        state = result.state
+        info = result.info if isinstance(result.info, dict) else {}
+
+        if state == 'PENDING':
+            return { 'state': state, 'status': 'Pending', 'progress': 0, 'stage': 'pending' }
+        if state == 'PROGRESS':
+            return {
+                'state': state,
+                'status': info.get('status', 'Processing...'),
+                'progress': info.get('progress', 0),
+                'stage': info.get('stage', 'processing'),
+            }
+        if state == 'SUCCESS':
+            return {
+                'state': state,
+                'status': 'Completed',
+                'result': result.result,
+                'progress': 100,
+                'stage': 'completed',
+            }
+        if state == 'FAILURE':
+            return {
+                'state': state,
+                'status': str(result.info),
+                'error': str(result.info),
+                'progress': 0,
+                'stage': 'failed',
+            }
+        return { 'state': state, 'status': 'Unknown', 'progress': 0, 'stage': 'unknown' }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching task status: {e}")

@@ -15,6 +15,7 @@ interface SubmissionDisplayProps {
   onNavigateToSubmission: (index: number) => void;
   selectedPdfFile?: File | null;
   onPdfSelect?: (file: File | null) => void;
+  pdfProgress?: { progress: number; stage?: string; state?: string };
 }
 
 export default function SubmissionDisplay({
@@ -29,6 +30,7 @@ export default function SubmissionDisplay({
   onNavigateToSubmission,
   selectedPdfFile,
   onPdfSelect,
+  pdfProgress,
 }: SubmissionDisplayProps) {
   const currentRequirement = session.submission_requirements[submissionIndex];
   const isSubmitted = !!submittedResponse;
@@ -215,14 +217,30 @@ export default function SubmissionDisplay({
           </label>
           
           {isPdfType ? (
-            <input
-              id={`response-${submissionIndex}`}
-              type="file"
-              accept="application/pdf"
-              onChange={(e) => onPdfSelect?.(e.target.files && e.target.files[0] ? e.target.files[0] : null)}
-              className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-              disabled={submitting}
-            />
+            <div className="space-y-3">
+              <input
+                id={`response-${submissionIndex}`}
+                type="file"
+                accept="application/pdf"
+                onChange={(e) => onPdfSelect?.(e.target.files && e.target.files[0] ? e.target.files[0] : null)}
+                className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                disabled={submitting}
+              />
+              {submitting && (
+                <div className="w-full">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-xs text-gray-600">{pdfProgress?.stage || pdfProgress?.state || 'Processing...'}</span>
+                    <span className="text-xs text-gray-600">{Math.round(pdfProgress?.progress ?? 0)}%</span>
+                  </div>
+                  <div className="w-full bg-gray-200 rounded-full h-2">
+                    <div
+                      className="bg-blue-600 h-2 rounded-full transition-all"
+                      style={{ width: `${Math.min(100, Math.max(0, pdfProgress?.progress ?? 0))}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
           ) : isLinkType ? (
             <input
               id={`response-${submissionIndex}`}

@@ -56,6 +56,15 @@ export interface PromptSubmissionResult {
   validation_error?: string;
 }
 
+export interface PromptPdfTaskStatus {
+  state: 'PENDING' | 'PROGRESS' | 'SUCCESS' | 'FAILURE' | string;
+  status?: string;
+  progress?: number; // 0-100
+  stage?: string;
+  result?: any;
+  error?: string;
+}
+
 export interface PromptInstructorSessionView {
   session_id: number;
   user_email: string;
@@ -152,7 +161,8 @@ export class PromptDeploymentAPI {
   static async submitPdf(
     deploymentId: string,
     submissionIndex: number,
-    file: File
+    file: File,
+    onProgress?: (status: PromptPdfTaskStatus) => void,
   ): Promise<PromptSubmissionResult> {
     if (!deploymentId?.trim()) {
       throw new Error('Deployment ID is required');
@@ -171,11 +181,47 @@ export class PromptDeploymentAPI {
       body: form,
     });
 
+    // Async path: 202 Accepted with task id, then poll status endpoint and report progress
+    if (response.status === 202) {
+      const { task_id } = await response.json();
+      const statusUrl = `${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/prompt/submit_pdf/status/${encodeURIComponent(task_id)}`;
+
+      const start = Date.now();
+      const timeoutMs = 10 * 60 * 1000; // 10 minutes
+      const intervalMs = 1200;
+
+      while (true) {
+        if (Date.now() - start > timeoutMs) {
+          throw new Error('PDF processing timed out');
+        }
+
+        const r = await fetch(statusUrl, { credentials: 'include' });
+        if (!r.ok) {
+          const t = await r.text();
+          throw new Error(t || `Status check failed (${r.status})`);
+        }
+        const s: PromptPdfTaskStatus = await r.json();
+        onProgress?.(s);
+
+        if (s.state === 'SUCCESS') {
+          const payload: any = s.result ?? {};
+          const result: any = payload.result ?? payload;
+          return result as PromptSubmissionResult;
+        }
+        if (s.state === 'FAILURE') {
+          throw new Error(s.error || s.status || 'PDF processing failed');
+        }
+
+        await new Promise((res) => setTimeout(res, intervalMs));
+      }
+    }
+
     if (!response.ok) {
       const errorText = await response.text();
       throw new Error(errorText);
     }
 
+    // Sync path (fallback)
     return await response.json();
   }
 

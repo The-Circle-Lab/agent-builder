@@ -34,6 +34,30 @@ export interface UploadResponse {
   }>;
 }
 
+export interface UploadAccepted {
+  message: string;
+  task_id: string;
+}
+
+export interface UploadTaskStatus {
+  state: 'PENDING' | 'PROGRESS' | 'SUCCESS' | 'FAILURE' | string;
+  status?: string;
+  progress?: number;
+  stage?: string;
+  result?: { result?: UploadResponse } | UploadResponse;
+  error?: string;
+}
+
+export interface PromptSubmissionResponse {
+  submission_index: number;
+  prompt_text: string;
+  media_type: string;
+  user_response: string;
+  submitted_at: string; // ISO string
+  is_valid: boolean;
+  validation_error?: string | null;
+}
+
 export class DocumentAPI {
   private static readonly BASE_URL = getApiConfig().base_url;
 
@@ -57,9 +81,128 @@ export class DocumentAPI {
       body: formData
     });
 
+    // If backend now processes uploads asynchronously, it returns 202 with a task_id.
+    if (response.status === 202) {
+      const accepted: UploadAccepted = await response.json();
+      return await this.waitForUploadResult(accepted.task_id);
+    }
+
     if (!response.ok) {
       const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
       throw new Error(error.detail || `Upload failed: ${response.status}`);
+    }
+
+    return await response.json();
+  }
+
+  // Explicit async variant: returns the task id immediately
+  static async uploadDocumentsAsync(
+    files: FileList | File[],
+    workflowId: number
+  ): Promise<UploadAccepted> {
+    const formData = new FormData();
+    Array.from(files).forEach(file => formData.append('files', file));
+    formData.append('workflow_id', workflowId.toString());
+
+    const response = await fetch(`${this.BASE_URL}/api/documents/upload`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData
+    });
+
+    if (response.status === 202) {
+      return await response.json();
+    }
+
+    // Fall back: if server still processes synchronously
+    if (response.ok) {
+      const sync: UploadResponse = await response.json();
+      return { message: 'Completed', task_id: '' };
+    }
+
+    const error = await response.json().catch(() => ({ detail: 'Upload failed' }));
+    throw new Error(error.detail || `Upload failed: ${response.status}`);
+  }
+
+  static async getUploadStatus(taskId: string): Promise<UploadTaskStatus> {
+    const res = await fetch(`${this.BASE_URL}/api/documents/upload/status/${encodeURIComponent(taskId)}`, {
+      credentials: 'include'
+    });
+    if (!res.ok) {
+      const error = await res.json().catch(() => ({ detail: 'Status check failed' }));
+      throw new Error(error.detail || `Status check failed: ${res.status}`);
+    }
+    return await res.json();
+  }
+
+  // Polls until task SUCCESS/FAILURE and returns the final UploadResponse on success
+  static async waitForUploadResult(taskId: string, opts?: { intervalMs?: number; timeoutMs?: number }): Promise<UploadResponse> {
+    const interval = opts?.intervalMs ?? 1500;
+    const timeout = opts?.timeoutMs ?? 10 * 60 * 1000; // 10 minutes
+    const start = Date.now();
+
+    while (true) {
+      if (Date.now() - start > timeout) {
+        throw new Error('Upload timed out');
+      }
+
+      const status = await this.getUploadStatus(taskId);
+      if (status.state === 'SUCCESS') {
+        // Backend returns either { result: { ... } } or the UploadResponse directly in result
+        const payload = (status.result as any) ?? {};
+        return (payload.result ?? payload) as UploadResponse;
+      }
+      if (status.state === 'FAILURE') {
+        throw new Error(status.error || status.status || 'Upload failed');
+      }
+
+      await new Promise(r => setTimeout(r, interval));
+    }
+  }
+
+  // Upload a PDF for a prompt submission (deployment-based prompt flow)
+  static async uploadPromptPDF(
+    deploymentId: string,
+    submissionIndex: number,
+    file: File
+  ): Promise<PromptSubmissionResponse> {
+    const formData = new FormData();
+    formData.append('submission_index', String(submissionIndex));
+    formData.append('file', file, file.name);
+
+    const response = await fetch(
+      `${this.BASE_URL}/api/deploy/${encodeURIComponent(deploymentId)}/prompt/submit_pdf`,
+      {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      }
+    );
+
+    if (response.status === 202) {
+      const { task_id } = await response.json();
+      // Poll the prompt status endpoint
+      const statusUrl = `${this.BASE_URL}/api/deploy/${encodeURIComponent(deploymentId)}/prompt/submit_pdf/status/${encodeURIComponent(task_id)}`;
+      const wait = async (): Promise<PromptSubmissionResponse> => {
+        const r = await fetch(statusUrl, { credentials: 'include' });
+        if (!r.ok) throw new Error(`Prompt PDF status failed: ${r.status}`);
+        const s = await r.json();
+        if (s.state === 'SUCCESS') {
+          const payload = (s.result as any) ?? {};
+          return (payload.result ?? payload) as PromptSubmissionResponse;
+        }
+        if (s.state === 'FAILURE') {
+          throw new Error(s.error || s.status || 'Prompt PDF upload failed');
+        }
+        await new Promise(r => setTimeout(r, 1200));
+        return wait();
+      };
+      return await wait();
+    }
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({ detail: 'Prompt PDF upload failed' }));
+      throw new Error(error.detail || `Prompt PDF upload failed: ${response.status}`);
     }
 
     return await response.json();

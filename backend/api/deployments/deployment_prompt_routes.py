@@ -594,21 +594,19 @@ async def submit_prompt_pdf(
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session),
 ):
-    """Submit a PDF file for a specific submission requirement that expects a PDF."""
+    """Submit a PDF file for a specific submission requirement that expects a PDF.
+    Now asynchronous: stage file and enqueue a Celery task, returning 202 + task_id."""
     db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db)
     validate_deployment_type(db_deployment, DeploymentType.PROMPT)
     check_deployment_open(db_deployment)
 
-    # Load prompt service (for configuration and count)
+    # Load prompt service (ensures deployment loaded and gives requirements)
     deployment_mem = await ensure_deployment_loaded(deployment_id, current_user.id, db)
     prompt_service = deployment_mem["mcp_deployment"]._prompt_service
     if not prompt_service:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Prompt service not available"
-        )
+        raise HTTPException(status_code=500, detail="Prompt service not available")
 
-    # Get or create active session
+    # Validate session and index similarly to previous implementation
     session = db.exec(
         select(PromptSession).where(
             PromptSession.user_id == current_user.id,
@@ -616,35 +614,15 @@ async def submit_prompt_pdf(
             PromptSession.is_active == True,
         )
     ).first()
-
     if not session:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No active prompt session found. Please start a session first.",
-        )
-
+        raise HTTPException(status_code=404, detail="No active prompt session found. Please start a session first.")
     if session.completed_at:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Prompt session is already completed.",
-        )
-
-    # Validate index
+        raise HTTPException(status_code=400, detail="Prompt session is already completed.")
     if submission_index < 0 or submission_index >= len(session.submission_requirements):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid submission index. Must be between 0 and {len(session.submission_requirements) - 1}",
-        )
-
-    # Ensure requirement expects a PDF
+        raise HTTPException(status_code=400, detail=f"Invalid submission index. Must be between 0 and {len(session.submission_requirements) - 1}")
     requirement = session.submission_requirements[submission_index]
     if requirement.get("mediaType") != "pdf":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This submission does not accept a PDF file",
-        )
-
-    # Disallow resubmission
+        raise HTTPException(status_code=400, detail="This submission does not accept a PDF file")
     existing_submission = db.exec(
         select(PromptSubmission).where(
             PromptSubmission.session_id == session.id,
@@ -652,155 +630,59 @@ async def submit_prompt_pdf(
         )
     ).first()
     if existing_submission:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Response already submitted for this requirement. Cannot resubmit.",
-        )
+        raise HTTPException(status_code=400, detail="Response already submitted for this requirement. Cannot resubmit.")
 
-    # Validate file
+    # Validate file quickly
     filename = file.filename or "uploaded.pdf"
     suffix = Path(filename).suffix.lower()
     if suffix != ".pdf" or file.content_type not in {"application/pdf", "application/x-pdf"}:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid file. Only PDF files are allowed."
-        )
-
+        raise HTTPException(status_code=400, detail="Invalid file. Only PDF files are allowed.")
     file_bytes = await file.read()
-    max_mb = (
-        _prompt_config.get("document_processing", {}).get("max_file_size_mb", 20)
-    )
+    max_mb = _prompt_config.get("document_processing", {}).get("max_file_size_mb", 20)
     if len(file_bytes) > max_mb * 1024 * 1024:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File exceeds {max_mb}MB limit",
-        )
+        raise HTTPException(status_code=413, detail=f"File exceeds {max_mb}MB limit")
 
-    # Prepare Document record fields (no embedding for prompt PDF submission)
-    upload_id = str(uuid.uuid4())
-    workflow = db.get(Workflow, db_deployment.workflow_id)
-    if not workflow:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
+    # Stage to shared temp directory
+    temp_dir = Path(_prompt_config.get("paths", {}).get("uploads_temp_dir", "./temp"))
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    temp_path = temp_dir / f"prompt_{uuid.uuid4().hex[:8]}_{Path(filename).name}"
+    with open(temp_path, 'wb') as tf:
+        tf.write(file_bytes)
 
-    # Store the file on disk
-    try:
-        storage_path = store_file(
-            file_content=file_bytes,
-            workflow_id=workflow.id,
-            upload_id=upload_id,
-            filename=filename,
-        )
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to store PDF: {str(e)}",
-        )
-
-    # Ingest to Qdrant similar to documents API
-    # Load PDF from a temporary file to split into chunks
-    chunks = []
-    try:
-        with tempfile.NamedTemporaryFile(delete=True, suffix=Path(filename).suffix.lower()) as tmp:
-            tmp.write(file_bytes)
-            tmp.flush()
-            docs = PyPDFLoader(tmp.name).load()
-        if docs:
-            chunk_settings = _prompt_config.get("document_processing", {}).get("chunk_settings", {})
-            splitter = RecursiveCharacterTextSplitter(
-                chunk_size=chunk_settings.get("chunk_size", 800),
-                chunk_overlap=chunk_settings.get("chunk_overlap", 100),
-                add_start_index=chunk_settings.get("add_start_index", True)
-            )
-            chunks = splitter.split_documents(docs)
-            for chunk in chunks:
-                chunk.metadata.update({
-                    'user_id': current_user.id,
-                    'filename': filename,
-                    'source': filename,
-                    'upload_id': upload_id
-                })
-    except Exception as e:
-        # Continue without embeddings if processing fails
-        chunks = []
-
-    chunk_count = 0
-    try:
-        if chunks:
-            embeddings = FastEmbedEmbeddings()
-            user_collection = get_user_collection_name(workflow.workflow_collection_id, current_user.id)
-            Qdrant.from_documents(
-                documents=chunks,
-                embedding=embeddings,
-                url=_prompt_config.get("qdrant", {}).get("url", "http://localhost:6333"),
-                prefer_grpc=_prompt_config.get("qdrant", {}).get("prefer_grpc", False),
-                collection_name=user_collection,
-                ids=[str(uuid.uuid4()) for _ in chunks],
-            )
-            chunk_count = len(chunks)
-    except Exception:
-        # Swallow embedding/Qdrant errors, file is still stored and referenced
-        pass
-
-    # Create Document row
-    # Also persist a few snippet texts to aid later RAG/explanations
-    snippet_texts: List[str] = []
-    try:
-        for d in (chunks or [])[:5]:
-            content = getattr(d, 'page_content', '')
-            if content:
-                snippet_texts.append(content.strip()[:400])
-    except Exception:
-        snippet_texts = []
-
-    document = Document(
-        filename=filename,
-        original_filename=filename,
-        file_size=len(file_bytes),
-        file_type="pdf",
-        collection_name=workflow.workflow_collection_id,
-        user_collection_name=get_user_collection_name(workflow.workflow_collection_id, current_user.id),
-        upload_id=upload_id,
-        chunk_count=chunk_count,
-        storage_path=storage_path,
-        uploaded_by_id=current_user.id,
-        workflow_id=workflow.id,
-        doc_metadata={"snippets": snippet_texts} if snippet_texts else None,
-    )
-    db.add(document)
-    db.flush()
-
-    # Save prompt submission referencing the document by ID
-    submission = PromptSubmission(
-        session_id=session.id,
+    # Enqueue Celery task
+    from services.celery_tasks import process_prompt_pdf_submission_task
+    async_result = process_prompt_pdf_submission_task.delay(
+        deployment_id=deployment_id,
         submission_index=submission_index,
-        prompt_text=requirement.get("prompt", ""),
-        media_type="pdf",
-        user_response=str(document.id),  # store document id as reference
+        user_id=current_user.id,
+        temp_path=str(temp_path),
+        filename=filename,
     )
-    db.add(submission)
-    db.flush()
 
-    # Mark completed if all submissions present
-    total_submissions = len(session.submission_requirements)
-    current_submissions = db.exec(
-        select(PromptSubmission).where(PromptSubmission.session_id == session.id)
-    ).all()
-    if len(current_submissions) == total_submissions:
-        session.completed_at = datetime.now(timezone.utc)
-        db.add(session)
+    # Return 202 for polling
+    from fastapi.responses import JSONResponse
+    return JSONResponse(status_code=202, content={
+        'message': 'PDF accepted for processing',
+        'task_id': async_result.id,
+    })
 
-    db.commit()
-    db.refresh(submission)
 
-    return PromptSubmissionResponse(
-        submission_index=submission.submission_index,
-        prompt_text=submission.prompt_text,
-        media_type=submission.media_type,
-        user_response=submission.user_response,
-        submitted_at=submission.submitted_at,
-        is_valid=True,
-        validation_error=None,
-    )
+@router.get("/{deployment_id}/prompt/submit_pdf/status/{task_id}")
+async def get_prompt_pdf_status(deployment_id: str, task_id: str):
+    from services.celery_tasks import celery_app
+    from celery.result import AsyncResult
+    result = AsyncResult(task_id, app=celery_app)
+    state = result.state
+    info = result.info if isinstance(result.info, dict) else {}
+    if state == 'PENDING':
+        return {'state': state, 'status': 'Pending', 'progress': 0, 'stage': 'pending'}
+    if state == 'PROGRESS':
+        return {'state': state, 'status': info.get('status', 'Processing...'), 'progress': info.get('progress', 0), 'stage': info.get('stage', 'processing')}
+    if state == 'SUCCESS':
+        return {'state': state, 'status': 'Completed', 'result': result.result, 'progress': 100, 'stage': 'completed'}
+    if state == 'FAILURE':
+        return {'state': state, 'status': str(result.info), 'error': str(result.info), 'progress': 0, 'stage': 'failed'}
+    return {'state': state, 'status': 'Unknown', 'progress': 0, 'stage': 'unknown'}
 
 @router.get("/{deployment_id}/prompt/session/{session_id}", response_model=PromptSessionResponse)
 async def get_prompt_session(

@@ -76,6 +76,7 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
   const [error, setError] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [pdfFiles, setPdfFiles] = useState<Record<number, File | null>>({});
+  const [pdfProgress, setPdfProgress] = useState<{ [index: number]: { progress: number; stage?: string; state?: string } }>({});
 
   // Load or create prompt session
   useEffect(() => {
@@ -163,7 +164,12 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
     setError(null);
 
     try {
-      const responseData = await PromptDeploymentAPI.submitPdf(deploymentId, submissionIndex, file);
+      const responseData = await PromptDeploymentAPI.submitPdf(deploymentId, submissionIndex, file, (s) => {
+        setPdfProgress(prev => ({
+          ...prev,
+          [submissionIndex]: { progress: s.progress ?? 0, stage: s.stage, state: s.state },
+        }));
+      });
 
       setSubmittedResponses(prev => ({
         ...prev,
@@ -178,6 +184,7 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
 
       // Clear selected file for this index
       setPdfFiles(prev => ({ ...prev, [submissionIndex]: null }));
+  setPdfProgress(prev => ({ ...prev, [submissionIndex]: { progress: 100, stage: 'completed', state: 'SUCCESS' } }));
 
       if (Object.keys(submittedResponses).length + 1 === session.total_submissions) {
         setSession(prev => prev ? { ...prev, is_completed: true } : null);
@@ -190,6 +197,7 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
     } catch (err) {
       console.error('Failed to submit PDF:', err);
       setError(err instanceof Error ? err.message : 'Failed to submit PDF');
+  setPdfProgress(prev => ({ ...prev, [submissionIndex]: { progress: 0, stage: 'error', state: 'FAILURE' } }));
     } finally {
       setSubmitting(false);
     }
@@ -473,10 +481,11 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
               onNavigateToSubmission={navigateToSubmission}
               selectedPdfFile={pdfFiles[currentSubmissionIndex] || null}
               onPdfSelect={(file) => handlePdfChange(currentSubmissionIndex, file)}
+              pdfProgress={pdfProgress[currentSubmissionIndex]}
             />
           </div>
         </div>
       </div>
     </div>
   );
-} 
+}
