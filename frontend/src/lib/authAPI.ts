@@ -10,7 +10,7 @@ export interface LoginRequest {
 export interface RegisterRequest {
   email: string;
   password: string;
-  key: string;
+  key?: string;  // Optional since it's only required for instructors
   is_instructor?: boolean;
 }
 

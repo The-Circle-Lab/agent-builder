@@ -31,7 +31,7 @@ class LoginRequest(BaseModel):
 class RegisterRequest(BaseModel):
     email: str
     password: str
-    key: str
+    key: str | None = None  # Optional since only required for instructors
     is_instructor: bool = False  # Changed from student to is_instructor for clarity
 
 
@@ -95,13 +95,14 @@ def logout(current = Depends(get_current_user), db: DBSession = Depends(get_sess
 
 @router.post("/register")
 def register(request: RegisterRequest, db: DBSession = Depends(get_session)):
-    # Validate registration key
-    expected_key = config.get("auth", {}).get("registration_key")
-    if not expected_key:
-        raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Registration key not configured")
-    
-    if request.key != expected_key:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid registration key")
+    # Validate registration key only for instructors
+    if request.is_instructor:
+        expected_key = config.get("auth", {}).get("registration_key")
+        if not expected_key:
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, "Registration key not configured")
+        
+        if not request.key or request.key != expected_key:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, "Invalid registration key")
     
     existing_user = db.exec(select(User).where(User.email == request.email)).first()
     if existing_user:
