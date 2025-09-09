@@ -16,6 +16,7 @@ import {
 } from '../types/livePresentation';
 import { RoomcastModal } from './RoomcastModal';
 import { TimerModal } from './TimerModal';
+import { GroupInfoModal } from './GroupInfoModal';
 import { Timer } from './Timer';
 import { API_CONFIG } from '@/lib/constants';
 
@@ -26,7 +27,7 @@ interface TeacherControlPanelProps {
   presentationActive: boolean;
   deploymentId: string;
   onSendPrompt: (prompt: LivePresentationPrompt) => void;
-  onSendGroupInfo: () => void;
+  onSendGroupInfo: (includeExplanations?: boolean) => void;
   onStartReadyCheck: () => void;
   onRefreshStats: () => void;
   onStartPresentation: () => void;
@@ -62,6 +63,7 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
   const [selectedPrompt, setSelectedPrompt] = useState<LivePresentationPrompt | null>(null);
   const [showRoomcastModal, setShowRoomcastModal] = useState(false);
   const [showTimerModal, setShowTimerModal] = useState(false);
+  const [showGroupInfoModal, setShowGroupInfoModal] = useState(false);
   const [togglingRoomcast, setTogglingRoomcast] = useState(false);
 
   const isConnected = connectionStatus === 'connected';
@@ -112,6 +114,14 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
       setTogglingRoomcast(false);
       onRefreshStats();
     }
+  };
+
+  const handleSendGroupInfo = (includeExplanations: boolean) => {
+    onSendGroupInfo(includeExplanations);
+  };
+
+  const handleSendGroupInfoClick = () => {
+    setShowGroupInfoModal(true);
   };
 
   return (
@@ -276,7 +286,7 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
           </button>
 
           <button
-            onClick={onSendGroupInfo}
+            onClick={handleSendGroupInfoClick}
             disabled={!isConnected || !presentationActive}
             className={`flex items-center justify-center space-x-2 p-4 rounded-lg border-2 border-dashed transition-colors ${
               isConnected && presentationActive
@@ -517,6 +527,14 @@ export const TeacherControlPanel: React.FC<TeacherControlPanelProps> = ({
           onStartPresentation();
         }}
         deploymentId={deploymentId}
+      />
+
+      {/* Group Info Modal */}
+      <GroupInfoModal
+        isOpen={showGroupInfoModal}
+        onClose={() => setShowGroupInfoModal(false)}
+        onSendGroupInfo={handleSendGroupInfo}
+        disabled={!isConnected || !presentationActive}
       />
 
       {/* Timer Modal */}

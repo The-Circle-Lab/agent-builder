@@ -88,6 +88,14 @@ export const StudentHeader: React.FC<StudentHeaderProps> = ({
                   <div className="text-xs text-gray-500">
                     {groupInfo.group_members.length} members
                   </div>
+                  {groupInfo.explanation && (
+                    <div className="mt-2 max-w-xs">
+                      <div className="text-xs font-medium text-indigo-700 mb-1">Why you&apos;re grouped:</div>
+                      <div className="text-xs text-gray-600 bg-indigo-50 border border-indigo-200 rounded px-2 py-1">
+                        {groupInfo.explanation}
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             )}

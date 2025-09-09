@@ -557,8 +557,11 @@ export const useLivePresentationWebSocket = ({
     sendMessage({ type: 'send_prompt', prompt });
   }, [sendMessage]);
 
-  const sendGroupInfo = useCallback(() => {
-    sendMessage({ type: 'send_group_info' });
+  const sendGroupInfo = useCallback((includeExplanations?: boolean) => {
+    sendMessage({ 
+      type: 'send_group_info',
+      includeExplanations: includeExplanations || false
+    });
   }, [sendMessage]);
 
   const startReadyCheck = useCallback(() => {

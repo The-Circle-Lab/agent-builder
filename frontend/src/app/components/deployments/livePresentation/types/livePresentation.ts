@@ -15,6 +15,7 @@ export interface LivePresentationPrompt {
 export interface GroupInfo {
   group_name: string;
   group_members: string[];
+  explanation?: string;
 }
 
 export interface StudentConnection {
@@ -38,6 +39,7 @@ export interface RoomcastStatus {
   code: string | null;
   code_expires_at: string | null;
   expected_groups: string[];
+  groups_are_predicted?: boolean;
   connected_groups: string[];
   waiting: boolean;
 }
@@ -97,6 +99,7 @@ export interface LivePresentationInfo {
     enabled: boolean;
     code: string | null;
     expected_groups: string[];
+    groups_are_predicted?: boolean;
   };
 }
 
@@ -326,6 +329,7 @@ export interface SendPromptMessage {
 
 export interface SendGroupInfoMessage {
   type: 'send_group_info';
+  includeExplanations?: boolean;
 }
 
 export interface SendReadyCheckMessage {
@@ -384,6 +388,7 @@ export interface RoomcastConnectedMessage {
   type: 'roomcast_connected';
   deployment_id: string;
   expected_groups: string[];
+  groups_are_predicted?: boolean;
   connected_groups: string[];
 }
 
@@ -402,12 +407,14 @@ export interface RoomcastGroupInfoMessage {
   type: 'roomcast_group_info';
   group_name: string;
   members: string[];
+  explanation?: string;
 }
 
 export interface RoomcastCodeInfo {
   deployment_id: string;
   title: string;
   expected_groups: string[];
+  groups_are_predicted?: boolean;
   roomcast_enabled: boolean;
 }
 
