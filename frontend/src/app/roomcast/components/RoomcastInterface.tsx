@@ -42,8 +42,10 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
   const [codeInfo, setCodeInfo] = useState<RoomcastCodeInfo | null>(null);
   const [selectedGroup, setSelectedGroup] = useState<string | null>(null);
   const [availableGroups, setAvailableGroups] = useState<string[]>([]);
+  const [groupsArePredicted, setGroupsArePredicted] = useState<boolean>(false);
   const [connectedGroups, setConnectedGroups] = useState<string[]>([]);
   const [groupMembers, setGroupMembers] = useState<string[]>([]);
+  const [groupExplanation, setGroupExplanation] = useState<string | null>(null);
   const [currentPrompt, setCurrentPrompt] = useState<LivePresentationPrompt | null>(null);
   const [responsesByStudent, setResponsesByStudent] = useState<Record<string, { response?: string; timestamp?: string }>>({});
   const [summaryGenerating, setSummaryGenerating] = useState(false);
@@ -71,6 +73,7 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           debug('Code info OK', info);
           setCodeInfo(info);
           setAvailableGroups(info.expected_groups);
+          setGroupsArePredicted(!!info.groups_are_predicted);
         } else if (response.status === 404) {
           debug('Code invalid (404)');
           setConnectionState({ status: 'error', error: 'Invalid code' });
@@ -105,6 +108,7 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           const connectedMsg = msg as unknown as RoomcastConnectedMessage;
           debug('roomcast_connected', connectedMsg);
           setAvailableGroups(connectedMsg.expected_groups);
+          setGroupsArePredicted(!!connectedMsg.groups_are_predicted);
           setConnectedGroups(connectedMsg.connected_groups);
           // Ensure members are hidden until explicit group info message
           setGroupMembers([]);
@@ -143,6 +147,7 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           const groupInfoMsg = msg as unknown as RoomcastGroupInfoMessage;
           debug('roomcast_group_info', groupInfoMsg);
           setGroupMembers(groupInfoMsg.members);
+          setGroupExplanation(groupInfoMsg.explanation || null);
           // Reset progress map for any new members not seen yet
           setResponsesByStudent(prev => {
             const next: Record<string, { response?: string; timestamp?: string }> = { ...prev };
@@ -215,6 +220,26 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           lastTimerSyncRef.current = Date.now();
           lastServerRemainingRef.current = 0;
           // Timer will be marked as inactive by a subsequent timer_stopped message
+        }
+        break;
+      case 'ready_check':
+        {
+          debug('ready_check message received');
+          // Clear group info when ready check starts
+          setGroupMembers([]);
+          // Show ready check prompt instead of clearing everything
+          const readyCheckPrompt: LivePresentationPrompt = {
+            id: 'ready_check',
+            statement: "Ready Check 📋\n\nPlease hit the I'm ready button on your devices.",
+            hasInput: false,
+            inputType: 'none',
+            inputPlaceholder: '',
+            useRandomListItem: false,
+            listVariableId: undefined,
+            isSystemPrompt: true,
+            category: 'system'
+          };
+          setCurrentPrompt(readyCheckPrompt);
         }
         break;
       case 'error':
@@ -335,17 +360,25 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
   // Local ticking for timer on roomcast display
   useEffect(() => {
     if (!timerActive || !timerStartTime || timerDurationSeconds <= 0) return;
-    const startMs = new Date(timerStartTime).getTime();
+
+    const normalizeIsoToUtc = (iso: string): string => {
+      if (!iso) return iso;
+      if (/Z$|[+-]\d{2}:?\d{2}$/.test(iso)) return iso;
+      return iso + 'Z';
+    };
+
+    const startMs = new Date(normalizeIsoToUtc(timerStartTime)).getTime();
     const endMs = startMs + timerDurationSeconds * 1000;
 
     const tick = () => {
       const now = Date.now();
       const remaining = Math.max(0, Math.round((endMs - now) / 1000));
+
       if (lastTimerSyncRef.current) {
-        const elapsed = now - lastTimerSyncRef.current;
-        const derived = Math.max(0, lastServerRemainingRef.current - Math.round(elapsed / 1000));
-        const drift = Math.abs(derived - remaining);
-        setTimerRemainingSeconds(drift > 2 ? remaining : derived);
+        const elapsedSinceSyncMs = now - lastTimerSyncRef.current;
+        const derivedFromSync = Math.max(0, lastServerRemainingRef.current - Math.round(elapsedSinceSyncMs / 1000));
+        const drift = Math.abs(derivedFromSync - remaining);
+        setTimerRemainingSeconds(drift > 2 ? remaining : derivedFromSync);
       } else {
         setTimerRemainingSeconds(remaining);
       }
@@ -435,6 +468,13 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
             <p className="text-sm text-gray-500 mt-1">
               Presentation: {codeInfo?.title}
             </p>
+            {groupsArePredicted && (
+              <div className="mt-3 px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                <p className="text-sm text-amber-800">
+                  <span className="font-medium">Preview Mode:</span> Groups haven&apos;t been generated yet, but you can connect now
+                </p>
+              </div>
+            )}
           </div>
 
           <div className="space-y-3">
@@ -531,6 +571,21 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
                 </div>
               ))}
             </div>
+
+            {/* Group Explanation */}
+            {groupExplanation && (
+              <div className="mt-6 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                <h3 className="text-lg font-semibold text-amber-800 mb-2 flex items-center justify-center">
+                  <svg className="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                  </svg>
+                  Why You&apos;re Grouped Together
+                </h3>
+                <p className="text-amber-700 text-center leading-relaxed">
+                  {groupExplanation}
+                </p>
+              </div>
+            )}
           </div>
         )}
 
@@ -612,6 +667,13 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
             <p className="text-gray-500">
               Your instructor will send prompts that will appear here
             </p>
+            {groupsArePredicted && (
+              <div className="mt-4 px-4 py-2 bg-amber-50 border border-amber-200 rounded-lg inline-block">
+                <p className="text-sm text-amber-700">
+                  <span className="font-medium">Preview Mode:</span> Groups haven&apos;t been created yet
+                </p>
+              </div>
+            )}
           </div>
         )}
       </div>

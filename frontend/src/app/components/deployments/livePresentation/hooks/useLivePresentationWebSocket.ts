@@ -344,7 +344,15 @@ export const useLivePresentationWebSocket = ({
   useEffect(() => {
     if (!timerActive || !timerStartTime || timerDurationSeconds <= 0) return;
 
-    const startMs = new Date(timerStartTime).getTime();
+    // Ensure we interpret server start_time as UTC if no timezone present
+    const normalizeIsoToUtc = (iso: string): string => {
+      if (!iso) return iso;
+      // If already has 'Z' or timezone offset, return as-is
+      if (/Z$|[+-]\d{2}:?\d{2}$/.test(iso)) return iso;
+      return iso + 'Z';
+    };
+
+    const startMs = new Date(normalizeIsoToUtc(timerStartTime)).getTime();
     const endMs = startMs + timerDurationSeconds * 1000;
 
     const tick = () => {
@@ -549,8 +557,11 @@ export const useLivePresentationWebSocket = ({
     sendMessage({ type: 'send_prompt', prompt });
   }, [sendMessage]);
 
-  const sendGroupInfo = useCallback(() => {
-    sendMessage({ type: 'send_group_info' });
+  const sendGroupInfo = useCallback((includeExplanations?: boolean) => {
+    sendMessage({ 
+      type: 'send_group_info',
+      includeExplanations: includeExplanations || false
+    });
   }, [sendMessage]);
 
   const startReadyCheck = useCallback(() => {

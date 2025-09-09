@@ -85,7 +85,15 @@ export default function LivePresentationInterface({ deploymentId, userName }: Li
                 <p className="text-indigo-700">
                   Submit your responses here. Full instructions appear on the room display.
                   {groupInfo && (
-                    <span className="block mt-1 font-medium">You are in {groupInfo.group_name.replace(/^Group(\d+)$/, 'Group $1')}</span>
+                    <>
+                      <span className="block mt-1 font-medium">You are in {groupInfo.group_name.replace(/^Group(\d+)$/, 'Group $1')}</span>
+                      {groupInfo.explanation && (
+                        <span className="block mt-2 text-sm bg-indigo-50 border border-indigo-300 rounded px-3 py-2">
+                          <strong className="text-indigo-800">Why you&apos;re grouped:</strong><br />
+                          <span className="text-indigo-700">{groupInfo.explanation}</span>
+                        </span>
+                      )}
+                    </>
                   )}
                 </p>
               </div>

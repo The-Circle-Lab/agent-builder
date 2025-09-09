@@ -1,7 +1,7 @@
 import asyncio
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 import string
 from typing import Dict, Any, List, Optional, Set
@@ -1530,7 +1530,8 @@ class LivePresentationDeployment:
                 await self.send_prompt_to_students(prompt_data)
                 
             elif message_type == MessageType.SEND_GROUP_INFO:
-                await self.send_group_info_to_students()
+                include_explanations = message.get("includeExplanations", False)
+                await self.send_group_info_to_students(include_explanations)
                 
             elif message_type == MessageType.SEND_READY_CHECK:
                 await self.start_ready_check()
@@ -2509,7 +2510,46 @@ class LivePresentationDeployment:
             print(f"🧹 Removing student with failed WebSocket during list item prompt: {self.students[user_id].user_name}")
             await self.disconnect_student(user_id)
     
-    async def send_group_info_to_students(self):
+    def _get_group_explanations_from_behavior_results(self) -> Optional[Dict[str, str]]:
+        """Get group explanations from behavior results if available"""
+        if not self._parent_page_deployment:
+            return None
+        
+        try:
+            # Look for behavior variables that might contain group explanations
+            behavior_variables = self._parent_page_deployment.get_behavior_variables()
+            
+            for variable in behavior_variables:
+                if hasattr(variable, 'variable_value') and variable.variable_value:
+                    # Check if this is a behavior result with explanations
+                    if isinstance(variable.variable_value, dict) and 'explanations' in variable.variable_value:
+                        explanations = variable.variable_value.get('explanations')
+                        if isinstance(explanations, dict):
+                            print(f"🎤 Found explanations in variable {variable.name}: {list(explanations.keys())}")
+                            return explanations
+                    
+                    # Also check if the behavior deployment itself has cached results with explanations
+                    if hasattr(self._parent_page_deployment, 'get_behavior_list'):
+                        behaviors = self._parent_page_deployment.get_behavior_list()
+                        for behavior in behaviors:
+                            if hasattr(behavior, 'get_behavior_deployment'):
+                                behavior_deployment = behavior.get_behavior_deployment()
+                                if hasattr(behavior_deployment, 'get_results'):
+                                    results = behavior_deployment.get_results()
+                                    if results and isinstance(results, dict) and 'explanations' in results:
+                                        explanations = results.get('explanations')
+                                        if isinstance(explanations, dict):
+                                            print(f"🎤 Found explanations in behavior results: {list(explanations.keys())}")
+                                            return explanations
+            
+            print(f"🎤 No explanations found in behavior results")
+            return None
+            
+        except Exception as e:
+            print(f"⚠️ Error getting group explanations: {e}")
+            return None
+    
+    async def send_group_info_to_students(self, include_explanations: bool = False):
         """Send group information to students"""
         print(f"🎤 Starting send_group_info_to_students")
         print(f"🎤 Connected students: {len([s for s in self.students.values() if s.status != ConnectionStatus.DISCONNECTED])}")
@@ -2558,14 +2598,35 @@ class LivePresentationDeployment:
                 print(f"🎤 Refreshing group info for student: {student.user_name}")
                 self._assign_group_info_to_student(student)
         
+        # Get explanations if requested
+        explanations = None
+        if include_explanations:
+            print(f"🎤 Include explanations requested, attempting to retrieve...")
+            explanations = self._get_group_explanations_from_behavior_results()
+            if explanations:
+                print(f"🎤 Found {len(explanations)} group explanations")
+            else:
+                print(f"🎤 No explanations available")
+        
         # Now send group info to all connected students
         sent_count = 0
         failed_students = []
         for user_id, student in list(self.students.items()):
             if student.status != ConnectionStatus.DISCONNECTED:
+                # Build group info message
+                group_info_data = student.group_info
+                
+                # Add explanation if available and student has a group
+                if explanations and group_info_data and 'group_name' in group_info_data:
+                    group_name = group_info_data['group_name']
+                    if group_name in explanations:
+                        group_info_data = {**group_info_data}  # Make a copy
+                        group_info_data['explanation'] = explanations[group_name]
+                        print(f"🎤 Added explanation for {student.user_name}'s group {group_name}")
+                
                 message = {
                     "type": "group_info",
-                    "group_info": student.group_info  # This could be None if student not in any group
+                    "group_info": group_info_data
                 }
                 print(f"🎤 Sending message to {student.user_name}: {message}")
                 success = await student.send_message(message)
@@ -2613,7 +2674,7 @@ class LivePresentationDeployment:
                 self.teacher_websockets.discard(teacher_ws)
 
         # Also send group info to roomcast devices (per group)
-        await self._broadcast_group_info_to_roomcast()
+        await self._broadcast_group_info_to_roomcast(explanations)
     
     async def _cleanup_disconnected_students(self):
         """Remove students with failed WebSocket connections"""
@@ -2823,6 +2884,9 @@ class LivePresentationDeployment:
             print(f"🧹 Removing student with failed WebSocket during ready check: {self.students[user_id].user_name}")
             await self.disconnect_student(user_id)
         
+        # Broadcast ready check to roomcast devices so they clear group info
+        await self._broadcast_ready_check_to_roomcast(message)
+        
         await self._notify_teachers_connection_update()
         
         # Save updated session state
@@ -2838,22 +2902,23 @@ class LivePresentationDeployment:
         
         # Stop any existing timer
         await self.stop_timer()
-        
+
         total_seconds = minutes * 60 + seconds
         if total_seconds <= 0:
             print(f"⚠️ Invalid timer duration: {minutes}m {seconds}s")
             return
-        
+
         self.timer_active = True
-        self.timer_start_time = datetime.now()
+        # Use timezone-aware UTC timestamp to avoid client-side timezone misinterpretation
+        self.timer_start_time = datetime.now(timezone.utc)
         self.timer_duration_seconds = total_seconds
         self.timer_remaining_seconds = total_seconds
-        
+
         print(f"⏰ Starting timer for {minutes}m {seconds}s ({total_seconds}s)")
-        
+
         # Create background task to handle timer updates
         self.timer_task = asyncio.create_task(self._timer_countdown_task())
-        
+
         # Notify all connected users about timer start
         message = {
             "type": "timer_started",
@@ -2861,7 +2926,7 @@ class LivePresentationDeployment:
             "remaining_seconds": total_seconds,
             "start_time": self.timer_start_time.isoformat()
         }
-        
+
         await self._broadcast_timer_message(message)
     
     async def stop_timer(self):
@@ -2895,7 +2960,8 @@ class LivePresentationDeployment:
     async def _timer_countdown_task(self):
         """Background task that handles timer countdown and periodic updates"""
         try:
-            last_update_time = datetime.now()
+            # Track last update time in UTC
+            last_update_time = datetime.now(timezone.utc)
             
             while self.timer_active and self.timer_remaining_seconds > 0:
                 await asyncio.sleep(1)  # Wait 1 second
@@ -2903,13 +2969,14 @@ class LivePresentationDeployment:
                 if not self.timer_active:
                     break
                 
-                # Calculate actual remaining time based on start time
+                # Calculate actual remaining time based on start time (UTC-aware)
                 if self.timer_start_time:
-                    elapsed = (datetime.now() - self.timer_start_time).total_seconds()
+                    now_utc = datetime.now(timezone.utc)
+                    elapsed = (now_utc - self.timer_start_time).total_seconds()
                     self.timer_remaining_seconds = max(0, self.timer_duration_seconds - int(elapsed))
                 
                 # Send update every 10 seconds or when timer expires
-                current_time = datetime.now()
+                current_time = datetime.now(timezone.utc)
                 time_since_last_update = (current_time - last_update_time).total_seconds()
                 
                 should_send_update = (
@@ -2986,6 +3053,24 @@ class LivePresentationDeployment:
                 await roomcast_ws.send_text(json.dumps(roomcast_message))
             except Exception as e:
                 print(f"❌ Failed to send timer message to roomcast: {e}")
+                disconnected_roomcasts.add(roomcast_ws)
+        
+        # Remove disconnected roomcast devices
+        for ws in disconnected_roomcasts:
+            await self.disconnect_roomcast(ws)
+    
+    async def _broadcast_ready_check_to_roomcast(self, message: Dict[str, Any]):
+        """Broadcast ready check message to all roomcast devices to clear group info"""
+        disconnected_roomcasts = set()
+        for roomcast_ws in self.roomcast_websockets:
+            try:
+                roomcast_message = {
+                    **message,
+                    "group_name": self._roomcast_ws_lookup.get(roomcast_ws, "Unknown")
+                }
+                await roomcast_ws.send_text(json.dumps(roomcast_message))
+            except Exception as e:
+                print(f"❌ Failed to send ready check message to roomcast: {e}")
                 disconnected_roomcasts.add(roomcast_ws)
         
         # Remove disconnected roomcast devices
@@ -3141,12 +3226,16 @@ class LivePresentationDeployment:
                     }
         
         # Roomcast stats
+        expected_groups = self._get_expected_group_names()
+        has_actual_groups = self.groups is not None and len(self.groups) > 0
+        
         roomcast_status = {
             "enabled": self.roomcast_enabled,
             "code": self.roomcast_code,
             "code_expires_at": self.roomcast_code_expires_at.isoformat() if self.roomcast_code_expires_at else None,
             "connected_devices": list(self.roomcast_devices.keys()),
-            "expected_groups": self._get_expected_group_names()
+            "expected_groups": expected_groups,
+            "groups_are_predicted": not has_actual_groups and expected_groups is not None
         }
 
         return {
@@ -3188,6 +3277,9 @@ class LivePresentationDeployment:
     
     def get_live_presentation_info(self) -> Dict[str, Any]:
         """Get live presentation info for API responses"""
+        expected_groups = self._get_expected_group_names()
+        has_actual_groups = self.groups is not None and len(self.groups) > 0
+        
         return {
             "deployment_id": self.deployment_id,
             "title": self.title,
@@ -3196,7 +3288,8 @@ class LivePresentationDeployment:
             "roomcast": {
                 "enabled": self.roomcast_enabled,
                 "code": self.roomcast_code,
-                "expected_groups": self._get_expected_group_names()
+                "expected_groups": expected_groups,
+                "groups_are_predicted": not has_actual_groups and expected_groups is not None
             }
         }
     
@@ -3265,8 +3358,58 @@ class LivePresentationDeployment:
         except Exception:
             pass
 
+    def _predict_group_names_from_configuration(self) -> List[str]:
+        """Predict group names based on group behavior configuration, even if groups haven't been generated yet"""
+        try:
+            if not self._parent_page_deployment:
+                return []
+            
+            # Look for group behavior configuration
+            behaviors = self._parent_page_deployment.get_behavior_list()
+            for behavior in behaviors:
+                if behavior.get_behavior_deployment().get_behavior_type() == 'group':
+                    behavior_deployment = behavior.get_behavior_deployment()
+                    config = behavior_deployment.get_config().get('config', {})
+                    
+                    group_size = config.get('group_size', 4)
+                    group_size_mode = config.get('group_size_mode', 'students_per_group')
+                    
+                    print(f"🔮 Predicting groups: group_size={group_size}, mode={group_size_mode}")
+                    
+                    # Try to estimate number of students from page data
+                    student_count = 0
+                    pages = self._parent_page_deployment.get_page_list()
+                    for page in pages:
+                        if page.has_output():
+                            output_data = page.get_output_data()
+                            if isinstance(output_data, list):
+                                student_count = max(student_count, len(output_data))
+                    
+                    print(f"🔮 Estimated student count: {student_count}")
+                    
+                    # Calculate predicted number of groups
+                    if student_count > 0:
+                        if group_size_mode == 'number_of_groups':
+                            num_groups = group_size
+                        else:  # students_per_group
+                            num_groups = max(1, (student_count + group_size - 1) // group_size)  # Ceiling division
+                        
+                        print(f"🔮 Predicted {num_groups} groups")
+                        
+                        # Generate generic group names
+                        predicted_groups = [f"Group{i+1}" for i in range(num_groups)]
+                        return predicted_groups
+            
+            return []
+            
+        except Exception as e:
+            print(f"⚠️ Error predicting group names: {e}")
+            return []
+
     def _get_expected_group_names(self) -> List[str]:
         groups: List[str] = []
+        
+        # First try to get actual groups if they exist
         if self.input_variable_data and isinstance(self.input_variable_data, dict):
             groups = list(self.input_variable_data.keys())
         elif self.input_variable_data and isinstance(self.input_variable_data, list):
@@ -3274,14 +3417,30 @@ class LivePresentationDeployment:
             for theme in self.input_variable_data:
                 if isinstance(theme, dict) and 'student_names' in theme and 'title' in theme:
                     groups.append(theme.get('title', 'Unknown'))
+        
+        # If no actual groups exist, try to predict based on configuration
+        if not groups:
+            predicted_groups = self._predict_group_names_from_configuration()
+            if predicted_groups:
+                print(f"🔮 Using predicted groups for roomcast: {predicted_groups}")
+                return predicted_groups
+            else:
+                print(f"⚠️ No groups available and could not predict groups")
+        else:
+            print(f"✅ Using actual groups for roomcast: {groups}")
+        
         return groups
 
     def get_roomcast_status(self) -> Dict[str, Any]:
+        expected_groups = self._get_expected_group_names()
+        has_actual_groups = self.groups is not None and len(self.groups) > 0
+        
         return {
             "enabled": self.roomcast_enabled,
             "code": self.roomcast_code,
             "code_expires_at": self.roomcast_code_expires_at.isoformat() if self.roomcast_code_expires_at else None,
-            "expected_groups": self._get_expected_group_names(),
+            "expected_groups": expected_groups,
+            "groups_are_predicted": not has_actual_groups and expected_groups is not None,
             "connected_groups": list(self.roomcast_devices.keys()),
             "waiting": self.roomcast_waiting
         }
@@ -3290,10 +3449,14 @@ class LivePresentationDeployment:
         try:
             self.roomcast_websockets.add(websocket)
             # Send welcome and expected groups
+            expected_groups = self._get_expected_group_names()
+            has_actual_groups = self.groups is not None and len(self.groups) > 0
+            
             await websocket.send_text(json.dumps({
                 "type": "roomcast_connected",
                 "deployment_id": self.deployment_id,
-                "expected_groups": self._get_expected_group_names(),
+                "expected_groups": expected_groups,
+                "groups_are_predicted": not has_actual_groups and expected_groups is not None,
                 "connected_groups": list(self.roomcast_devices.keys())
             }))
             return True
@@ -3421,12 +3584,12 @@ class LivePresentationDeployment:
         except Exception as e:
             print(f"❌ Error broadcasting prompt to roomcast: {e}")
 
-    async def _broadcast_group_info_to_roomcast(self):
+    async def _broadcast_group_info_to_roomcast(self, explanations: Optional[Dict[str, str]] = None):
         # Send current group info to corresponding roomcast devices
         for group_name in list(self.roomcast_devices.keys()):
-            await self._send_group_info_to_roomcast_group(group_name)
+            await self._send_group_info_to_roomcast_group(group_name, explanations)
 
-    async def _send_group_info_to_roomcast_group(self, group_name: str):
+    async def _send_group_info_to_roomcast_group(self, group_name: str, explanations: Optional[Dict[str, str]] = None):
         try:
             device = self.roomcast_devices.get(group_name)
             # If the group device is connected, send directly; otherwise broadcast to all roomcast sockets
@@ -3445,6 +3608,12 @@ class LivePresentationDeployment:
                 "group_name": group_name,
                 "members": members
             }
+            
+            # Add explanation if available
+            if explanations and group_name in explanations:
+                message["explanation"] = explanations[group_name]
+                print(f"🎤 Added explanation for roomcast group {group_name}")
+            
             if ws:
                 try:
                     await ws.send_text(json.dumps(message))
