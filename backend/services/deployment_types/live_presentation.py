@@ -1,7 +1,7 @@
 import asyncio
 import json
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 import string
 from typing import Dict, Any, List, Optional, Set
@@ -2838,22 +2838,23 @@ class LivePresentationDeployment:
         
         # Stop any existing timer
         await self.stop_timer()
-        
+
         total_seconds = minutes * 60 + seconds
         if total_seconds <= 0:
             print(f"⚠️ Invalid timer duration: {minutes}m {seconds}s")
             return
-        
+
         self.timer_active = True
-        self.timer_start_time = datetime.now()
+        # Use timezone-aware UTC timestamp to avoid client-side timezone misinterpretation
+        self.timer_start_time = datetime.now(timezone.utc)
         self.timer_duration_seconds = total_seconds
         self.timer_remaining_seconds = total_seconds
-        
+
         print(f"⏰ Starting timer for {minutes}m {seconds}s ({total_seconds}s)")
-        
+
         # Create background task to handle timer updates
         self.timer_task = asyncio.create_task(self._timer_countdown_task())
-        
+
         # Notify all connected users about timer start
         message = {
             "type": "timer_started",
@@ -2861,7 +2862,7 @@ class LivePresentationDeployment:
             "remaining_seconds": total_seconds,
             "start_time": self.timer_start_time.isoformat()
         }
-        
+
         await self._broadcast_timer_message(message)
     
     async def stop_timer(self):
@@ -2895,7 +2896,8 @@ class LivePresentationDeployment:
     async def _timer_countdown_task(self):
         """Background task that handles timer countdown and periodic updates"""
         try:
-            last_update_time = datetime.now()
+            # Track last update time in UTC
+            last_update_time = datetime.now(timezone.utc)
             
             while self.timer_active and self.timer_remaining_seconds > 0:
                 await asyncio.sleep(1)  # Wait 1 second
@@ -2903,13 +2905,14 @@ class LivePresentationDeployment:
                 if not self.timer_active:
                     break
                 
-                # Calculate actual remaining time based on start time
+                # Calculate actual remaining time based on start time (UTC-aware)
                 if self.timer_start_time:
-                    elapsed = (datetime.now() - self.timer_start_time).total_seconds()
+                    now_utc = datetime.now(timezone.utc)
+                    elapsed = (now_utc - self.timer_start_time).total_seconds()
                     self.timer_remaining_seconds = max(0, self.timer_duration_seconds - int(elapsed))
                 
                 # Send update every 10 seconds or when timer expires
-                current_time = datetime.now()
+                current_time = datetime.now(timezone.utc)
                 time_since_last_update = (current_time - last_update_time).total_seconds()
                 
                 should_send_update = (

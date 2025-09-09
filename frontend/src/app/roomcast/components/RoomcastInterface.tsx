@@ -335,17 +335,25 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
   // Local ticking for timer on roomcast display
   useEffect(() => {
     if (!timerActive || !timerStartTime || timerDurationSeconds <= 0) return;
-    const startMs = new Date(timerStartTime).getTime();
+
+    const normalizeIsoToUtc = (iso: string): string => {
+      if (!iso) return iso;
+      if (/Z$|[+-]\d{2}:?\d{2}$/.test(iso)) return iso;
+      return iso + 'Z';
+    };
+
+    const startMs = new Date(normalizeIsoToUtc(timerStartTime)).getTime();
     const endMs = startMs + timerDurationSeconds * 1000;
 
     const tick = () => {
       const now = Date.now();
       const remaining = Math.max(0, Math.round((endMs - now) / 1000));
+
       if (lastTimerSyncRef.current) {
-        const elapsed = now - lastTimerSyncRef.current;
-        const derived = Math.max(0, lastServerRemainingRef.current - Math.round(elapsed / 1000));
-        const drift = Math.abs(derived - remaining);
-        setTimerRemainingSeconds(drift > 2 ? remaining : derived);
+        const elapsedSinceSyncMs = now - lastTimerSyncRef.current;
+        const derivedFromSync = Math.max(0, lastServerRemainingRef.current - Math.round(elapsedSinceSyncMs / 1000));
+        const drift = Math.abs(derivedFromSync - remaining);
+        setTimerRemainingSeconds(drift > 2 ? remaining : derivedFromSync);
       } else {
         setTimerRemainingSeconds(remaining);
       }
