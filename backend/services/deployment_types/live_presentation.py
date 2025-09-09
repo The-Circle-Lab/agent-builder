@@ -3381,12 +3381,20 @@ class LivePresentationDeployment:
         """Predict group names based on group behavior configuration, even if groups haven't been generated yet"""
         try:
             if not self._parent_page_deployment:
-                return []
+                print(f"🔍 No parent page deployment, attempting to retrieve...")
+                if not self._try_get_parent_page_deployment():
+                    print(f"⚠️ Could not get parent page deployment for group prediction")
+                    return []
             
             # Look for group behavior configuration
             behaviors = self._parent_page_deployment.get_behavior_list()
+            print(f"🔮 Found {len(behaviors) if behaviors else 0} behaviors in parent page deployment")
+            
             for behavior in behaviors:
-                if behavior.get_behavior_deployment().get_behavior_type() == 'group':
+                behavior_type = behavior.get_behavior_deployment().get_behavior_type()
+                print(f"🔮 Checking behavior type: {behavior_type}")
+                
+                if behavior_type == 'group':
                     behavior_deployment = behavior.get_behavior_deployment()
                     config = behavior_deployment.get_config().get('config', {})
                     
@@ -3394,6 +3402,17 @@ class LivePresentationDeployment:
                     group_size_mode = config.get('group_size_mode', 'students_per_group')
                     
                     print(f"🔮 Predicting groups: group_size={group_size}, mode={group_size_mode}")
+
+                    # If the mode explicitly specifies number_of_groups, we can predict without student count
+                    if str(group_size_mode) == 'number_of_groups':
+                        try:
+                            num_groups = int(group_size)
+                        except Exception:
+                            num_groups = 0
+                        if num_groups > 0:
+                            predicted_groups = [f"Group{i+1}" for i in range(num_groups)]
+                            print(f"🔮 Predicted (from config number_of_groups) {num_groups} groups -> {predicted_groups}")
+                            return predicted_groups
                     
                     # Try to estimate number of students from page data
                     student_count = 0
