@@ -2823,6 +2823,9 @@ class LivePresentationDeployment:
             print(f"🧹 Removing student with failed WebSocket during ready check: {self.students[user_id].user_name}")
             await self.disconnect_student(user_id)
         
+        # Broadcast ready check to roomcast devices so they clear group info
+        await self._broadcast_ready_check_to_roomcast(message)
+        
         await self._notify_teachers_connection_update()
         
         # Save updated session state
@@ -2989,6 +2992,24 @@ class LivePresentationDeployment:
                 await roomcast_ws.send_text(json.dumps(roomcast_message))
             except Exception as e:
                 print(f"❌ Failed to send timer message to roomcast: {e}")
+                disconnected_roomcasts.add(roomcast_ws)
+        
+        # Remove disconnected roomcast devices
+        for ws in disconnected_roomcasts:
+            await self.disconnect_roomcast(ws)
+    
+    async def _broadcast_ready_check_to_roomcast(self, message: Dict[str, Any]):
+        """Broadcast ready check message to all roomcast devices to clear group info"""
+        disconnected_roomcasts = set()
+        for roomcast_ws in self.roomcast_websockets:
+            try:
+                roomcast_message = {
+                    **message,
+                    "group_name": self._roomcast_ws_lookup.get(roomcast_ws, "Unknown")
+                }
+                await roomcast_ws.send_text(json.dumps(roomcast_message))
+            except Exception as e:
+                print(f"❌ Failed to send ready check message to roomcast: {e}")
                 disconnected_roomcasts.add(roomcast_ws)
         
         # Remove disconnected roomcast devices

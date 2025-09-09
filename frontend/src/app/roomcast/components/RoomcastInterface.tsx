@@ -217,6 +217,26 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           // Timer will be marked as inactive by a subsequent timer_stopped message
         }
         break;
+      case 'ready_check':
+        {
+          debug('ready_check message received');
+          // Clear group info when ready check starts
+          setGroupMembers([]);
+          // Show ready check prompt instead of clearing everything
+          const readyCheckPrompt: LivePresentationPrompt = {
+            id: 'ready_check',
+            statement: "Ready Check 📋\n\nPlease hit the I'm ready button on your devices.",
+            hasInput: false,
+            inputType: 'none',
+            inputPlaceholder: '',
+            useRandomListItem: false,
+            listVariableId: undefined,
+            isSystemPrompt: true,
+            category: 'system'
+          };
+          setCurrentPrompt(readyCheckPrompt);
+        }
+        break;
       case 'error':
         debug('roomcast_error', msg);
         setConnectionState({ status: 'error', error: (msg as { message?: string }).message || 'Unknown error' });
