@@ -3227,16 +3227,16 @@ class LivePresentationDeployment:
         
         # Roomcast stats
         expected_groups = self._get_expected_group_names()
-        has_actual_groups = self.groups is not None and len(self.groups) > 0
-        
+        has_actual_groups = self._has_actual_groups()
+
         roomcast_status = {
-            "enabled": self.roomcast_enabled,
-            "code": self.roomcast_code,
-            "code_expires_at": self.roomcast_code_expires_at.isoformat() if self.roomcast_code_expires_at else None,
-            "connected_devices": list(self.roomcast_devices.keys()),
-            "expected_groups": expected_groups,
-            "groups_are_predicted": not has_actual_groups and expected_groups is not None
-        }
+                "enabled": self.roomcast_enabled,
+                "code": self.roomcast_code,
+                "code_expires_at": self.roomcast_code_expires_at.isoformat() if self.roomcast_code_expires_at else None,
+                "connected_devices": list(self.roomcast_devices.keys()),
+                "expected_groups": expected_groups,
+                "groups_are_predicted": not has_actual_groups and expected_groups is not None
+            }
 
         return {
             "deployment_id": self.deployment_id,
@@ -3259,7 +3259,7 @@ class LivePresentationDeployment:
                 "start_time": self.timer_start_time.isoformat() if self.timer_start_time else None
             }
         }
-    
+        
     def get_student_responses(self, prompt_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all student responses, optionally filtered by prompt ID"""
         responses = []
@@ -3275,10 +3275,29 @@ class LivePresentationDeployment:
         """Return self as the live presentation service"""
         return self
     
+    def _has_actual_groups(self) -> bool:
+        """Safely determine if actual groups exist for this presentation.
+
+        Groups can be stored in different formats depending on the behavior:
+        - dict: {group_name: [member1, member2, ...]}
+        - list: [ { title, student_names, ... }, ... ] for theme-based grouping
+        """
+        try:
+            data = getattr(self, "input_variable_data", None)
+            if data is None:
+                return False
+            if isinstance(data, dict):
+                return len(data) > 0
+            if isinstance(data, list):
+                return len(data) > 0
+            return False
+        except Exception:
+            return False
+
     def get_live_presentation_info(self) -> Dict[str, Any]:
         """Get live presentation info for API responses"""
         expected_groups = self._get_expected_group_names()
-        has_actual_groups = self.groups is not None and len(self.groups) > 0
+        has_actual_groups = self._has_actual_groups()
         
         return {
             "deployment_id": self.deployment_id,
@@ -3433,8 +3452,8 @@ class LivePresentationDeployment:
 
     def get_roomcast_status(self) -> Dict[str, Any]:
         expected_groups = self._get_expected_group_names()
-        has_actual_groups = self.groups is not None and len(self.groups) > 0
-        
+        has_actual_groups = self._has_actual_groups()
+
         return {
             "enabled": self.roomcast_enabled,
             "code": self.roomcast_code,
