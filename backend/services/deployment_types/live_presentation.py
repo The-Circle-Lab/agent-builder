@@ -3230,13 +3230,13 @@ class LivePresentationDeployment:
         has_actual_groups = self._has_actual_groups()
 
         roomcast_status = {
-                "enabled": self.roomcast_enabled,
-                "code": self.roomcast_code,
-                "code_expires_at": self.roomcast_code_expires_at.isoformat() if self.roomcast_code_expires_at else None,
-                "connected_devices": list(self.roomcast_devices.keys()),
-                "expected_groups": expected_groups,
-                "groups_are_predicted": not has_actual_groups and expected_groups is not None
-            }
+            "enabled": self.roomcast_enabled,
+            "code": self.roomcast_code,
+            "code_expires_at": self.roomcast_code_expires_at.isoformat() if self.roomcast_code_expires_at else None,
+            "connected_devices": list(self.roomcast_devices.keys()),
+            "expected_groups": expected_groups,
+            "groups_are_predicted": not has_actual_groups and expected_groups is not None
+        }
 
         return {
             "deployment_id": self.deployment_id,
@@ -3469,7 +3469,7 @@ class LivePresentationDeployment:
             self.roomcast_websockets.add(websocket)
             # Send welcome and expected groups
             expected_groups = self._get_expected_group_names()
-            has_actual_groups = self.groups is not None and len(self.groups) > 0
+            has_actual_groups = self._has_actual_groups()
             
             await websocket.send_text(json.dumps({
                 "type": "roomcast_connected",
