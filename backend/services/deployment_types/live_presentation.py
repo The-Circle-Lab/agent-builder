@@ -2511,12 +2511,12 @@ class LivePresentationDeployment:
             await self.disconnect_student(user_id)
     
     def _get_group_explanations_from_behavior_results(self) -> Optional[Dict[str, str]]:
-        """Get group explanations from behavior results if available"""
+        """Get group explanations from behavior results or database if available"""
         if not self._parent_page_deployment:
             return None
         
         try:
-            # Look for behavior variables that might contain group explanations
+            # First, look for behavior variables that might contain group explanations
             behavior_variables = self._parent_page_deployment.get_behavior_variables()
             
             for variable in behavior_variables:
@@ -2527,26 +2527,106 @@ class LivePresentationDeployment:
                         if isinstance(explanations, dict):
                             print(f"🎤 Found explanations in variable {variable.name}: {list(explanations.keys())}")
                             return explanations
-                    
-                    # Also check if the behavior deployment itself has cached results with explanations
-                    if hasattr(self._parent_page_deployment, 'get_behavior_list'):
-                        behaviors = self._parent_page_deployment.get_behavior_list()
-                        for behavior in behaviors:
-                            if hasattr(behavior, 'get_behavior_deployment'):
-                                behavior_deployment = behavior.get_behavior_deployment()
-                                if hasattr(behavior_deployment, 'get_results'):
-                                    results = behavior_deployment.get_results()
-                                    if results and isinstance(results, dict) and 'explanations' in results:
-                                        explanations = results.get('explanations')
-                                        if isinstance(explanations, dict):
-                                            print(f"🎤 Found explanations in behavior results: {list(explanations.keys())}")
-                                            return explanations
             
-            print(f"🎤 No explanations found in behavior results")
-            return None
+            # Also check if the behavior deployment itself has cached results with explanations
+            if hasattr(self._parent_page_deployment, 'get_behavior_list'):
+                behaviors = self._parent_page_deployment.get_behavior_list()
+                for behavior in behaviors:
+                    if hasattr(behavior, 'get_behavior_deployment'):
+                        behavior_deployment = behavior.get_behavior_deployment()
+                        if hasattr(behavior_deployment, 'get_results'):
+                            results = behavior_deployment.get_results()
+                            if results and isinstance(results, dict) and 'explanations' in results:
+                                explanations = results.get('explanations')
+                                if isinstance(explanations, dict):
+                                    print(f"🎤 Found explanations in behavior results: {list(explanations.keys())}")
+                                    return explanations
+            
+            print(f"🎤 No explanations found in behavior results, checking database...")
+            
+            # If no explanations in behavior results, check database
+            return self._get_group_explanations_from_database()
             
         except Exception as e:
             print(f"⚠️ Error getting group explanations: {e}")
+            return None
+
+    def _get_group_explanations_from_database(self) -> Optional[Dict[str, str]]:
+        """Get group explanations from the database for this deployment"""
+        if not self._db_session:
+            print(f"🔍 No database session available for explanation lookup")
+            return None
+        
+        try:
+            from models.database.grouping_models import GroupAssignment, Group, GroupMember
+            from models.database.page_models import PageDeploymentState
+            from sqlmodel import select, and_
+            
+            # Get the page deployment ID for this live presentation
+            main_deployment_id = self.deployment_id.split('_page_')[0]
+            
+            # Find the page deployment state
+            page_deployment_state = self._db_session.exec(
+                select(PageDeploymentState).where(
+                    PageDeploymentState.deployment_id == main_deployment_id
+                )
+            ).first()
+            
+            if not page_deployment_state:
+                print(f"🔍 No page deployment state found for {main_deployment_id}")
+                return None
+            
+            # Get the latest group assignment for this page deployment
+            latest_assignment = self._db_session.exec(
+                select(GroupAssignment)
+                .where(and_(
+                    GroupAssignment.page_deployment_id == page_deployment_state.id,
+                    GroupAssignment.is_active == True
+                ))
+                .order_by(GroupAssignment.created_at.desc())
+            ).first()
+            
+            if not latest_assignment:
+                print(f"🔍 No group assignments found for page deployment {main_deployment_id}")
+                return None
+            
+            if not latest_assignment.includes_explanations:
+                print(f"🔍 Latest group assignment does not include explanations")
+                return None
+            
+            print(f"🔍 Found group assignment with explanations from {latest_assignment.created_at}")
+            
+            # Get groups with explanations
+            groups = self._db_session.exec(
+                select(Group).where(and_(
+                    Group.assignment_id == latest_assignment.id,
+                    Group.is_active == True,
+                    Group.explanation.is_not(None),
+                    Group.explanation != ""
+                ))
+                .order_by(Group.group_number)
+            ).all()
+            
+            if not groups:
+                print(f"🔍 No groups with explanations found")
+                return None
+            
+            # Build the explanations dictionary
+            explanations = {}
+            for group in groups:
+                if group.explanation and group.explanation.strip():
+                    explanations[group.group_name] = group.explanation
+                    print(f"    {group.group_name}: {group.explanation[:100]}{'...' if len(group.explanation) > 100 else ''}")
+            
+            if explanations:
+                print(f"🎤 Found explanations from database for {len(explanations)} groups")
+                return explanations
+            else:
+                print(f"🔍 No non-empty explanations found in database")
+                return None
+            
+        except Exception as e:
+            print(f"❌ Error retrieving explanations from database: {e}")
             return None
     
     async def send_group_info_to_students(self, include_explanations: bool = False):
