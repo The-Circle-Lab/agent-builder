@@ -53,12 +53,29 @@ class GroupAssignmentBehavior:
         print(f"🔍 GROUP ASSIGNMENT EXECUTE: Initial student_data type: {type(student_data)}")
         print(f"🔍 GROUP ASSIGNMENT EXECUTE: student_data is None: {student_data is None}")
         
-        # Auto-fetch student data if None but we have selected submission prompts
-        if student_data is None and self.selected_submission_prompts:
-            print(f"🔍 GROUP ASSIGNMENT EXECUTE: Auto-fetching student data from prompt pages")
+        # Auto-fetch student data if None. Prefer configured prompts, but fallback to page 1 submissions.
+        if student_data is None:
+            print(f"🔍 GROUP ASSIGNMENT EXECUTE: Attempting auto-fetch because input is None")
             print(f"🔍 GROUP ASSIGNMENT EXECUTE: Selected submission prompts: {self.selected_submission_prompts}")
             print(f"🔍 GROUP ASSIGNMENT EXECUTE: Deployment context: {deployment_context}")
-            student_data = self._auto_fetch_student_data_from_prompts(db_session, deployment_context)
+            # Ensure we have a DB session to read submissions
+            _temp_session = None
+            if db_session is None:
+                try:
+                    from database.database import get_session
+                    _temp_session = get_session()
+                    db_session = _temp_session.__enter__()
+                    print(f"🔍 GROUP ASSIGNMENT EXECUTE: Created temporary DB session for auto-fetch")
+                except Exception as e:
+                    print(f"⚠️  GROUP ASSIGNMENT EXECUTE: Failed to create DB session for auto-fetch: {e}")
+            try:
+                student_data = self._auto_fetch_student_data_from_prompts(db_session, deployment_context)
+            finally:
+                if _temp_session is not None:
+                    try:
+                        _temp_session.__exit__(None, None, None)
+                    except Exception:
+                        pass
             print(f"🔍 GROUP ASSIGNMENT EXECUTE: Auto-fetched {len(student_data) if student_data else 'None'} students")
         
         # Validate input data
@@ -365,7 +382,16 @@ class GroupAssignmentBehavior:
                         try:
                             submission_index = int(parts[-1])  # Last part is the index
                             submission_key = f"submission_{submission_index}"
-                            variable_type = parts[-2]  # Second to last is the type (text/pdf/list)
+                            # Second to last is the type (text/pdf/list/dynamic_list/hyperlink)
+                            variable_type = parts[-2]
+                            # Normalize frontend variable naming differences
+                            # - treat dynamic_list as list for matching
+                            # - textarea should already be mapped to text on the frontend, but guard anyway
+                            normalized_var_type = (
+                                'list' if variable_type == 'dynamic_list' else
+                                'text' if variable_type == 'textarea' else
+                                variable_type
+                            )
                             
                             if submission_key in student['submission_responses']:
                                 response = student['submission_responses'][submission_key]
@@ -373,13 +399,16 @@ class GroupAssignmentBehavior:
 
                                 print(f"    🔍 Found {submission_key}: {media_type} type")
 
-                                # Normalize variable/media type matching including list
+                                # Normalize variable/media type matching including list/dynamic_list and hyperlink/text
                                 type_match = False
-                                if variable_type == 'text' and media_type == 'text':
+                                # Exact match
+                                if normalized_var_type == media_type:
                                     type_match = True
-                                elif variable_type == 'pdf' and media_type == 'pdf':
+                                # Cross-match list and dynamic_list
+                                elif normalized_var_type == 'list' and media_type in ('list', 'dynamic_list'):
                                     type_match = True
-                                elif variable_type == 'list' and media_type == 'list':
+                                # Cross-match text and hyperlink selection (treat both as textual content)
+                                elif normalized_var_type in ('text', 'hyperlink') and media_type in ('text', 'hyperlink'):
                                     type_match = True
 
                                 if type_match:
@@ -390,13 +419,13 @@ class GroupAssignmentBehavior:
                                         if text_content:
                                             selected_texts.append(text_content)
                                             print(f"      ✅ Added text: {text_content[:50]}...")
-                                    elif media_type == 'list':
+                                    elif media_type == 'list' or media_type == 'dynamic_list':
                                         items = response.get('items') or []
                                         if isinstance(items, list) and items:
                                             list_text = ' '.join([str(i) for i in items if str(i).strip()])
                                             if list_text:
                                                 selected_texts.append(list_text)
-                                                print(f"      ✅ Added list items text: {list_text[:50]}...")
+                                                print(f"      ✅ Added {media_type} items text: {list_text[:50]}...")
                                     elif media_type == 'pdf':
                                         try:
                                             pdf_id = int(response.get('response', ''))
@@ -540,50 +569,38 @@ class GroupAssignmentBehavior:
 
     def _auto_fetch_student_data_from_prompts(self, db_session: Optional[Any] = None, deployment_context: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
         """
-        Auto-fetch student data from prompt pages when no input is provided but selected_submission_prompts exist.
-        This method tries to find the prompt page deployment based on the selected submission prompts configuration.
+        Auto-fetch student data from prompt pages when no input is provided. If a deployment_context is provided,
+        prioritize fetching from that deployment's page_1; otherwise, scan all active page deployments.
         """
         print(f"🔍 AUTO-FETCH: Starting auto-fetch of student data")
-        
-        if not self.selected_submission_prompts:
-            print(f"🔍 AUTO-FETCH: No selected submission prompts, cannot auto-fetch")
-            return None
         
         if not db_session:
             print(f"🔍 AUTO-FETCH: No database session available, cannot auto-fetch")
             return None
         
         try:
-            # Extract node information from selected submission prompts
-            print(f"🔍 AUTO-FETCH: Analyzing {len(self.selected_submission_prompts)} selected submission prompts")
-            
-            # Import the helper function to get submissions
+            # Import dependencies lazily
             from api.deployments.deployment_prompt_routes import get_all_prompt_submissions_for_deployment
             from models.database.db_models import Deployment
             from sqlmodel import select
             
-            # Strategy 1: Look for deployments with prompt submissions
-            # Prioritize the current deployment context if available
-            
             deployments_to_check = []
             
-            # If we have deployment context, prioritize the corresponding page deployment
+            # If we have deployment context, prioritize the corresponding page_1 deployment
             if deployment_context:
-                # Extract base deployment ID and look for page_1 deployment
-                # deployment_context format: "d43c7ffe-bebd-497c-8685-b8b50b86f7c2_behavior_1"
-                base_deployment_id = deployment_context.replace('_behavior_1', '')
+                try:
+                    base_deployment_id = deployment_context.split('_behavior_')[0]
+                except Exception:
+                    base_deployment_id = deployment_context
                 target_page_deployment = f"{base_deployment_id}_page_1"
                 print(f"🔍 AUTO-FETCH: Deployment context: {deployment_context}")
                 print(f"🔍 AUTO-FETCH: Prioritizing target deployment: {target_page_deployment}")
-                
-                # Get the target deployment first
                 target_deployment = db_session.exec(
                     select(Deployment).where(
                         Deployment.is_active == True,
                         Deployment.deployment_id == target_page_deployment
                     )
                 ).first()
-                
                 if target_deployment:
                     deployments_to_check.append(target_deployment)
                     print(f"🔍 AUTO-FETCH: ✅ Found and prioritized target deployment: {target_page_deployment}")
@@ -597,8 +614,6 @@ class GroupAssignmentBehavior:
                     Deployment.deployment_id.like('%_page_%')
                 )
             ).all()
-            
-            # Add other deployments that aren't already in our priority list
             for deployment in all_page_deployments:
                 if deployment not in deployments_to_check:
                     deployments_to_check.append(deployment)
@@ -610,29 +625,24 @@ class GroupAssignmentBehavior:
                 try:
                     print(f"🔍 AUTO-FETCH: Checking deployment: {deployment.deployment_id}")
                     result = get_all_prompt_submissions_for_deployment(deployment.deployment_id, db_session)
-                    
                     if isinstance(result, dict):
                         students = result.get("students", [])
-                        if students and len(students) > 0:
+                        if students:
                             print(f"🔍 AUTO-FETCH: Found {len(students)} students in deployment {deployment.deployment_id}")
-                            
                             # Validate the student data format
                             valid_students = []
                             for student in students:
                                 if isinstance(student, dict) and 'name' in student:
                                     valid_students.append(student)
-                            
                             if valid_students:
                                 print(f"🔍 AUTO-FETCH: Successfully auto-fetched {len(valid_students)} valid students")
                                 return valid_students
-                    
                 except Exception as e:
                     print(f"🔍 AUTO-FETCH: Error checking deployment {deployment.deployment_id}: {e}")
                     continue
             
             print(f"🔍 AUTO-FETCH: No student submissions found in any page deployment")
             return None
-            
         except Exception as e:
             print(f"🔍 AUTO-FETCH: Error during auto-fetch: {e}")
             import traceback

@@ -14,6 +14,86 @@ from services.page_service import PageDeployment, DeploymentVariable, VariableTy
 # Store active page deployments with state
 ACTIVE_PAGE_DEPLOYMENTS: Dict[str, Dict[str, Any]] = {}
 
+
+def _ensure_state_data(page_state: PageDeploymentState) -> None:
+    """Ensure state_data exists and has required keys."""
+    if page_state.state_data is None or not isinstance(page_state.state_data, dict):
+        page_state.state_data = {}
+    # Initialize locked_pages array if missing
+    if "locked_pages" not in page_state.state_data or not isinstance(page_state.state_data.get("locked_pages"), list):
+        page_state.state_data["locked_pages"] = []
+
+
+def _get_page_state(deployment_id: str, db: DBSession) -> Optional[PageDeploymentState]:
+    return db.exec(
+        select(PageDeploymentState).where(
+            PageDeploymentState.deployment_id == deployment_id,
+            PageDeploymentState.is_active == True,
+        )
+    ).first()
+
+
+def _get_locked_pages_from_state(page_state: PageDeploymentState) -> List[int]:
+    _ensure_state_data(page_state)
+    locked = page_state.state_data.get("locked_pages", [])
+    # sanitize to ints and unique
+    try:
+        return sorted({int(p) for p in locked if isinstance(p, (int, str))})
+    except Exception:
+        return []
+
+
+async def get_locked_pages(deployment_id: str, db: DBSession) -> List[int]:
+    """Return list of locked page numbers for a page-based deployment."""
+    page_state = _get_page_state(deployment_id, db)
+    if not page_state:
+        return []
+    locked = _get_locked_pages_from_state(page_state)
+    try:
+        print(f"🔒 get_locked_pages: deployment={deployment_id} locked={locked}")
+    except Exception:
+        pass
+    return locked
+
+
+async def set_page_lock(deployment_id: str, page_number: int, locked: bool, db: DBSession) -> bool:
+    """Lock or unlock a specific page and persist to DB."""
+    try:
+        page_state = _get_page_state(deployment_id, db)
+        if not page_state:
+            # Create default state if missing
+            page_state = PageDeploymentState(
+                deployment_id=deployment_id,
+                pages_accessible=-1,
+                state_data={"locked_pages": []},
+            )
+            db.add(page_state)
+            db.commit()
+            db.refresh(page_state)
+
+        _ensure_state_data(page_state)
+        locked_pages = set(_get_locked_pages_from_state(page_state))
+        if locked:
+            locked_pages.add(int(page_number))
+        else:
+            locked_pages.discard(int(page_number))
+        # Reassign entire state_data object so SQLAlchemy/SQLModel detect JSON change
+        new_state = dict(page_state.state_data or {})
+        new_state["locked_pages"] = sorted(list(locked_pages))
+        page_state.state_data = new_state
+        page_state.updated_at = datetime.now(timezone.utc)
+        db.add(page_state)
+        db.commit()
+        try:
+            print(f"🔒 set_page_lock: deployment={deployment_id} page={page_number} locked={locked} -> {new_state['locked_pages']}")
+        except Exception:
+            pass
+        return True
+    except Exception as e:
+        print(f"Error setting page lock for {deployment_id} page {page_number}: {e}")
+        db.rollback()
+        return False
+
 async def load_page_deployment_on_demand(deployment_id: str, user_id: int, db: DBSession) -> bool:
     """Load a page deployment on demand from database with full state restoration"""
     if deployment_id in ACTIVE_PAGE_DEPLOYMENTS:
@@ -140,6 +220,7 @@ async def restore_page_deployment_state(page_deployment: PageDeployment, db: DBS
         
         # Restore pages_accessible setting
         page_deployment.set_pages_accessible(page_state.pages_accessible)
+        # Nothing to set directly on page_deployment for locked pages yet; state_data is consulted by API layer
         
         # Restore variables
         db_variables = db.exec(
@@ -176,7 +257,8 @@ async def save_page_deployment_state(page_deployment: PageDeployment, db: DBSess
         if not page_state:
             page_state = PageDeploymentState(
                 deployment_id=page_deployment.deployment_id,
-                pages_accessible=page_deployment.get_pages_accessible()
+                pages_accessible=page_deployment.get_pages_accessible(),
+                state_data={"locked_pages": []}
             )
             db.add(page_state)
             db.commit()
@@ -759,3 +841,144 @@ async def set_pages_accessible(deployment_id: str, pages_accessible: int, db: DB
     except Exception as e:
         print(f"Error setting pages accessible: {e}")
         return False 
+
+
+async def set_student_button_customization(
+    deployment_id: str, 
+    button_text: str, 
+    button_color: str, 
+    db: DBSession
+) -> bool:
+    """Set student button customization and persist to database"""
+    try:
+        # Get or create page deployment state record
+        page_state = db.exec(
+            select(PageDeploymentState).where(
+                PageDeploymentState.deployment_id == deployment_id,
+                PageDeploymentState.is_active == True
+            )
+        ).first()
+        
+        if not page_state:
+            # Create new state record with button customization
+            page_state = PageDeploymentState(
+                deployment_id=deployment_id,
+                pages_accessible=-1,
+                student_button_text=button_text,
+                student_button_color=button_color,
+                state_data={"locked_pages": []}
+            )
+            db.add(page_state)
+        else:
+            # Update existing state
+            page_state.student_button_text = button_text
+            page_state.student_button_color = button_color
+            page_state.updated_at = datetime.now(timezone.utc)
+            db.add(page_state)
+        
+        db.commit()
+        return True
+        
+    except Exception as e:
+        print(f"Error setting student button customization: {e}")
+        return False
+
+
+async def get_student_button_customization(deployment_id: str, db: DBSession) -> Dict[str, str]:
+    """Get student button customization from database"""
+    try:
+        page_state = db.exec(
+            select(PageDeploymentState).where(
+                PageDeploymentState.deployment_id == deployment_id,
+                PageDeploymentState.is_active == True
+            )
+        ).first()
+        
+        if page_state:
+            return {
+                "button_text": page_state.student_button_text,
+                "button_color": page_state.student_button_color
+            }
+        else:
+            # Return defaults if no state exists
+            return {
+                "button_text": "Enter",
+                "button_color": "bg-indigo-600 hover:bg-indigo-700"
+            }
+        
+    except Exception as e:
+        print(f"Error getting student button customization: {e}")
+        return {
+            "button_text": "Enter",
+            "button_color": "bg-indigo-600 hover:bg-indigo-700"
+        }
+
+
+async def set_deployment_due_date(
+    deployment_id: str, 
+    due_date: datetime | None, 
+    db: DBSession
+) -> bool:
+    """Set deployment due date and persist to database"""
+    try:
+        # Normalize to timezone-aware UTC if provided
+        if due_date is not None:
+            if due_date.tzinfo is None:
+                due_date = due_date.replace(tzinfo=timezone.utc)
+            else:
+                due_date = due_date.astimezone(timezone.utc)
+        # Get or create page deployment state record
+        page_state = db.exec(
+            select(PageDeploymentState).where(
+                PageDeploymentState.deployment_id == deployment_id,
+                PageDeploymentState.is_active == True
+            )
+        ).first()
+        
+        if not page_state:
+            # Create new state record with due date
+            page_state = PageDeploymentState(
+                deployment_id=deployment_id,
+                pages_accessible=-1,
+                due_date=due_date,
+                state_data={"locked_pages": []}
+            )
+            db.add(page_state)
+        else:
+            # Update existing state
+            page_state.due_date = due_date
+            page_state.updated_at = datetime.now(timezone.utc)
+            db.add(page_state)
+        
+        db.commit()
+        return True
+        
+    except Exception as e:
+        print(f"Error setting deployment due date: {e}")
+        return False
+
+
+async def get_deployment_due_date(deployment_id: str, db: DBSession) -> datetime | None:
+    """Get deployment due date from database"""
+    try:
+        page_state = db.exec(
+            select(PageDeploymentState).where(
+                PageDeploymentState.deployment_id == deployment_id,
+                PageDeploymentState.is_active == True
+            )
+        ).first()
+        
+        if page_state:
+            due = page_state.due_date
+            if due is None:
+                return None
+            # Ensure returned value is timezone-aware UTC
+            if due.tzinfo is None:
+                return due.replace(tzinfo=timezone.utc)
+            return due.astimezone(timezone.utc)
+        else:
+            return None
+        
+    except Exception as e:
+        print(f"Error getting deployment due date: {e}")
+        return None

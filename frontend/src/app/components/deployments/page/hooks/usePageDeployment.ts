@@ -46,9 +46,14 @@ export function usePageDeployment(deploymentId: string): UsePageDeploymentReturn
       setPages(data.pages);
       setPagesAccessible(data.pages_accessible);
       
-      // Set current page to first page if not already set
-      if (data.pages.length > 0 && currentPage === 1) {
+      // Choose first unlocked & accessible page
+      const firstUnlocked = data.pages.find(p => p.is_accessible);
+      if (firstUnlocked) {
+        setCurrentPage(firstUnlocked.page_number);
+      } else if (data.pages.length > 0) {
+        // If none are accessible, keep page at 1 and set error
         setCurrentPage(data.pages[0].page_number);
+        setError('No pages are accessible yet. Please wait until your instructor unlocks a page.');
       }
       
     } catch (err) {
@@ -58,7 +63,7 @@ export function usePageDeployment(deploymentId: string): UsePageDeploymentReturn
     } finally {
       setLoading(false);
     }
-  }, [deploymentId, currentPage]);
+  }, [deploymentId]);
 
   const refreshPages = useCallback(async () => {
     await fetchPages();

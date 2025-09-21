@@ -10,6 +10,13 @@ class PageDeploymentState(SQLModel, table=True):
     deployment_id: str = Field(index=True, unique=True)  # Main page deployment ID
     pages_accessible: int = Field(default=-1)  # Number of pages accessible to students (-1 = all)
     
+    # Student button customization
+    student_button_text: str = Field(default="Enter")  # Text for student Enter button
+    student_button_color: str = Field(default="bg-indigo-600 hover:bg-indigo-700")  # Tailwind color classes
+    
+    # Due date for the deployment
+    due_date: dt.datetime | None = Field(default=None)  # Optional due date for students
+    
     # Store additional deployment state as JSON if needed
     state_data: Dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
     

@@ -6,7 +6,6 @@ import { BaseDeploymentAPI } from '../../../lib/deploymentAPIs/deploymentAPI';
 import { 
   ChatBubbleLeftRightIcon, 
   TrashIcon, 
-  UsersIcon,
   RocketLaunchIcon,
   ChartBarIcon,
   AcademicCapIcon,
@@ -15,7 +14,8 @@ import {
   ClipboardDocumentCheckIcon,
   PencilSquareIcon,
   DocumentIcon,
-  CogIcon
+  CogIcon,
+  EyeIcon
 } from '@heroicons/react/24/outline';
 import { API_CONFIG } from '@/lib/constants';
 
@@ -113,6 +113,15 @@ const DEPLOYMENT_TYPES = {
       if (props.onViewStudentPages) {
         props.onViewStudentPages(deployment.deployment_id, deployment.workflow_name);
       }
+    },
+    // Instructor-specific overrides
+    instructorButtonText: 'Activity',
+    instructorIcon: CogIcon,
+    instructorButtonColor: 'bg-purple-600 hover:bg-purple-700',
+    handleInstructorAction: (props: ClassDeploymentsProps, deployment: Deployment) => {
+      if (props.onAdminPageDeployment) {
+        props.onAdminPageDeployment(deployment.deployment_id, deployment.workflow_name);
+      }
     }
   }
   // Add new deployment types here following the same pattern
@@ -149,6 +158,11 @@ interface DeploymentTypeConfig {
   studentViewLabel: string;
   handleDeploymentAction: (props: ClassDeploymentsProps, deployment: Deployment) => void;
   handleStudentViewAction: (props: ClassDeploymentsProps, deployment: Deployment) => void;
+  // Optional instructor-specific overrides
+  instructorButtonText?: string;
+  instructorIcon?: React.ComponentType<{ className?: string }>;
+  instructorButtonColor?: string;
+  handleInstructorAction?: (props: ClassDeploymentsProps, deployment: Deployment) => void;
 }
 
 interface StudentGrade {
@@ -290,6 +304,8 @@ export default function ClassDeployments({
   const [togglingStates, setTogglingStates] = useState<Record<string, boolean>>({});
   const [individualGrades, setIndividualGrades] = useState<Record<string, IndividualGradesData>>({});
   const [loadingGrades, setLoadingGrades] = useState<Record<string, boolean>>({});
+  const [buttonCustomizations, setButtonCustomizations] = useState<Record<string, {button_text: string; button_color: string}>>({});
+  const [dueDates, setDueDates] = useState<Record<string, { due_date: string | null; is_overdue: boolean; days_until_due: number | null }>>({});
 
   // Sort deployments by most recent first
   const sortedDeployments = [...deployments].sort((a, b) => 
@@ -394,6 +410,75 @@ export default function ClassDeployments({
     }
   }, [deployments, deploymentTypes, individualGrades]);
 
+  // Fetch due dates for page-based deployments
+  useEffect(() => {
+    const fetchDueDates = async () => {
+      if (Object.keys(deploymentTypes).length === 0) return;
+      const updates: Record<string, { due_date: string | null; is_overdue: boolean; days_until_due: number | null }> = {};
+      await Promise.all(
+        deployments.map(async (d) => {
+          const type = deploymentTypes[d.deployment_id] ?? d.type ?? 'chat';
+          if (!(type === 'page' || isPageBasedDeployment(d, type))) return;
+          if (dueDates[d.deployment_id]) return;
+          try {
+            const resp = await fetch(`${API_CONFIG.BASE_URL}/api/deploy/${d.deployment_id}/due-date`, { credentials: 'include' });
+            if (resp.ok) {
+              const data = await resp.json();
+              updates[d.deployment_id] = {
+                due_date: data?.due_date ?? null,
+                is_overdue: Boolean(data?.is_overdue),
+                days_until_due: data?.days_until_due ?? null,
+              };
+            }
+          } catch {}
+        })
+      );
+      if (Object.keys(updates).length > 0) setDueDates((prev) => ({ ...prev, ...updates }));
+    };
+    fetchDueDates();
+  }, [deployments, deploymentTypes, dueDates]);
+
+  // Fetch button customizations for page deployments when user is a student
+  useEffect(() => {
+    const fetchButtonCustomizations = async () => {
+      if (isInstructor) return; // Only for students
+      
+      const pageDeployments = deployments.filter(d => {
+        const type = deploymentTypes[d.deployment_id] ?? d.type ?? 'chat';
+        return type === 'page' || isPageBasedDeployment(d, type);
+      });
+
+      for (const deployment of pageDeployments) {
+        if (buttonCustomizations[deployment.deployment_id]) continue; // Already loaded
+
+        try {
+          const response = await fetch(
+            `${API_CONFIG.BASE_URL}/api/deploy/${deployment.deployment_id}/student-button`,
+            { credentials: 'include' }
+          );
+
+          if (response.ok) {
+            const data = await response.json();
+            setButtonCustomizations(prev => ({
+              ...prev,
+              [deployment.deployment_id]: {
+                button_text: data.button_text,
+                button_color: data.button_color
+              }
+            }));
+          }
+        } catch (err) {
+          console.warn(`Failed to fetch button customization for deployment ${deployment.deployment_id}:`, err);
+        }
+      }
+    };
+
+    // Only fetch if we have deployment types loaded
+    if (Object.keys(deploymentTypes).length > 0) {
+      fetchButtonCustomizations();
+    }
+  }, [deployments, deploymentTypes, buttonCustomizations, isInstructor]);
+
   const handleDelete = async (deploymentId: string) => {
     if (!confirm('Are you sure you want to delete this deployment? This action cannot be undone.')) {
       return;
@@ -441,6 +526,9 @@ export default function ClassDeployments({
 
 
   const renderGradeDisplay = (deployment: Deployment) => {
+    // Don't show grades for instructors
+    if (isInstructor) return null;
+    
     const deploymentType = deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat';
     const typeConfig = getDeploymentTypeConfig(deploymentType);
     
@@ -467,44 +555,31 @@ export default function ClassDeployments({
       );
     }
 
-    if (isInstructor) {
-      // For instructors, show class summary
+    // For students, show their individual grade
+    const studentGrade = grades.student_grades[0]; // Should be their own grade
+    
+    if (studentGrade) {
+      const colorClass = studentGrade.percentage >= 80 
+        ? 'text-green-700' 
+        : studentGrade.percentage >= 60 
+          ? 'text-yellow-700' 
+          : 'text-red-700';
+      
       return (
         <div className="flex items-center space-x-1">
-          <AcademicCapIcon className="h-3 w-3 text-blue-600" />
-          <span className="text-blue-700 font-medium text-xs">
-            Class Average: {grades.class_summary.class_average.toFixed(1)}% 
-            ({grades.class_summary.total_students} students)
+          <AcademicCapIcon className="h-3 w-3 text-green-600" />
+          <span className={`font-medium text-xs ${colorClass}`}>
+            Your Grade: {studentGrade.points_earned}/{studentGrade.total_points} ({studentGrade.percentage.toFixed(1)}%)
           </span>
         </div>
       );
     } else {
-      // For students, show their individual grade
-      const studentGrade = grades.student_grades[0]; // Should be their own grade
-      
-      if (studentGrade) {
-        const colorClass = studentGrade.percentage >= 80 
-          ? 'text-green-700' 
-          : studentGrade.percentage >= 60 
-            ? 'text-yellow-700' 
-            : 'text-red-700';
-        
-        return (
-          <div className="flex items-center space-x-1">
-            <AcademicCapIcon className="h-3 w-3 text-green-600" />
-            <span className={`font-medium text-xs ${colorClass}`}>
-              Your Grade: {studentGrade.points_earned}/{studentGrade.total_points} ({studentGrade.percentage.toFixed(1)}%)
-            </span>
-          </div>
-        );
-      } else {
-        return (
-          <div className="flex items-center space-x-1">
-            <AcademicCapIcon className="h-3 w-3 text-gray-400" />
-            <span className="text-gray-500 text-xs">No grade yet</span>
-          </div>
-        );
-      }
+      return (
+        <div className="flex items-center space-x-1">
+          <AcademicCapIcon className="h-3 w-3 text-gray-400" />
+          <span className="text-gray-500 text-xs">No grade yet</span>
+        </div>
+      );
     }
   };
 
@@ -552,6 +627,7 @@ export default function ClassDeployments({
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
                     <div className={`flex items-center ${isDisabled ? 'opacity-60' : ''}`}>
+                      <IconComponent className="h-4 w-4 mr-2" />
                       <h3 className="text-sm font-medium text-gray-900">
                         {deployment.workflow_name}
                       </h3>
@@ -586,6 +662,21 @@ export default function ClassDeployments({
                             <p>Type: Multi-Page Workflow</p>
                           </>
                         )}
+                        {/* Due date (bold) if present */}
+                        {dueDates[deployment.deployment_id]?.due_date && (
+                          <p>
+                            <span className="text-gray-600">Due: </span>
+                            <span className={`font-semibold ${dueDates[deployment.deployment_id]?.is_overdue ? 'text-red-600' : ''}`}>
+                              {new Date(dueDates[deployment.deployment_id]!.due_date as string).toLocaleString(undefined, { 
+                                year: 'numeric', 
+                                month: 'short', 
+                                day: 'numeric', 
+                                hour: 'numeric', 
+                                minute: '2-digit'
+                              })}
+                            </span>
+                          </p>
+                        )}
                         <p>Deployed: {new Date(deployment.created_at).toLocaleDateString()}</p>
                       </div>
                       {renderGradeDisplay(deployment)}
@@ -598,60 +689,84 @@ export default function ClassDeployments({
                       <button
                         onClick={() => {
                           if (isDisabled) return;
-                          typeConfig.handleDeploymentAction({
-                            onChatWithDeployment,
-                            onCodeWithDeployment,
-                            onMCQWithDeployment,
-                            onPromptWithDeployment,
-                            onPageWithDeployment,
-                            onDeleteDeployment,
-                            onViewStudentChats,
-                            onViewStudentSubmissions,
-                            onViewStudentMCQ,
-                            onViewStudentPrompts,
-                            onViewStudentPages,
-                            deployments,
-                            isInstructor
-                          }, deployment);
+                          
+                          // Use instructor-specific handler and properties if instructor and they exist
+                          if (isInstructor && typeConfig.handleInstructorAction) {
+                            typeConfig.handleInstructorAction({
+                              onChatWithDeployment,
+                              onCodeWithDeployment,
+                              onMCQWithDeployment,
+                              onPromptWithDeployment,
+                              onPageWithDeployment,
+                              onDeleteDeployment,
+                              onViewStudentChats,
+                              onViewStudentSubmissions,
+                              onViewStudentMCQ,
+                              onViewStudentPrompts,
+                              onViewStudentPages,
+                              onAdminPageDeployment,
+                              deployments,
+                              isInstructor
+                            }, deployment);
+                          } else {
+                            typeConfig.handleDeploymentAction({
+                              onChatWithDeployment,
+                              onCodeWithDeployment,
+                              onMCQWithDeployment,
+                              onPromptWithDeployment,
+                              onPageWithDeployment,
+                              onDeleteDeployment,
+                              onViewStudentChats,
+                              onViewStudentSubmissions,
+                              onViewStudentMCQ,
+                              onViewStudentPrompts,
+                              onViewStudentPages,
+                              onAdminPageDeployment,
+                              deployments,
+                              isInstructor
+                            }, deployment);
+                          }
                         }}
                         disabled={isDisabled}
                         className={`inline-flex items-center px-3 py-1 border border-transparent text-xs font-medium rounded ${
                           isDisabled 
                             ? 'bg-gray-400 text-gray-200 cursor-not-allowed' 
-                            : `text-white ${typeConfig.buttonColor}`
+                            : `text-white ${
+                                // For students and page deployments, use custom button color if available
+                                (!isInstructor && isPageBasedDeployment(deployment, deploymentType) && buttonCustomizations[deployment.deployment_id])
+                                  ? buttonCustomizations[deployment.deployment_id].button_color
+                                  : isInstructor && typeConfig.instructorButtonColor 
+                                    ? typeConfig.instructorButtonColor 
+                                    : typeConfig.buttonColor
+                              }`
                         }`}
-                        title={isDisabled ? 'Deployment is closed' : `${typeConfig.displayName}: ${typeConfig.buttonText}`}
+                        title={isDisabled ? 'Deployment is closed' : `${typeConfig.displayName}: ${
+                          // For students and page deployments, use custom button text if available
+                          (!isInstructor && isPageBasedDeployment(deployment, deploymentType) && buttonCustomizations[deployment.deployment_id])
+                            ? buttonCustomizations[deployment.deployment_id].button_text
+                            : isInstructor && typeConfig.instructorButtonText 
+                              ? typeConfig.instructorButtonText 
+                              : typeConfig.buttonText
+                        }`}
                       >
-                        <IconComponent className="h-3 w-3 mr-1"/>
-                        {typeConfig.buttonText}
+                        {(() => {
+                          const IconComponent = isInstructor && typeConfig.instructorIcon 
+                            ? typeConfig.instructorIcon 
+                            : typeConfig.icon;
+                          return <IconComponent className="h-3 w-3 mr-1"/>;
+                        })()}
+                        {/* Use custom button text for students and page deployments */}
+                        {(!isInstructor && isPageBasedDeployment(deployment, deploymentType) && buttonCustomizations[deployment.deployment_id])
+                          ? buttonCustomizations[deployment.deployment_id].button_text
+                          : isInstructor && typeConfig.instructorButtonText 
+                            ? typeConfig.instructorButtonText 
+                            : typeConfig.buttonText}
                       </button>
                     </div>
                     
                     {/* Instructor controls */}
                     {isInstructor && (
                       <>
-                        <button
-                          onClick={() => typeConfig.handleStudentViewAction({
-                            onChatWithDeployment,
-                            onCodeWithDeployment,
-                            onMCQWithDeployment,
-                            onPromptWithDeployment,
-                            onPageWithDeployment,
-                            onDeleteDeployment,
-                            onViewStudentChats,
-                            onViewStudentSubmissions,
-                            onViewStudentMCQ,
-                            onViewStudentPrompts,
-                            onViewStudentPages,
-                            deployments,
-                            isInstructor
-                          }, deployment)}
-                          className="inline-flex items-center px-3 py-1 border border-gray-300 text-xs font-medium rounded text-gray-700 bg-white hover:bg-gray-50"
-                          title={typeConfig.studentViewLabel}
-                        >
-                          <UsersIcon className="h-3 w-3 mr-1" />
-                          Students
-                        </button>
 
                         <button
                           onClick={() => handleToggleDeploymentState(deployment.deployment_id)}
@@ -681,11 +796,16 @@ export default function ClassDeployments({
 
                         {isPageBasedDeployment(deployment, deploymentType) && (
                           <button
-                            onClick={() => onAdminPageDeployment?.(deployment.deployment_id, deployment.workflow_name)}
+                            onClick={() => {
+                              // Use the original deployment action for viewing
+                              if (onPageWithDeployment) {
+                                onPageWithDeployment(deployment.deployment_id, deployment.workflow_name);
+                              }
+                            }}
                             className="p-1 text-gray-400 hover:text-indigo-600 disabled:opacity-50"
-                            title="Admin Page"
+                            title="View Deployment"
                           >
-                            <CogIcon className="h-4 w-4" />
+                            <EyeIcon className="h-4 w-4" />
                           </button>
                         )}
                       </>
@@ -693,7 +813,8 @@ export default function ClassDeployments({
                   </div>
                 </div>
 
-                {isInstructor && (
+                {/* Quick stats section - only show for students */}
+                {!isInstructor && (
                   <div className="mt-3 pt-3 border-t border-gray-100">
                     <div className="flex items-center text-xs text-gray-500">
                       <ChartBarIcon className="h-3 w-3 mr-1" />

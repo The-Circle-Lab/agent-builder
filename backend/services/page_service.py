@@ -639,11 +639,18 @@ class PageDeployment:
             for var_data in variables:
                 if isinstance(var_data, dict):
                     try:
+                        # Normalize frontend-only types to supported enum values
+                        raw_type = var_data.get("type")
+                        normalized_type = (
+                            "list" if raw_type == "dynamic_list" else
+                            "text" if raw_type in ("textarea", "hyperlink") else
+                            raw_type
+                        )
                         variable = DeploymentVariable(
                             name=var_data["name"],
                             origin_type=OriginType(var_data["origin_type"]),
                             origin=Origin(var_data["origin"]),
-                            variable_type=VariableType(var_data["type"]),
+                            variable_type=VariableType(normalized_type),
                             page=var_data.get("page", 0),
                             index=var_data.get("index", 0)
                         )
@@ -994,12 +1001,18 @@ class PageDeployment:
                     # Convert database record back to DeploymentVariable
                     # Note: OriginType, Origin, VariableType are already imported at the top of this file
                     
-                    # Create the variable
+                    # Create the variable with normalized type (db may contain legacy types)
+                    db_type = record.variable_type
+                    normalized_type = (
+                        "list" if db_type == "dynamic_list" else
+                        "text" if db_type in ("textarea", "hyperlink") else
+                        db_type
+                    )
                     variable = DeploymentVariable(
                         name=record.name,
                         origin_type=OriginType(record.origin_type),
                         origin=Origin(record.origin),
-                        variable_type=VariableType(record.variable_type),
+                        variable_type=VariableType(normalized_type),
                         page=record.page,
                         index=record.index
                     )

@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone
 
 from .deployment_shared import *
 from services.deployment_manager import load_deployment_on_demand
@@ -8,7 +9,13 @@ from services.pages_manager import (
     load_page_deployment_on_demand,
     get_active_page_deployment,
     get_behavior_execution_history,
-    set_pages_accessible
+    set_pages_accessible,
+    get_locked_pages,
+    set_page_lock,
+    set_student_button_customization,
+    get_student_button_customization,
+    set_deployment_due_date,
+    get_deployment_due_date
 )
 from services.celery_tasks import execute_behavior_task, check_task_status
 
@@ -22,6 +29,7 @@ class PageInfo(BaseModel):
     has_chat: bool
     is_accessible: bool
     accessibility_reason: Optional[str] = None
+    is_locked: Optional[bool] = None
 
 class PageListResponse(BaseModel):
     main_deployment_id: str
@@ -65,18 +73,24 @@ async def get_deployment_pages(
     
     # Get page deployment from memory
     page_deployment = deployment_info["page_deployment"]
+    # Get locked pages from state
+    locked_pages = set(await get_locked_pages(deployment_id, db))
     
     # Build page information
     pages = []
     for idx, page_deploy in enumerate(page_deployment.get_deployment_list()):
         page_number = idx + 1
-        is_accessible = page_deployment.is_page_accessible(page_number)
+        # Locked page overrides accessibility
+        is_locked = page_number in locked_pages
+        is_accessible = False if is_locked else page_deployment.is_page_accessible(page_number)
         
         # Determine accessibility reason if not accessible
         accessibility_reason = None
         if not is_accessible:
             # Check if it's due to instructor restriction
-            if page_deployment.pages_accessible != -1 and page_number > page_deployment.pages_accessible:
+            if is_locked:
+                accessibility_reason = f"Page {page_number} is locked by your instructor."
+            elif page_deployment.pages_accessible != -1 and page_number > page_deployment.pages_accessible:
                 accessibility_reason = f"Page {page_number} is not yet accessible. You'll need to wait until your instructor allows access to this page. Currently accessible pages: 1-{page_deployment.pages_accessible}"
             else:
                 # Check if it's due to variable dependency
@@ -96,7 +110,8 @@ async def get_deployment_pages(
             deployment_type=page_deploy.get_deployment_type().value,
             has_chat=page_deploy.get_contains_chat(),
             is_accessible=is_accessible,
-            accessibility_reason=accessibility_reason
+            accessibility_reason=accessibility_reason,
+            is_locked=is_locked
         ))
     
     return PageListResponse(
@@ -105,6 +120,57 @@ async def get_deployment_pages(
         pages_accessible=page_deployment.pages_accessible,
         pages=pages
     )
+
+
+class SetPageLockRequest(BaseModel):
+    locked: bool = Field(..., description="Whether to lock (true) or unlock (false) the page")
+
+
+@router.post("/{deployment_id}/pages/{page_number}/lock")
+async def set_page_lock_route(
+    deployment_id: str,
+    page_number: int,
+    request: SetPageLockRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """Lock or unlock a specific page (instructor only)."""
+    # Validate deployment access and require instructor
+    db_deployment = await get_deployment_and_check_access(
+        deployment_id, current_user, db, require_instructor=True
+    )
+    if not db_deployment.is_page_based:
+        raise HTTPException(status_code=400, detail="This deployment is not page-based")
+    # Ensure deployment is loaded (to validate page count)
+    deployment_info = get_active_page_deployment(deployment_id)
+    if not deployment_info:
+        if not await load_page_deployment_on_demand(deployment_id, current_user.id, db):
+            raise HTTPException(status_code=404, detail="Deployment not found")
+        deployment_info = get_active_page_deployment(deployment_id)
+    page_deployment = deployment_info["page_deployment"]
+    if page_number < 1 or page_number > page_deployment.get_page_count():
+        raise HTTPException(status_code=404, detail=f"Page {page_number} not found")
+    # Update lock state
+    ok = await set_page_lock(deployment_id, page_number, request.locked, db)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to update page lock state")
+    return {"deployment_id": deployment_id, "page_number": page_number, "locked": request.locked}
+
+
+@router.get("/{deployment_id}/pages/locks", response_model=Dict[str, Any])
+async def get_page_locks_route(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """Get locked pages for a deployment (instructor view)."""
+    db_deployment = await get_deployment_and_check_access(
+        deployment_id, current_user, db, require_instructor=True
+    )
+    if not db_deployment.is_page_based:
+        raise HTTPException(status_code=400, detail="This deployment is not page-based")
+    locked = await get_locked_pages(deployment_id, db)
+    return {"deployment_id": deployment_id, "locked_pages": locked}
 
 @router.get("/{deployment_id}/pages/{page_number}", response_model=Dict[str, Any])
 async def get_page_deployment(
@@ -149,10 +215,16 @@ async def get_page_deployment(
             detail=f"Page {page_number} not found. Available pages: 1-{page_deployment.get_page_count()}"
         )
     
-    # Check if page is accessible
-    if not page_deployment.is_page_accessible(page_number):
+    # Check if page is accessible (respect locks)
+    locked_pages = set(await get_locked_pages(deployment_id, db))
+    if page_number in locked_pages or not page_deployment.is_page_accessible(page_number):
         # Determine the specific reason for inaccessibility
-        if page_deployment.pages_accessible != -1 and page_number > page_deployment.pages_accessible:
+        if page_number in locked_pages:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Page {page_number} is locked by your instructor."
+            )
+        elif page_deployment.pages_accessible != -1 and page_number > page_deployment.pages_accessible:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Page {page_number} is not yet accessible. You'll need to wait until your instructor allows access to this page. Currently accessible pages: 1-{page_deployment.pages_accessible}"
@@ -1353,3 +1425,194 @@ async def get_latest_group_assignment(
         )
     
     return assignments[0] 
+
+
+class StudentButtonCustomizationRequest(BaseModel):
+    button_text: str = Field(..., min_length=1, max_length=20, description="Text for the student Enter button")
+    button_color: str = Field(..., description="Tailwind CSS color classes for the button")
+
+
+class StudentButtonCustomizationResponse(BaseModel):
+    button_text: str
+    button_color: str
+
+
+@router.post("/{deployment_id}/student-button", response_model=Dict[str, Any])
+async def set_student_button_customization_route(
+    deployment_id: str,
+    request: StudentButtonCustomizationRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """Set student button customization (instructor only)."""
+    # Validate deployment access and require instructor
+    db_deployment = await get_deployment_and_check_access(
+        deployment_id, current_user, db, require_instructor=True
+    )
+    
+    if not db_deployment.is_page_based:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This deployment is not page-based"
+        )
+    
+    # Validate button_text options
+    allowed_button_texts = ["Enter", "Homework"]
+    if request.button_text not in allowed_button_texts:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Button text must be one of: {', '.join(allowed_button_texts)}"
+        )
+    
+    # Validate button_color format (basic check for Tailwind classes)
+    if not request.button_color.startswith("bg-") or "hover:" not in request.button_color:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Button color must be valid Tailwind CSS classes (e.g., 'bg-blue-600 hover:bg-blue-700')"
+        )
+    
+    # Update button customization
+    success = await set_student_button_customization(
+        deployment_id, request.button_text, request.button_color, db
+    )
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update student button customization"
+        )
+    
+    return {
+        "success": True,
+        "button_text": request.button_text,
+        "button_color": request.button_color,
+        "message": "Student button customization updated successfully"
+    }
+
+
+@router.get("/{deployment_id}/student-button", response_model=StudentButtonCustomizationResponse)
+async def get_student_button_customization_route(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """Get student button customization."""
+    # Validate deployment access
+    db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db)
+    
+    if not db_deployment.is_page_based:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This deployment is not page-based"
+        )
+    
+    # Get button customization
+    customization = await get_student_button_customization(deployment_id, db)
+    
+    return StudentButtonCustomizationResponse(
+        button_text=customization["button_text"],
+        button_color=customization["button_color"]
+    )
+
+
+class DeploymentDueDateRequest(BaseModel):
+    due_date: Optional[datetime] = Field(None, description="Due date for the deployment (ISO format)")
+
+
+class DeploymentDueDateResponse(BaseModel):
+    due_date: Optional[datetime]
+    is_overdue: bool
+    days_until_due: Optional[int] = None
+
+
+@router.post("/{deployment_id}/due-date", response_model=Dict[str, Any])
+async def set_deployment_due_date_route(
+    deployment_id: str,
+    request: DeploymentDueDateRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """Set deployment due date (instructor only)."""
+    # Validate deployment access and require instructor
+    db_deployment = await get_deployment_and_check_access(
+        deployment_id, current_user, db, require_instructor=True
+    )
+    
+    if not db_deployment.is_page_based:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This deployment is not page-based"
+        )
+    
+    # Normalize and validate due date if provided (coerce to timezone-aware UTC)
+    normalized_due_date = None
+    if request.due_date:
+        if request.due_date.tzinfo is None:
+            normalized_due_date = request.due_date.replace(tzinfo=timezone.utc)
+        else:
+            normalized_due_date = request.due_date.astimezone(timezone.utc)
+
+    if normalized_due_date and normalized_due_date < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Due date cannot be in the past"
+        )
+    
+    # Update due date
+    success = await set_deployment_due_date(deployment_id, normalized_due_date, db)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update deployment due date"
+        )
+    
+    return {
+        "success": True,
+        "due_date": normalized_due_date.isoformat() if normalized_due_date else None,
+        "message": "Due date updated successfully" if normalized_due_date else "Due date removed successfully"
+    }
+
+
+@router.get("/{deployment_id}/due-date", response_model=DeploymentDueDateResponse)
+async def get_deployment_due_date_route(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """Get deployment due date."""
+    # Validate deployment access
+    db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db)
+    
+    if not db_deployment.is_page_based:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This deployment is not page-based"
+        )
+    
+    # Get due date
+    due_date = await get_deployment_due_date(deployment_id, db)
+    # Ensure due_date is timezone-aware UTC for comparisons/serialization
+    if due_date:
+        if due_date.tzinfo is None:
+            due_date = due_date.replace(tzinfo=timezone.utc)
+        else:
+            due_date = due_date.astimezone(timezone.utc)
+    
+    # Calculate if overdue and days until due
+    is_overdue = False
+    days_until_due = None
+    
+    if due_date:
+        now = datetime.now(timezone.utc)
+        if due_date < now:
+            is_overdue = True
+            days_until_due = (now - due_date).days
+        else:
+            days_until_due = (due_date - now).days
+    
+    return DeploymentDueDateResponse(
+        due_date=due_date,
+        is_overdue=is_overdue,
+        days_until_due=days_until_due
+    )

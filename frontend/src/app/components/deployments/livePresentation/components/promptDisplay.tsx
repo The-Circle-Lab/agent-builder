@@ -138,6 +138,35 @@ export const PromptDisplay: React.FC<PromptDisplayProps> = ({
           </div>
         ) : null}
 
+        {/* Display submission responses if present */}
+        {typedPrompt?.submission_responses ? (
+          <div className="mb-6">
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-start">
+                <div className="flex-shrink-0">
+                  <ChatBubbleLeftIcon className="h-5 w-5 text-blue-600 mt-0.5" />
+                </div>
+                <div className="ml-3 flex-1">
+                  <h4 className="text-sm font-medium text-blue-800 mb-3">
+                    Your Previous Responses:
+                  </h4>
+                  <div className="space-y-3">
+                    {typedPrompt.submission_responses && Object.entries(typedPrompt.submission_responses).map(([promptId, responseData]) => (
+                      <div key={promptId} className="bg-white border border-blue-200 rounded p-3">
+                        <div className="text-blue-900 text-sm leading-relaxed">
+                          {typeof responseData === 'object' && responseData?.response 
+                            ? responseData.response 
+                            : String(responseData)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         {/* Input section or Summary */}
         {typedPrompt.hasInput && typedPrompt.inputType !== 'none' ? (
           <div className="space-y-4">

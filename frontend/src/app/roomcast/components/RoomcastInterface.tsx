@@ -13,7 +13,7 @@ import {
   RoomcastCodeInfo, 
   RoomcastConnectedMessage, 
   RoomcastRegisteredMessage, 
-  RoomcastPromptMessage, 
+  RoomcastPromptMessage,
   RoomcastGroupInfoMessage,
   LivePresentationPrompt,
   StudentResponseReceivedMessage,
@@ -47,6 +47,7 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
   const [groupMembers, setGroupMembers] = useState<string[]>([]);
   const [groupExplanation, setGroupExplanation] = useState<string | null>(null);
   const [currentPrompt, setCurrentPrompt] = useState<LivePresentationPrompt | null>(null);
+  const [currentPromptWithResponses, setCurrentPromptWithResponses] = useState<LivePresentationPrompt | null>(null);
   const [responsesByStudent, setResponsesByStudent] = useState<Record<string, { response?: string; timestamp?: string }>>({});
   const [summaryGenerating, setSummaryGenerating] = useState(false);
   const [groupSummary, setGroupSummary] = useState<{ text: string; key_themes?: string[]; response_count?: number } | null>(null);
@@ -128,7 +129,23 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
         {
           const promptMsg = msg as unknown as RoomcastPromptMessage;
           debug('roomcast_prompt', { group: promptMsg.group_name, statement: promptMsg.prompt?.statement });
-          setCurrentPrompt(promptMsg.prompt);
+          
+          // Always clear old responses first when any new prompt arrives
+          setCurrentPromptWithResponses(null);
+          
+          // Store the base prompt without responses
+          const basePrompt = promptMsg.prompt ? { ...promptMsg.prompt } : null;
+          if (basePrompt && typeof basePrompt === 'object') {
+            delete (basePrompt as LivePresentationPrompt).group_submission_responses;
+          }
+          
+          setCurrentPrompt(basePrompt);
+          
+          // Only set responses if this specific prompt has them
+          if (promptMsg.prompt && promptMsg.prompt.group_submission_responses) {
+            setCurrentPromptWithResponses(promptMsg.prompt);
+          }
+          
           // Clear previous group info when new prompt arrives
           setGroupMembers([]);
           // If timer already hit 0, remove timer instance on new display content
@@ -333,9 +350,25 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
     setTimeout(() => connectWebSocket(), 200);
   };
 
+  // Compute the display prompt - show base prompt with responses only if we have matching responses
+  const displayPrompt = React.useMemo(() => {
+    if (!currentPrompt) return null;
+    
+    // If we have responses and they should be displayed, merge them with the base prompt
+    if (currentPromptWithResponses && currentPromptWithResponses.group_submission_responses) {
+      return {
+        ...currentPrompt,
+        group_submission_responses: currentPromptWithResponses.group_submission_responses
+      };
+    }
+    
+    // Otherwise, show just the base prompt without responses
+    return currentPrompt;
+  }, [currentPrompt, currentPromptWithResponses]);
+
   const renderAssignedItem = useCallback((): React.ReactNode => {
-    if (!currentPrompt || !currentPrompt.assigned_list_item) return null;
-    const item = currentPrompt.assigned_list_item as unknown;
+    if (!displayPrompt || !displayPrompt.assigned_list_item) return null;
+    const item = displayPrompt.assigned_list_item as unknown;
     if (item && typeof item === 'object') {
       const obj = item as Record<string, unknown>;
       const title = typeof obj.title === 'string' ? obj.title : String(obj.title ?? '');
@@ -351,7 +384,7 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
     }
     const safeText = String(item);
     return <span>{safeText}</span>;
-  }, [currentPrompt]);
+  }, [displayPrompt]);
 
   useEffect(() => {
     debug('connectionState changed', connectionState);
@@ -601,18 +634,76 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           </div>
         )}
 
-        {currentPrompt ? (
+        {displayPrompt ? (
           <div className="bg-white rounded-lg p-8 shadow-sm border border-gray-200">
             <div className="prose max-w-none">
-              <div className="whitespace-pre-wrap text-lg leading-relaxed text-gray-900">
-                {currentPrompt.statement}
+              <div className="whitespace-pre-wrap text-3xl leading-relaxed text-gray-900">
+                {displayPrompt.statement}
               </div>
               
-              {!!currentPrompt.assigned_list_item && (
+              {!!displayPrompt.assigned_list_item && (
                 <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
                   <h3 className="font-semibold text-blue-900 mb-2">Your Group&apos;s Topic:</h3>
                   <div className="text-blue-800">
                     {renderAssignedItem()}
+                  </div>
+                </div>
+              )}
+
+              {/* Group Submission Responses */}
+              {displayPrompt?.group_submission_responses && Object.keys(displayPrompt.group_submission_responses).length > 0 && (
+                <div className="mt-6 px-4 py-2 bg-amber-50 rounded-lg border border-amber-200">
+                  <h3 className="font-semibold text-amber-900 mb-4 text-center">Your Group&apos;s Responses</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {displayPrompt.group_submission_responses && Object.entries(displayPrompt.group_submission_responses).map(([memberName, responses]) => (
+                      <div key={memberName} className="bg-white rounded-lg px-4 py-2 border border-amber-200 shadow-sm">
+                        <h4 className="font-semibold text-amber-800 mb-3 text-center border-b border-amber-200 pb-2">
+                          {memberName.split('@')[0]}
+                        </h4>
+                        <div className="space-y-3 mb-1">
+                          {Object.entries(responses).map(([promptId, responseData]) => {
+                            // Extract the actual response content
+                            let responseContent = '';
+                            if (typeof responseData === 'object' && responseData?.response) {
+                              responseContent = responseData.response;
+                            } else {
+                              responseContent = String(responseData);
+                            }
+
+                            // Check if it's a JSON array string and parse it
+                            let responseItems: string[] = [];
+                            try {
+                              const parsed = JSON.parse(responseContent);
+                              if (Array.isArray(parsed)) {
+                                responseItems = parsed.map(item => String(item));
+                              } else {
+                                responseItems = [responseContent];
+                              }
+                            } catch {
+                              // Not JSON, treat as single text response
+                              responseItems = [responseContent];
+                            }
+
+                            return (
+                              <div key={promptId} className="text-sm">
+                                {responseItems.length > 1 ? (
+                                  <div className="space-y-2">
+                                    {responseItems.map((item, index) => (
+                                      <div key={index} className="flex items-start group">
+                                        <div className="w-2 h-2 bg-gradient-to-r from-amber-500 to-amber-600 rounded-full mt-2 mr-3 flex-shrink-0 group-hover:scale-110 transition-transform"></div>
+                                        <span className="flex-1 text-gray-700 font-medium leading-relaxed">{item}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="text-gray-700 font-medium leading-relaxed">{responseItems[0]}</div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}

@@ -90,6 +90,7 @@ export default function CompletionView({
               const isLinkType = requirement.mediaType === 'hyperlink';
               const isPdfType = requirement.mediaType === 'pdf';
               const isListType = requirement.mediaType === 'list';
+              const isDynamicListType = requirement.mediaType === 'dynamic_list';
               
               if (!submittedResponse) return null;
               
@@ -101,7 +102,7 @@ export default function CompletionView({
                         <PaperClipIcon className="h-5 w-5 text-red-600" />
                       ) : isLinkType ? (
                         <LinkIcon className="h-5 w-5 text-purple-600" />
-                      ) : isListType ? (
+                      ) : isListType || isDynamicListType ? (
                         <PencilIcon className="h-5 w-5 text-orange-600" />
                       ) : (
                         <PencilIcon className="h-5 w-5 text-blue-600" />
@@ -118,11 +119,11 @@ export default function CompletionView({
                             ? 'bg-red-100 text-red-800'
                             : isLinkType 
                               ? 'bg-purple-100 text-purple-800' 
-                              : isListType
+                              : (isListType || isDynamicListType)
                                 ? 'bg-orange-100 text-orange-800'
                                 : 'bg-blue-100 text-blue-800'
                         }`}>
-                          {isPdfType ? 'PDF' : isLinkType ? 'Link' : isListType ? 'List' : 'Text'}
+                          {isPdfType ? 'PDF' : isLinkType ? 'Link' : (isListType ? 'List' : isDynamicListType ? 'Dynamic List' : 'Text')}
                         </span>
                       </div>
                       
@@ -155,10 +156,30 @@ export default function CompletionView({
                           >
                             {submittedResponse.user_response}
                           </a>
-                        ) : isListType ? (
+                        ) : (isListType || isDynamicListType) ? (
                           (() => {
+                            const raw = submittedResponse.user_response ?? '';
+                            let items: string[] | null = null;
                             try {
-                              const items = JSON.parse(submittedResponse.user_response);
+                              const first = JSON.parse(raw);
+                              if (Array.isArray(first)) {
+                                items = first as string[];
+                              } else if (typeof first === 'string') {
+                                try {
+                                  const second = JSON.parse(first);
+                                  if (Array.isArray(second)) {
+                                    items = second as string[];
+                                  }
+                                } catch { /* ignore */ }
+                              }
+                            } catch { /* ignore */ }
+
+                            if (!items) {
+                              const split = raw.split('\n').map(s => s.trim()).filter(Boolean);
+                              if (split.length > 0) items = split;
+                            }
+
+                            if (items && items.length > 0) {
                               return (
                                 <div className="bg-white p-3 rounded border">
                                   <div className="space-y-2">
@@ -171,13 +192,13 @@ export default function CompletionView({
                                   </div>
                                 </div>
                               );
-                            } catch {
-                              return (
-                                <p className="text-black whitespace-pre-wrap">
-                                  {submittedResponse.user_response}
-                                </p>
-                              );
                             }
+
+                            return (
+                              <p className="text-black whitespace-pre-wrap">
+                                {raw}
+                              </p>
+                            );
                           })()
                         ) : (
                           <p className="text-black whitespace-pre-wrap">

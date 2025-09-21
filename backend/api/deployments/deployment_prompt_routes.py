@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+from datetime import datetime, timezone
 
 from .deployment_shared import *
 from api.file_storage import store_file
@@ -275,6 +276,31 @@ def get_all_prompt_submissions_for_deployment(deployment_id: str, db_session) ->
                             text_responses.append(joined_items)
                         submission_responses[submission_key] = {
                             "media_type": "list",
+                            "response": sub.user_response,  # raw stored JSON string
+                            "items": list_items,
+                            "text": joined_items,
+                            "submission_index": sub.submission_index
+                        }
+                    elif media_type == 'dynamic_list':
+                        # Stored as JSON array string. Parse and join items into text context.
+                        # Same as list but indicates it was user-customizable
+                        import json
+                        items_raw = sub.user_response
+                        try:
+                            data = json.loads(items_raw) if items_raw else []
+                            if isinstance(data, list):
+                                list_items = [str(x) for x in data if str(x).strip()]
+                            else:
+                                list_items = [str(data)]
+                        except Exception:
+                            # Fallback: treat as newline separated
+                            list_items = [line.strip() for line in (items_raw or '').splitlines() if line.strip()]
+                        # Add each item to text responses (could weight differently later)
+                        joined_items = " ".join(list_items)
+                        if joined_items:
+                            text_responses.append(joined_items)
+                        submission_responses[submission_key] = {
+                            "media_type": "dynamic_list",
                             "response": sub.user_response,  # raw stored JSON string
                             "items": list_items,
                             "text": joined_items,
@@ -752,7 +778,7 @@ async def get_all_prompt_sessions_for_instructor(
     current_user: User = Depends(get_current_user),
     db: DBSession = Depends(get_session),
 ):
-    """Get all prompt sessions for instructor review"""
+    """Get all prompt sessions for instructor review, including class members who haven't started"""
     db_deployment = await get_deployment_and_check_access(
         deployment_id, current_user, db, require_instructor=True
     )
@@ -780,7 +806,20 @@ async def get_all_prompt_sessions_for_instructor(
         )
     ).all()
 
+    # Get all class members (students) for this deployment's class
+    from models.database.db_models import ClassMembership, ClassRole
+    class_members = db.exec(
+        select(User.email).join(ClassMembership).where(
+            ClassMembership.class_id == db_deployment.class_id,
+            ClassMembership.role == ClassRole.STUDENT,
+            ClassMembership.is_active == True,
+        )
+    ).all()
+
     session_views = []
+    sessions_by_email = {}
+    
+    # Process existing sessions
     for session, user_email in sessions:
         # Count submitted responses
         submitted_count = len(db.exec(
@@ -790,7 +829,7 @@ async def get_all_prompt_sessions_for_instructor(
         total_submissions = len(session.submission_requirements)
         progress_percentage = (submitted_count / total_submissions * 100) if total_submissions > 0 else 0
         
-        session_views.append(PromptInstructorSessionView(
+        session_view = PromptInstructorSessionView(
             session_id=session.id,
             user_email=user_email,
             started_at=session.started_at,
@@ -799,7 +838,27 @@ async def get_all_prompt_sessions_for_instructor(
             submitted_count=submitted_count,
             is_completed=session.completed_at is not None,
             progress_percentage=progress_percentage,
-        ))
+        )
+        session_views.append(session_view)
+        sessions_by_email[user_email] = session_view
+
+    # Add class members who haven't started (no session yet)
+    prompt_info = prompt_service.to_dict()
+    total_submissions = len(prompt_info["submission_requirements"])
+    
+    for student_email in class_members:
+        if student_email not in sessions_by_email:
+            # Create a placeholder session view for students who haven't started
+            session_views.append(PromptInstructorSessionView(
+                session_id=0,  # Use 0 to indicate no session exists
+                user_email=student_email,
+                started_at=datetime.now(timezone.utc),  # Use current time as placeholder
+                completed_at=None,
+                total_submissions=total_submissions,
+                submitted_count=0,
+                is_completed=False,
+                progress_percentage=0.0,
+            ))
 
     return session_views
 

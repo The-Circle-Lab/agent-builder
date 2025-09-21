@@ -21,9 +21,9 @@ class PromptDeployment:
         for i, req in enumerate(submission_requirements):
             if 'prompt' not in req or 'mediaType' not in req:
                 raise ValueError(f"Submission requirement {i} missing 'prompt' or 'mediaType'")
-            if req['mediaType'] not in ['textarea', 'hyperlink', 'pdf', 'list']:
+            if req['mediaType'] not in ['textarea', 'hyperlink', 'pdf', 'list', 'dynamic_list']:
                 raise ValueError(
-                    f"Invalid mediaType '{req['mediaType']}' in requirement {i}. Must be 'textarea', 'hyperlink', 'pdf' or 'list'"
+                    f"Invalid mediaType '{req['mediaType']}' in requirement {i}. Must be 'textarea', 'hyperlink', 'pdf', 'list', or 'dynamic_list'"
                 )
             # Additional validation for list type
             if req['mediaType'] == 'list':
@@ -177,6 +177,32 @@ class PromptDeployment:
                 return {
                     "valid": False,
                     "error": f"List submission requires exactly {required_items} item(s); received {len(entries)}"
+                }
+        elif media_type == 'dynamic_list':
+            # For dynamic list submissions, users can add/remove items dynamically.
+            # We accept either:
+            # 1. A JSON array string: ["item1", "item2", ...]
+            # 2. A newline-separated string with each non-empty line being an item.
+            # Minimum requirement: at least 1 item
+            entries: List[str] = []
+            raw = response.strip()
+            import json
+            parsed = False
+            if raw.startswith('[') and raw.endswith(']'):
+                try:
+                    data = json.loads(raw)
+                    if isinstance(data, list):
+                        entries = [str(x).strip() for x in data if str(x).strip()]
+                        parsed = True
+                except Exception:
+                    parsed = False
+            if not parsed:
+                # Fallback: split by newlines
+                entries = [line.strip() for line in raw.splitlines() if line.strip()]
+            if len(entries) < 1:
+                return {
+                    "valid": False,
+                    "error": "Dynamic list submission requires at least 1 item"
                 }
         
         return {

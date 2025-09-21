@@ -37,6 +37,12 @@ export default function SubmissionDisplay({
   const isLinkType = currentRequirement.mediaType === 'hyperlink';
   const isPdfType = currentRequirement.mediaType === 'pdf';
   const isListType = currentRequirement.mediaType === 'list';
+  const isDynamicListType = currentRequirement.mediaType === 'dynamic_list';
+
+  // For submitted responses, also check the actual media type of the response
+  const submittedIsListType = isSubmitted && (submittedResponse.media_type === 'list' || submittedResponse.media_type === 'dynamic_list');
+  const submittedIsPdfType = isSubmitted && submittedResponse.media_type === 'pdf';
+  const submittedIsLinkType = isSubmitted && submittedResponse.media_type === 'hyperlink';
 
   const handleInputChange = (value: string) => {
     onResponseChange(submissionIndex, value);
@@ -44,7 +50,7 @@ export default function SubmissionDisplay({
 
   // Helper functions for list handling
   const getListItems = (): string[] => {
-    if (!isListType) return [];
+    if (!isListType && !isDynamicListType) return [];
     try {
       return submissionResponse ? JSON.parse(submissionResponse) : [];
     } catch {
@@ -54,14 +60,21 @@ export default function SubmissionDisplay({
   };
 
   const handleListItemChange = (itemIndex: number, value: string) => {
-    if (!isListType) return;
+    if (!isListType && !isDynamicListType) return;
     
     const items = getListItems();
-    const requiredItems = currentRequirement.items || 1;
     
-    // Ensure array has enough slots
-    while (items.length < requiredItems) {
-      items.push('');
+    if (isListType) {
+      // For fixed lists, ensure array has enough slots
+      const requiredItems = currentRequirement.items || 1;
+      while (items.length < requiredItems) {
+        items.push('');
+      }
+    } else if (isDynamicListType) {
+      // For dynamic lists, ensure array has at least this many items
+      while (items.length <= itemIndex) {
+        items.push('');
+      }
     }
     
     items[itemIndex] = value;
@@ -71,6 +84,34 @@ export default function SubmissionDisplay({
   const getListItem = (itemIndex: number): string => {
     const items = getListItems();
     return items[itemIndex] || '';
+  };
+
+  const addDynamicListItem = () => {
+    if (!isDynamicListType) return;
+    const items = getListItems();
+    items.push('');
+    onResponseChange(submissionIndex, JSON.stringify(items));
+  };
+
+  const removeDynamicListItem = (itemIndex: number) => {
+    if (!isDynamicListType) return;
+    const items = getListItems();
+    if (items.length > 1) { // Keep at least one item
+      items.splice(itemIndex, 1);
+      onResponseChange(submissionIndex, JSON.stringify(items));
+    }
+  };
+
+  // Helper function to check if submission is valid
+  const isSubmissionValid = (): boolean => {
+    if (isPdfType) {
+      return !!selectedPdfFile;
+    } else if (isDynamicListType) {
+      const items = getListItems();
+      return items.length > 0 && items.some(item => item.trim() !== '');
+    } else {
+      return submissionResponse.trim() !== '';
+    }
   };
 
   const navigateToNext = () => {
@@ -88,6 +129,13 @@ export default function SubmissionDisplay({
   const canNavigateNext = submissionIndex < session.total_submissions - 1;
   const canNavigatePrevious = submissionIndex > 0;
 
+  // Auto-resize helper for textareas (grow with content)
+  const autoResize = (el: HTMLTextAreaElement | null) => {
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-sm border p-6">
       {/* Requirement Header */}
@@ -104,7 +152,9 @@ export default function SubmissionDisplay({
                   ? 'bg-purple-100 text-purple-800' 
                   : isListType
                     ? 'bg-orange-100 text-orange-800'
-                    : 'bg-blue-100 text-blue-800'
+                    : isDynamicListType
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-blue-100 text-blue-800'
             }`}>
               {isPdfType ? (
                 <>
@@ -120,6 +170,11 @@ export default function SubmissionDisplay({
                 <>
                   <PencilIcon className="w-3 h-3 mr-1" />
                   List ({currentRequirement.items} items)
+                </>
+              ) : isDynamicListType ? (
+                <>
+                  <PencilIcon className="w-3 h-3 mr-1" />
+                  Dynamic List
                 </>
               ) : (
                 <>
@@ -150,7 +205,7 @@ export default function SubmissionDisplay({
             <CheckCircleIcon className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
             <div className="flex-1">
               <h3 className="text-sm font-medium text-green-900 mb-2">Your Submitted Response:</h3>
-              {isPdfType ? (
+              {submittedIsPdfType ? (
                 (() => {
                   const docId = submittedResponse.user_response;
                   const viewUrl = `${API_CONFIG.BASE_URL}/api/files/view/${docId}`;
@@ -165,7 +220,7 @@ export default function SubmissionDisplay({
                     </a>
                   );
                 })()
-              ) : isLinkType ? (
+              ) : submittedIsLinkType ? (
                 <a
                   href={submittedResponse.user_response}
                   target="_blank"
@@ -174,10 +229,35 @@ export default function SubmissionDisplay({
                 >
                   {submittedResponse.user_response}
                 </a>
-              ) : isListType ? (
+              ) : (submittedIsListType || isListType || isDynamicListType) ? (
                 (() => {
+                  const raw = submittedResponse.user_response ?? '';
+                  let items: string[] | null = null;
                   try {
-                    const items = JSON.parse(submittedResponse.user_response);
+                    const first = JSON.parse(raw);
+                    if (Array.isArray(first)) {
+                      items = first as string[];
+                    } else if (typeof first === 'string') {
+                      try {
+                        const second = JSON.parse(first);
+                        if (Array.isArray(second)) {
+                          items = second as string[];
+                        }
+                      } catch {
+                        // ignore
+                      }
+                    }
+                  } catch {
+                    // ignore
+                  }
+
+                  // Fallback: newline-separated values
+                  if (!items) {
+                    const split = raw.split('\n').map(s => s.trim()).filter(Boolean);
+                    if (split.length > 0) items = split;
+                  }
+
+                  if (items && items.length > 0) {
                     return (
                       <div className="bg-white p-3 rounded border">
                         <div className="space-y-2">
@@ -190,13 +270,13 @@ export default function SubmissionDisplay({
                         </div>
                       </div>
                     );
-                  } catch {
-                    return (
-                      <p className="text-gray-800 whitespace-pre-wrap">
-                        {submittedResponse.user_response}
-                      </p>
-                    );
                   }
+
+                  return (
+                    <p className="text-gray-800 whitespace-pre-wrap">
+                      {raw}
+                    </p>
+                  );
                 })()
               ) : (
                 <p className="text-gray-800 whitespace-pre-wrap">
@@ -213,7 +293,7 @@ export default function SubmissionDisplay({
         /* Input Form */
         <div className="mb-6">
           <label htmlFor={`response-${submissionIndex}`} className="block text-sm font-medium text-gray-700 mb-2">
-            Your Response {(isLinkType || isListType) && <span className="text-red-500">*</span>}
+            Your Response {(isLinkType || isListType || isDynamicListType) && <span className="text-red-500">*</span>}
           </label>
           
           {isPdfType ? (
@@ -259,16 +339,60 @@ export default function SubmissionDisplay({
               {Array.from({ length: currentRequirement.items || 1 }).map((_, index) => (
                 <div key={index} className="flex items-center space-x-3">
                   <span className="text-sm text-gray-500 w-6">{index + 1}.</span>
-                  <input
-                    type="text"
+                  <textarea
                     value={getListItem(index)}
-                    onChange={(e) => handleListItemChange(index, e.target.value)}
+                    onChange={(e) => { autoResize(e.target); handleListItemChange(index, e.target.value); }}
                     placeholder={`Item ${index + 1}`}
-                    className="flex-1 px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                    rows={1}
+                    className="flex-1 px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none overflow-hidden"
                     disabled={submitting}
+                    ref={(el) => autoResize(el)}
                   />
                 </div>
               ))}
+            </div>
+          ) : isDynamicListType ? (
+            <div className="space-y-3">
+              <div className="text-sm text-gray-600 mb-2">
+                Create your list by adding items (minimum 1 item required):
+              </div>
+              {(() => {
+                const items = getListItems();
+                const displayItems = items.length === 0 ? [''] : items; // Always show at least one input
+                return displayItems.map((_, index) => (
+                  <div key={index} className="flex items-center space-x-3">
+                    <span className="text-sm text-gray-500 w-6">{index + 1}.</span>
+                    <textarea
+                      value={getListItem(index)}
+                      onChange={(e) => { autoResize(e.target); handleListItemChange(index, e.target.value); }}
+                      placeholder={`Item ${index + 1}`}
+                      rows={1}
+                      className="flex-1 px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none overflow-hidden"
+                      disabled={submitting}
+                      ref={(el) => autoResize(el)}
+                    />
+                    {displayItems.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeDynamicListItem(index)}
+                        disabled={submitting}
+                        className="text-red-500 hover:text-red-700 disabled:opacity-50 px-2 py-1"
+                        title="Remove item"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                ));
+              })()}
+              <button
+                type="button"
+                onClick={addDynamicListItem}
+                disabled={submitting}
+                className="text-blue-600 hover:text-blue-800 text-sm font-medium disabled:opacity-50"
+              >
+                + Add another item
+              </button>
             </div>
           ) : (
             <textarea
@@ -291,6 +415,12 @@ export default function SubmissionDisplay({
           {isListType && (
             <p className="mt-1 text-xs text-gray-500">
               Fill in all {currentRequirement.items || 1} items to submit your response
+            </p>
+          )}
+
+          {isDynamicListType && (
+            <p className="mt-1 text-xs text-gray-500">
+              Add at least 1 item to submit your response. You can add or remove items as needed.
             </p>
           )}
         </div>
@@ -328,9 +458,9 @@ export default function SubmissionDisplay({
           {!isSubmitted && (
             <button
               onClick={onSubmitResponse}
-              disabled={submitting || (isPdfType ? !selectedPdfFile : !submissionResponse.trim())}
+              disabled={submitting || !isSubmissionValid()}
               className={`inline-flex items-center px-6 py-2 border border-transparent text-sm font-medium rounded-md text-white ${
-                submitting || (isPdfType ? !selectedPdfFile : !submissionResponse.trim())
+                submitting || !isSubmissionValid()
                   ? 'bg-gray-400 cursor-not-allowed'
                   : 'bg-blue-600 hover:bg-blue-700'
               }`}

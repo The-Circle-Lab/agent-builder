@@ -380,7 +380,12 @@ class ThemeCreatorBehavior:
                         try:
                             submission_index = int(parts[-1])  # Last part is the index
                             submission_key = f"submission_{submission_index}"
-                            variable_type = parts[-2]  # Second to last is the type (text/pdf/list)
+                            variable_type = parts[-2]  # Second to last is the type (text/pdf/list/dynamic_list/hyperlink)
+                            normalized_var_type = (
+                                'list' if variable_type == 'dynamic_list' else
+                                'text' if variable_type == 'textarea' else
+                                variable_type
+                            )
                             
                             if submission_key in student['submission_responses']:
                                 response = student['submission_responses'][submission_key]
@@ -388,13 +393,13 @@ class ThemeCreatorBehavior:
 
                                 print(f"    🔍 Found {submission_key}: {media_type} type")
 
-                                # Normalize type matching including list
+                                # Normalize type matching including list/dynamic_list and hyperlink/text
                                 type_match = False
-                                if variable_type == 'text' and media_type == 'text':
+                                if normalized_var_type == media_type:
                                     type_match = True
-                                elif variable_type == 'pdf' and media_type == 'pdf':
+                                elif normalized_var_type == 'list' and media_type in ('list', 'dynamic_list'):
                                     type_match = True
-                                elif variable_type == 'list' and media_type == 'list':
+                                elif normalized_var_type in ('text', 'hyperlink') and media_type in ('text', 'hyperlink'):
                                     type_match = True
 
                                 if type_match:
@@ -405,13 +410,13 @@ class ThemeCreatorBehavior:
                                         if text_content:
                                             selected_texts.append(text_content)
                                             print(f"      ✅ Added text: {text_content[:50]}...")
-                                    elif media_type == 'list':
+                                    elif media_type == 'list' or media_type == 'dynamic_list':
                                         items = response.get('items') or []
                                         if isinstance(items, list) and items:
                                             list_text = ' '.join([str(i) for i in items if str(i).strip()])
                                             if list_text:
                                                 selected_texts.append(list_text)
-                                                print(f"      ✅ Added list items text: {list_text[:50]}...")
+                                                print(f"      ✅ Added {media_type} items text: {list_text[:50]}...")
                                     elif media_type == 'pdf':
                                         try:
                                             pdf_id = int(response.get('response', ''))

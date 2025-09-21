@@ -1,3 +1,8 @@
+export interface SubmissionResponse {
+  response: string;
+  [key: string]: unknown;
+}
+
 export interface LivePresentationPrompt {
   id: string;
   statement: string;
@@ -10,6 +15,8 @@ export interface LivePresentationPrompt {
   isSystemPrompt?: boolean;
   category?: string;
   is_late_join?: boolean; // Flag to indicate this prompt was sent to a late-joining student
+  submission_responses?: Record<string, SubmissionResponse | string>;
+  group_submission_responses?: Record<string, Record<string, SubmissionResponse | string>>;
 }
 
 export interface GroupInfo {

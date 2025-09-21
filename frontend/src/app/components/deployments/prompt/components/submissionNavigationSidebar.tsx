@@ -80,7 +80,15 @@ export default function SubmissionNavigationSidebar({
                       Requirement {index + 1}
                     </span>
                     <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
-                      {requirement.mediaType === 'hyperlink' ? 'Link' : requirement.mediaType === 'pdf' ? 'PDF' : 'Text'}
+                      {requirement.mediaType === 'hyperlink'
+                        ? 'Link'
+                        : requirement.mediaType === 'pdf'
+                          ? 'PDF'
+                          : requirement.mediaType === 'list'
+                            ? 'List'
+                            : requirement.mediaType === 'dynamic_list'
+                              ? 'Dynamic List'
+                              : 'Text'}
                     </span>
                   </div>
                   

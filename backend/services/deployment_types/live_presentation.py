@@ -148,6 +148,9 @@ class LivePresentationDeployment:
         for prompt_data in saved_prompts_data:
             self.saved_prompts.append(LivePresentationPrompt(prompt_data))
         
+        # Parse selected submission prompts for display alongside live presentation prompts
+        self.selected_submission_prompts = config.get('selected_submission_prompts', [])
+        
         # Add built-in system prompts that are always available
         self._add_system_prompts()
         
@@ -182,6 +185,9 @@ class LivePresentationDeployment:
         # Separate storage for theme data (list items) to avoid conflicts with group data
         self._theme_data: Optional[List[Any]] = None
         
+        # Cache for submission prompt data for display alongside live presentation prompts
+        self._submission_data: Optional[Dict[str, Any]] = None
+        
         # Reference to parent page deployment for auto-detecting variables
         self._parent_page_deployment: Optional[Any] = None
         
@@ -210,6 +216,79 @@ class LivePresentationDeployment:
         print(f"   Title: {self.title}")
         print(f"   Saved Prompts: {len(self.saved_prompts)}")
         print(f"   Roomcast enabled: {self.roomcast_enabled}")
+
+    # ---------------------------
+    # Submission filtering helpers
+    # ---------------------------
+    def _extract_requested_submission_keys(self, prompt: Dict[str, Any]) -> Optional[Set[str]]:
+        """Extract a set of requested submission keys from the prompt.
+        Accepts several shapes for maximum compatibility:
+        - requested_submission_prompts: ["submission_0", "submission_1"]
+        - requested_submission_indices: [0, 1]
+        - requested_submission_index or submission_index: single int
+        - selected_submission_prompts: same as above but scoped to this prompt only
+        Returns a set of normalized keys like {"submission_0", ...} or None if not specified.
+        """
+        try:
+            keys: Set[str] = set()
+
+            # Explicit per-prompt selections
+            list_keys = prompt.get("requested_submission_prompts") or prompt.get("selected_submission_prompts")
+            if isinstance(list_keys, list):
+                for k in list_keys:
+                    if isinstance(k, str) and k:
+                        # normalize common variants
+                        if k.startswith("submission_"):
+                            keys.add(k)
+                        elif k.startswith("prompt_") and k.split("_")[-1].isdigit():
+                            keys.add(f"submission_{int(k.split('_')[-1])}")
+                        elif k.isdigit():
+                            keys.add(f"submission_{int(k)}")
+
+            # Indices list
+            idx_list = prompt.get("requested_submission_indices")
+            if isinstance(idx_list, list):
+                for i in idx_list:
+                    if isinstance(i, int):
+                        keys.add(f"submission_{i}")
+
+            # Single index fallbacks
+            single_idx = None
+            if isinstance(prompt.get("requested_submission_index"), int):
+                single_idx = prompt.get("requested_submission_index")
+            elif isinstance(prompt.get("submission_index"), int):
+                single_idx = prompt.get("submission_index")
+            if single_idx is not None:
+                keys.add(f"submission_{int(single_idx)}")
+
+            return keys if keys else None
+        except Exception:
+            return None
+
+    def _filter_submission_map_to_keys(self, submission_map: Dict[str, Any], allowed_keys: Optional[Set[str]]) -> Dict[str, Any]:
+        """Filter a submission response map to only the allowed keys.
+        If allowed_keys is None or empty, fallback to deployment-level selection if configured.
+        If still empty, return the original map (filtering will happen at inclusion sites as needed).
+        """
+        try:
+            if not isinstance(submission_map, dict):
+                return {}
+
+            keys = set(allowed_keys or ())
+            # If no per-prompt keys, intersect with deployment-level selection if available
+            if not keys and getattr(self, 'selected_submission_prompts', None):
+                try:
+                    keys = set(self.selected_submission_prompts or [])
+                except Exception:
+                    keys = set()
+
+            if not keys:
+                # Nothing to filter by; return a shallow copy to avoid accidental mutation
+                return dict(submission_map)
+
+            return {k: v for k, v in submission_map.items() if k in keys}
+        except Exception:
+            return {}
     
     def _add_system_prompts(self):
         """Add built-in system prompts that are always available"""
@@ -283,6 +362,95 @@ class LivePresentationDeployment:
         
         if session_needs_update:
             self._db_session = db_session
+            # Attempt to backfill selected prompts from config if missing
+            try:
+                if (not getattr(self, 'selected_submission_prompts', None)):
+                    self._try_populate_selected_submission_prompts_from_config()
+            except Exception:
+                pass
+            # Now that we have a DB session, refresh any submission data if configured
+            try:
+                self._auto_refresh_submission_data()
+            except Exception:
+                pass
+
+    def _try_populate_selected_submission_prompts_from_config(self):
+        """Populate selected_submission_prompts from workflow/deployment config when empty."""
+        try:
+            if not self._db_session:
+                return
+            from sqlmodel import select
+            from models.database.db_models import Deployment, Workflow
+
+            main_deployment_id = self.deployment_id.split('_page_')[0] if '_page_' in self.deployment_id else self.deployment_id
+            db_deployment = self._db_session.exec(
+                select(Deployment).where(Deployment.deployment_id == main_deployment_id, Deployment.is_active == True)
+            ).first()
+            if not db_deployment:
+                return
+
+            workflow_data = None
+            if db_deployment.workflow_id:
+                wf = self._db_session.get(Workflow, db_deployment.workflow_id)
+                if wf and wf.is_active and isinstance(wf.workflow_data, dict):
+                    workflow_data = wf.workflow_data
+            if workflow_data is None and isinstance(db_deployment.config, dict):
+                workflow_data = db_deployment.config.get('__workflow_nodes__') or db_deployment.config
+
+            if not isinstance(workflow_data, dict):
+                return
+
+            extracted_selected = []
+            for node in workflow_data.values():
+                if isinstance(node, dict) and node.get('type') == 'livePresentationPrompt':
+                    cfg = node.get('config', {}) or {}
+                    node_sel = cfg.get('selected_submission_prompts', []) or []
+                    if isinstance(node_sel, list) and node_sel:
+                        extracted_selected.extend(node_sel)
+
+            def _normalize_selected_prompts(raw_list):
+                normalized = []
+                if not isinstance(raw_list, list):
+                    return normalized
+                for item in raw_list:
+                    try:
+                        if isinstance(item, str) and item.startswith('submission_'):
+                            normalized.append(item)
+                            continue
+                        if isinstance(item, str) and '-prompt-' in item:
+                            idx = int(item.split('-prompt-')[-1])
+                            normalized.append(f'submission_{idx}')
+                            continue
+                        if isinstance(item, dict):
+                            if isinstance(item.get('index'), int):
+                                normalized.append(f"submission_{int(item['index'])}")
+                                continue
+                            var_name = item.get('variableName') or item.get('id') or ''
+                            if isinstance(var_name, str) and var_name.startswith('prompt_'):
+                                parts = var_name.split('_')
+                                if len(parts) >= 4:
+                                    idx = int(parts[-1])
+                                    normalized.append(f'submission_{idx}')
+                                    continue
+                    except Exception:
+                        pass
+                seen = set()
+                out = []
+                for k in normalized:
+                    if k not in seen:
+                        seen.add(k)
+                        out.append(k)
+                return out
+
+            normalized_selected = _normalize_selected_prompts(extracted_selected)
+            if not getattr(self, 'selected_submission_prompts', None) and normalized_selected:
+                self.selected_submission_prompts = normalized_selected
+                try:
+                    print(f"🎤 Backfilled selected submission prompts from config: {self.selected_submission_prompts}")
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"❌ Error backfilling selected prompts from config: {e}")
     
     def set_parent_page_deployment(self, page_deployment):
         """Set reference to parent PageDeployment for auto-detecting variables"""
@@ -292,6 +460,8 @@ class LivePresentationDeployment:
         self._auto_detect_group_variable()
         # Also auto-detect theme variables for list items
         self._auto_detect_theme_variables()
+        # Also refresh submission data if configured
+        self._auto_refresh_submission_data()
     
     def _auto_detect_group_variable(self):
         """Auto-detect and use the first available GROUP type variable from parent page deployment"""
@@ -600,6 +770,17 @@ class LivePresentationDeployment:
             # Re-detect variables
             self._auto_detect_group_variable()
             self._auto_detect_theme_variables()
+            # If selected prompts are empty, try to populate from workflow config
+            try:
+                if (not getattr(self, 'selected_submission_prompts', None)) and getattr(self, '_db_session', None):
+                    self._try_populate_selected_submission_prompts_from_config()
+            except Exception:
+                pass
+            # Also refresh submission data if configured and DB session exists
+            try:
+                self._auto_refresh_submission_data()
+            except Exception:
+                pass
             
             print(f"✅ Variable mappings refreshed for deployment {self.deployment_id}")
         except Exception as e:
@@ -620,6 +801,136 @@ class LivePresentationDeployment:
         self._auto_detect_group_variable()
         # Also refresh theme variables
         self._auto_detect_theme_variables()
+        # Also refresh submission data if configured
+        self._auto_refresh_submission_data()
+    
+    def _auto_refresh_submission_data(self):
+        """Auto-refresh submission prompt data if configured"""
+        if self._db_session:
+            if self.selected_submission_prompts:
+                print(f"🔄 Auto-refreshing submission data for {len(self.selected_submission_prompts)} selected prompts")
+            else:
+                print(f"🔄 Auto-refreshing submission data (no selection configured; including all prompts)")
+            self._submission_data = self._get_submission_data_from_database()
+        else:
+            print(f"📝 No database session available for submission data refresh")
+    
+    def _get_submission_data_from_database(self) -> Optional[Dict[str, Any]]:
+        """Retrieve submission prompt data from database. If no selected prompts are configured, include all."""
+        if not self._db_session:
+            return None
+        
+        try:
+            if self.selected_submission_prompts:
+                print(f"🔍 Fetching submission data for {len(self.selected_submission_prompts)} selected prompts")
+            else:
+                print(f"🔍 Fetching submission data for all prompts (no selection configured)")
+            
+            # Import the helper function to get submissions
+            from api.deployments.deployment_prompt_routes import get_all_prompt_submissions_for_deployment
+            from models.database.db_models import Deployment
+            from sqlmodel import select
+            
+            # Extract base deployment ID and look for page deployments with submissions
+            base_deployment_id = self.deployment_id.split('_page_')[0] if '_page_' in self.deployment_id else self.deployment_id
+            
+            # Look for page deployments containing prompt submissions
+            page_deployments = self._db_session.exec(
+                select(Deployment).where(
+                    Deployment.is_active == True,
+                    Deployment.deployment_id.like(f'{base_deployment_id}_page_%')
+                )
+            ).all()
+            
+            print(f"🔍 Found {len(page_deployments)} page deployments to check for submissions")
+            
+            # Try each page deployment to find submission data
+            for deployment in page_deployments:
+                try:
+                    result = get_all_prompt_submissions_for_deployment(deployment.deployment_id, self._db_session)
+                    
+                    if isinstance(result, dict):
+                        students = result.get("students", [])
+                        if students and len(students) > 0:
+                            print(f"🔍 Found {len(students)} students with submissions in deployment {deployment.deployment_id}")
+                            
+                            # Filter submissions to only selected prompts if configured; otherwise include all
+                            filtered_students = []
+                            for student in students:
+                                if isinstance(student, dict) and 'name' in student:
+                                    # Upstream uses 'submission_responses' for per-index answers
+                                    src_responses = student.get('submission_responses', {}) or {}
+                                    filtered_responses = {}
+                                    if self.selected_submission_prompts:
+                                        # Only include selected keys
+                                        for response_key, response_data in src_responses.items():
+                                            if response_key in self.selected_submission_prompts:
+                                                filtered_responses[response_key] = response_data
+                                    else:
+                                        # Include all when no selection configured
+                                        filtered_responses = dict(src_responses)
+                                    
+                                    if filtered_responses:  # Only include students with relevant responses
+                                        filtered_student = student.copy()
+                                        filtered_student['submission_responses'] = filtered_responses
+                                        filtered_students.append(filtered_student)
+                            
+                            if filtered_students:
+                                print(f"✅ Successfully retrieved submission data for {len(filtered_students)} students")
+                                return {
+                                    "students": filtered_students,
+                                    "deployment_id": deployment.deployment_id,
+                                    "selected_prompts": self.selected_submission_prompts
+                                }
+                
+                except Exception as e:
+                    print(f"❌ Error checking deployment {deployment.deployment_id}: {e}")
+                    continue
+            
+            print(f"⚠️ No submission data found for selected prompts")
+            return None
+            
+        except Exception as e:
+            print(f"❌ Error retrieving submission data from database: {e}")
+            import traceback
+            print(f"📝 Traceback: {traceback.format_exc()}")
+            return None
+
+    def get_submission_data_for_student(self, user_name: str) -> Optional[Dict[str, Any]]:
+        """Get submission prompt responses for a specific student"""
+        if not self._submission_data:
+            return None
+        
+        try:
+            students = self._submission_data.get("students", [])
+            for student in students:
+                if student.get("name") == user_name:
+                    # Standardize on 'submission_responses'
+                    return student.get("submission_responses", {})
+            return None
+        except Exception as e:
+            print(f"❌ Error getting submission data for student {user_name}: {e}")
+            return None
+
+    def get_submission_data_for_group(self, group_members: List[str]) -> Dict[str, Any]:
+        """Get submission prompt responses for all members of a group"""
+        if not self._submission_data:
+            return {}
+        
+        try:
+            group_responses = {}
+            students = self._submission_data.get("students", [])
+            
+            for member_name in group_members:
+                for student in students:
+                    if student.get("name") == member_name:
+                        group_responses[member_name] = student.get("submission_responses", {})
+                        break
+            
+            return group_responses
+        except Exception as e:
+            print(f"❌ Error getting submission data for group: {e}")
+            return {}
     
     def _try_get_parent_page_deployment(self):
         """Try to get parent page deployment from deployment manager"""
@@ -1741,16 +2052,71 @@ class LivePresentationDeployment:
             print(f"🔍 USING STANDARD PROMPT - NOT group-based assignment")
             print(f"   Reason: use_random_list_item={use_random_list_item}, list_variable_id={list_variable_id}")
             print(f"   Available theme variables: {available_theme_vars if 'available_theme_vars' in locals() else 'None checked'}")
-            message = {
-                "type": "prompt_received",
-                "prompt": self.current_prompt
-            }
             
+            # Ensure submission data is fresh if DB session exists
+            try:
+                self._auto_refresh_submission_data()
+            except Exception:
+                pass
+
+            # Check if we need to include submission data
+            # Only include submission responses for prompts that explicitly ask for review/discussion of past responses
+            # This can be determined by:
+            # 1. Explicit flag in the prompt data
+            # 2. System prompts (like "thank you") should never include responses
+            # 3. Prompts that mention "insights", "screen", "discuss", "review" might want responses
+            should_include_responses = False
+            
+            # Check explicit flags first
+            if self.current_prompt.get("include_submission_responses", False) or self.current_prompt.get("show_group_responses", False):
+                should_include_responses = True
+            # System prompts (like thank you messages) should never include responses
+            elif self.current_prompt.get("isSystemPrompt", False) or self.current_prompt.get("category") == "closing":
+                should_include_responses = False
+            # Check if the prompt statement suggests it wants to review previous responses
+            elif self._submission_data:
+                statement = self.current_prompt.get("statement", "").lower()
+                review_keywords = ["insights", "screen", "discuss", "review", "look at", "based on", "consider your", "reflect on"]
+                should_include_responses = any(keyword in statement for keyword in review_keywords)
+            
+            print(f"🎤 Standard prompt processing: use_random_list_item={use_random_list_item}, should_include_responses={should_include_responses}")
+            if should_include_responses:
+                sel_count = len(self.selected_submission_prompts) if self.selected_submission_prompts else 0
+                print(f"📝 Including submission data ({'selected '+str(sel_count) if sel_count else 'all'} prompts) because prompt requested responses")
+            else:
+                print(f"📝 NOT including submission data - prompt doesn't request responses (system={self.current_prompt.get('isSystemPrompt', False)}, category={self.current_prompt.get('category', 'none')})")
+            
+            # Determine per-prompt requested submission keys to avoid over-sending
+            requested_keys = self._extract_requested_submission_keys(self.current_prompt)
+
             # Send to all connected students
             sent_count = 0
             failed_students = []
             for user_id, student in list(self.students.items()):
                 if student.status != ConnectionStatus.DISCONNECTED:
+                    message = {
+                        "type": "prompt_received",
+                        "prompt": self.current_prompt
+                    }
+                    
+                    # Add submission data ONLY if the prompt explicitly requests it
+                    if should_include_responses and self._submission_data:
+                        submission_responses = self.get_submission_data_for_student(student.user_name)
+                        if submission_responses:
+                            # Filter to requested keys to prevent sending extra submissions
+                            filtered_responses = self._filter_submission_map_to_keys(submission_responses, requested_keys)
+                            if filtered_responses:
+                                # Embed inside prompt to match frontend expectations
+                                try:
+                                    if isinstance(message["prompt"], dict):
+                                        message["prompt"]["submission_responses"] = filtered_responses
+                                except Exception:
+                                    pass
+                                try:
+                                    print(f"📝 Added {len(filtered_responses)} filtered submission responses for {student.user_name} (requested_keys={sorted(list(requested_keys)) if requested_keys else 'deployment-level/default'})")
+                                except Exception:
+                                    pass
+
                     success = await student.send_message(message)
                     if success:
                         sent_count += 1
@@ -1883,6 +2249,34 @@ class LivePresentationDeployment:
                                 "assigned_list_item": selected_item
                             }
                         }
+                        
+                        # Add submission data ONLY if the prompt explicitly requests it
+                        # Only include submission responses for prompts that explicitly ask for review/discussion of past responses
+                        should_include_responses = False
+                        
+                        # Check explicit flags first
+                        if self.current_prompt.get("include_submission_responses", False) or self.current_prompt.get("show_group_responses", False):
+                            should_include_responses = True
+                        # System prompts (like thank you messages) should never include responses
+                        elif self.current_prompt.get("isSystemPrompt", False) or self.current_prompt.get("category") == "closing":
+                            should_include_responses = False
+                        # Check if the prompt statement suggests it wants to review previous responses
+                        elif self._submission_data:
+                            statement = self.current_prompt.get("statement", "").lower()
+                            review_keywords = ["insights", "screen", "discuss", "review", "look at", "based on", "consider your", "reflect on"]
+                            should_include_responses = any(keyword in statement for keyword in review_keywords)
+                        
+                        if should_include_responses and self._submission_data:
+                            submission_responses = self.get_submission_data_for_student(student.user_name)
+                            if submission_responses:
+                                # Embed inside prompt to match frontend expectations
+                                try:
+                                    if isinstance(message["prompt"], dict):
+                                        message["prompt"]["submission_responses"] = submission_responses
+                                except Exception:
+                                    pass
+                                print(f"📝 Added {len(submission_responses)} submission responses for {student.user_name} (prompt requested responses)")
+                        
                         success = await student.send_message(message)
                         if success:
                             print(f"  📤 Sent theme '{item_preview}' to {student.user_name}")
@@ -2405,6 +2799,44 @@ class LivePresentationDeployment:
         
         print(f"🔍 Final grouping result: {[(name, len(students)) for name, students in groups.items()]}")
         return groups
+
+    def _get_group_members(self, group_name: str) -> List[str]:
+        """Get list of member names for a specific group.
+        Prefer connected student assignments; fallback to page variable data if none.
+        """
+        # Primary: derive from connected students' group_info
+        group_members: List[str] = []
+        for student in self.students.values():
+            if (
+                student.status != ConnectionStatus.DISCONNECTED
+                and student.group_info
+                and student.group_info.get("group_name") == group_name
+            ):
+                group_members.append(student.user_name)
+
+        if group_members:
+            return group_members
+
+        # Fallback: use input_variable_data if available (actual groups from page)
+        try:
+            if self.input_variable_data:
+                if isinstance(self.input_variable_data, dict):
+                    members = self.input_variable_data.get(group_name)
+                    if isinstance(members, list) and members:
+                        print(f"🔄 Using fallback members from input_variable_data for group '{group_name}' ({len(members)} names)")
+                        return [str(m) for m in members]
+                elif isinstance(self.input_variable_data, list):
+                    # Theme format: list of dicts with title and student_names
+                    for theme in self.input_variable_data:
+                        if isinstance(theme, dict) and theme.get("title") == group_name:
+                            members = theme.get("student_names", [])
+                            if isinstance(members, list) and members:
+                                print(f"🔄 Using fallback members from theme data for group '{group_name}' ({len(members)} names)")
+                                return [str(m) for m in members]
+        except Exception:
+            pass
+
+        return []
     
     async def _send_standard_prompt_to_all(self):
         """Send standard prompt (no list items) to all students"""
@@ -3655,17 +4087,82 @@ class LivePresentationDeployment:
         if not self.roomcast_websockets:
             return
         try:
+            # Only include submission responses for prompts that explicitly ask for review/discussion of past responses
+            # This can be determined by:
+            # 1. Explicit flag in the prompt data
+            # 2. System prompts (like "thank you") should never include responses
+            # 3. Prompts that mention "insights", "screen", "discuss", "review" might want responses
+            should_include_responses = False
+            
+            # Check explicit flags first
+            if prompt.get("include_submission_responses", False) or prompt.get("show_group_responses", False):
+                should_include_responses = True
+            # System prompts (like thank you messages) should never include responses
+            elif prompt.get("isSystemPrompt", False) or prompt.get("category") == "closing":
+                should_include_responses = False
+            # Check if the prompt statement suggests it wants to review previous responses
+            elif self._submission_data:
+                statement = prompt.get("statement", "").lower()
+                review_keywords = ["insights", "screen", "discuss", "review", "look at", "based on", "consider your", "reflect on"]
+                should_include_responses = any(keyword in statement for keyword in review_keywords)
+            
+            print(f"📺 Roomcast broadcast: should_include_responses={should_include_responses} (system={prompt.get('isSystemPrompt', False)}, category={prompt.get('category', 'none')})")
+            
+            # Determine per-prompt requested submission keys to avoid over-sending on roomcast
+            requested_keys = self._extract_requested_submission_keys(prompt)
+
             if group_item_map:
                 for group_name, item in group_item_map.items():
                     device = self.roomcast_devices.get(group_name)
                     if not device:
                         continue
                     ws: WebSocket = device["websocket"]
+                    # Build prompt payload and embed submission data (if any)
+                    prompt_payload = {**prompt, "assigned_list_item": item}
                     message = {
                         "type": "roomcast_prompt",
                         "group_name": group_name,
-                        "prompt": {**prompt, "assigned_list_item": item}
+                        "prompt": prompt_payload
                     }
+
+                    # Add submission data for this group ONLY if the prompt explicitly requests it
+                    if should_include_responses and self._submission_data:
+                        group_members = self._get_group_members(group_name)
+                        group_submission_data: Dict[str, Any] = {}
+                        if group_members:
+                            group_submission_data = self.get_submission_data_for_group(group_members)
+                        else:
+                            # Fallback: include all students' data if we can't detect members
+                            try:
+                                student_entries = self._submission_data.get("students", []) if isinstance(self._submission_data, dict) else []
+                                all_students = [s.get("name") for s in student_entries if isinstance(s, dict) and s.get("name")]
+                                group_submission_data = self.get_submission_data_for_group(all_students)
+                                print(f"📝 No members detected for '{group_name}'. Falling back to all submission data ({len(group_submission_data)} students)")
+                            except Exception:
+                                group_submission_data = {}
+                        if group_submission_data:
+                            # Filter each student's responses to requested keys (or deployment selection)
+                            try:
+                                filtered_group_data = {}
+                                for member, resp_map in group_submission_data.items():
+                                    filtered = self._filter_submission_map_to_keys(resp_map, requested_keys)
+                                    if filtered:
+                                        filtered_group_data[member] = filtered
+                            except Exception:
+                                filtered_group_data = {}
+
+                            if filtered_group_data:
+                                # Embed inside prompt to match frontend expectations
+                                try:
+                                    if isinstance(message["prompt"], dict):
+                                        message["prompt"]["group_submission_responses"] = filtered_group_data
+                                except Exception:
+                                    pass
+                                try:
+                                    print(f"📝 Added filtered submission data for group {group_name} to roomcast (requested_keys={sorted(list(requested_keys)) if requested_keys else 'deployment-level/default'})")
+                                except Exception:
+                                    pass
+
                     try:
                         await ws.send_text(json.dumps(message))
                     except Exception:
@@ -3676,11 +4173,50 @@ class LivePresentationDeployment:
                 # Send to registered devices keyed by group
                 for group_name, device in list(self.roomcast_devices.items()):
                     ws: WebSocket = device["websocket"]
+                    prompt_payload = dict(prompt)
                     message = {
                         "type": "roomcast_prompt",
                         "group_name": group_name,
-                        "prompt": prompt
+                        "prompt": prompt_payload
                     }
+                    
+                    # Add submission data for this group ONLY if the prompt explicitly requests it
+                    if should_include_responses and self._submission_data:
+                        group_members = self._get_group_members(group_name)
+                        group_submission_data: Dict[str, Any] = {}
+                        if group_members:
+                            group_submission_data = self.get_submission_data_for_group(group_members)
+                        else:
+                            # Fallback: include all students' data if we can't detect members
+                            try:
+                                student_entries = self._submission_data.get("students", []) if isinstance(self._submission_data, dict) else []
+                                all_students = [s.get("name") for s in student_entries if isinstance(s, dict) and s.get("name")]
+                                group_submission_data = self.get_submission_data_for_group(all_students)
+                                print(f"📝 No members detected for '{group_name}'. Falling back to all submission data ({len(group_submission_data)} students)")
+                            except Exception:
+                                group_submission_data = {}
+                        if group_submission_data:
+                            # Filter each student's responses to requested keys (or deployment selection)
+                            try:
+                                filtered_group_data = {}
+                                for member, resp_map in group_submission_data.items():
+                                    filtered = self._filter_submission_map_to_keys(resp_map, requested_keys)
+                                    if filtered:
+                                        filtered_group_data[member] = filtered
+                            except Exception:
+                                filtered_group_data = {}
+
+                            if filtered_group_data:
+                                try:
+                                    if isinstance(message["prompt"], dict):
+                                        message["prompt"]["group_submission_responses"] = filtered_group_data
+                                except Exception:
+                                    pass
+                                try:
+                                    print(f"📝 Added filtered submission data for group {group_name} to roomcast (requested_keys={sorted(list(requested_keys)) if requested_keys else 'deployment-level/default'})")
+                                except Exception:
+                                    pass
+                    
                     try:
                         await ws.send_text(json.dumps(message))
                         sent_ws.add(ws)
@@ -3690,11 +4226,47 @@ class LivePresentationDeployment:
                 for ws in list(self.roomcast_websockets):
                     if ws in sent_ws:
                         continue
+                    prompt_payload = dict(prompt)
                     message = {
                         "type": "roomcast_prompt",
                         "group_name": "",
-                        "prompt": prompt
+                        "prompt": prompt_payload
                     }
+                    
+                    # For unregistered roomcast devices, include submission data ONLY if the prompt explicitly requests it
+                    if should_include_responses and self._submission_data:
+                        # Prefer names from submission cache (DB), fallback to connected students
+                        try:
+                            student_entries = self._submission_data.get("students", []) if isinstance(self._submission_data, dict) else []
+                            if student_entries:
+                                all_students = [s.get("name") for s in student_entries if isinstance(s, dict) and s.get("name")]
+                            else:
+                                all_students = [student.user_name for student in self.students.values()]
+                        except Exception:
+                            all_students = [student.user_name for student in self.students.values()]
+                        all_submission_data = self.get_submission_data_for_group(all_students)
+                        if all_submission_data:
+                            # Filter each student's responses to requested keys (or deployment selection)
+                            try:
+                                filtered_group_data = {}
+                                for member, resp_map in all_submission_data.items():
+                                    filtered = self._filter_submission_map_to_keys(resp_map, requested_keys)
+                                    if filtered:
+                                        filtered_group_data[member] = filtered
+                            except Exception:
+                                filtered_group_data = {}
+
+                            if filtered_group_data:
+                                try:
+                                    if isinstance(message["prompt"], dict):
+                                        message["prompt"]["group_submission_responses"] = filtered_group_data
+                                except Exception:
+                                    pass
+                                try:
+                                    print(f"📝 Added filtered submission data to unregistered roomcast device (requested_keys={sorted(list(requested_keys)) if requested_keys else 'deployment-level/default'})")
+                                except Exception:
+                                    pass
+                    
                     try:
                         await ws.send_text(json.dumps(message))
                     except Exception:
@@ -4000,17 +4572,92 @@ class LivePresentationDeployment:
     @classmethod
     def from_config(cls, config: Dict[str, Any], deployment_id: str) -> "LivePresentationDeployment":
         """Create LivePresentationDeployment from page config"""
-        # Extract the live presentation config from node 1
-        live_presentation_config = config.get("1", {}).get("config", {})
-        
-        # Extract prompts from node 2 if it exists
-        prompts_config = config.get("2", {}).get("config", {})
-        saved_prompts = prompts_config.get("saved_prompts", [])
-        
+        # Helper: normalize selected submission prompts into submission_{index} keys
+        def _normalize_selected_prompts(raw_list: Any) -> list[str]:
+            normalized: list[str] = []
+            if not isinstance(raw_list, list):
+                return normalized
+            for item in raw_list:
+                try:
+                    # Already in expected format
+                    if isinstance(item, str) and item.startswith("submission_"):
+                        normalized.append(item)
+                        continue
+                    # e.g. "<submissionNodeId>-prompt-3" => submission_3
+                    if isinstance(item, str) and "-prompt-" in item:
+                        suffix = item.split("-prompt-")[-1]
+                        idx = int(suffix)
+                        normalized.append(f"submission_{idx}")
+                        continue
+                    # Object form from variable metadata
+                    if isinstance(item, dict):
+                        # Prefer explicit index if present
+                        if isinstance(item.get("index"), int):
+                            normalized.append(f"submission_{int(item['index'])}")
+                            continue
+                        var_name = item.get("variableName") or item.get("id") or ""
+                        # Matches: prompt_{page}_{type}_{index}
+                        if isinstance(var_name, str) and var_name.startswith("prompt_"):
+                            parts = var_name.split("_")
+                            if len(parts) >= 4:
+                                idx = int(parts[-1])
+                                normalized.append(f"submission_{idx}")
+                                continue
+                except Exception:
+                    # Best-effort; ignore malformed entries
+                    pass
+            # De-duplicate preserving order
+            seen = set()
+            deduped: list[str] = []
+            for k in normalized:
+                if k not in seen:
+                    seen.add(k)
+                    deduped.append(k)
+            return deduped
+
+        # Extract the live presentation config from the starting node (type: livePresentation)
+        live_presentation_config: Dict[str, Any] = {}
+        try:
+            # Prefer node "1" if it is the livePresentation node
+            node1 = config.get("1") if isinstance(config, dict) else None
+            if isinstance(node1, dict) and node1.get("type") == "livePresentation":
+                live_presentation_config = node1.get("config", {}) or {}
+        except Exception:
+            pass
+
+        # Find livePresentationPrompt node(s) anywhere in the workflow (IDs are not guaranteed)
+        saved_prompts: list[Dict[str, Any]] = []
+        raw_selected_submission_prompts: list[Any] = []
+        if isinstance(config, dict):
+            for node_id, node_data in config.items():
+                try:
+                    if isinstance(node_data, dict) and node_data.get("type") == "livePresentationPrompt":
+                        node_cfg = node_data.get("config", {}) or {}
+                        # Merge saved prompts
+                        node_saved = node_cfg.get("saved_prompts", []) or []
+                        if isinstance(node_saved, list) and node_saved:
+                            saved_prompts.extend(node_saved)  # keep order
+                        # Merge selected submission prompts
+                        node_sel = node_cfg.get("selected_submission_prompts", []) or []
+                        if isinstance(node_sel, list) and node_sel:
+                            raw_selected_submission_prompts.extend(node_sel)
+                except Exception:
+                    continue
+
+        # Normalize selected submission prompts to match backend response keys
+        selected_submission_prompts = _normalize_selected_prompts(raw_selected_submission_prompts)
+
         # Combine configurations
         combined_config = {
             **live_presentation_config,
-            "saved_prompts": saved_prompts
+            "saved_prompts": saved_prompts,
+            "selected_submission_prompts": selected_submission_prompts,
         }
-        
+
+        if selected_submission_prompts:
+            try:
+                print(f"🎤 LivePresentation.from_config: normalized {len(selected_submission_prompts)} submission prompt keys -> {selected_submission_prompts}")
+            except Exception:
+                pass
+
         return cls(combined_config, deployment_id)

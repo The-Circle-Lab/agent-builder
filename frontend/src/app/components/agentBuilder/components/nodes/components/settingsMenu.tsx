@@ -916,6 +916,17 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                       />
                       <span className="text-sm text-gray-300">List</span>
                     </label>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="radio"
+                        name={`mediaType-${pIdx}`}
+                        value="dynamic_list"
+                        checked={prompt.mediaType === "dynamic_list"}
+                        onChange={(e) => updatePrompt(pIdx, "mediaType", e.target.value)}
+                        className="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-300">Dynamic List</span>
+                    </label>
                   </div>
                   {prompt.mediaType === "list" && 
                     <div className="mt-2">
@@ -930,6 +941,12 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                         min="1"
                         className="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
+                    </div>}
+                  {prompt.mediaType === "dynamic_list" && 
+                    <div className="mt-2 p-3 bg-gray-600 rounded-md">
+                      <p className="text-sm text-gray-300">
+                        Students can add or remove items from their list dynamically. No fixed number of items required.
+                      </p>
                     </div>}
                 </div>
               </div>

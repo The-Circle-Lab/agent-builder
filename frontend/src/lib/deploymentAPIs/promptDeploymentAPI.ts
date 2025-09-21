@@ -1,8 +1,8 @@
 // Prompt deployment specific interfaces and functionality
 export interface PromptSubmissionRequirement {
   prompt: string;
-  mediaType: 'textarea' | 'hyperlink' | 'pdf' | 'list';
-  items?: number; // Number of items required for list type
+  mediaType: 'textarea' | 'hyperlink' | 'pdf' | 'list' | 'dynamic_list';
+  items?: number; // Number of items required for list type (not applicable to dynamic_list)
 }
 
 export interface GroupInfo {
@@ -23,7 +23,7 @@ export interface PromptInfo {
 export interface PromptSubmissionResponse {
   submission_index: number;
   prompt_text: string;
-  media_type: 'textarea' | 'hyperlink' | 'pdf' | 'list';
+  media_type: 'textarea' | 'hyperlink' | 'pdf' | 'list' | 'dynamic_list';
   user_response: string;
   submitted_at: string;
 }
