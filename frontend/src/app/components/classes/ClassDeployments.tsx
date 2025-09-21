@@ -7,7 +7,6 @@ import {
   ChatBubbleLeftRightIcon, 
   TrashIcon, 
   RocketLaunchIcon,
-  ChartBarIcon,
   AcademicCapIcon,
   LockClosedIcon,
   LockOpenIcon,
@@ -546,15 +545,6 @@ export default function ClassDeployments({
       );
     }
 
-    if (!grades) {
-      return (
-        <div className="flex items-center space-x-1">
-          <AcademicCapIcon className="h-3 w-3 text-gray-400" />
-          <span className="text-gray-500 text-xs">No grades calculated</span>
-        </div>
-      );
-    }
-
     // For students, show their individual grade
     const studentGrade = grades.student_grades[0]; // Should be their own grade
     
@@ -812,16 +802,6 @@ export default function ClassDeployments({
                     )}
                   </div>
                 </div>
-
-                {/* Quick stats section - only show for students */}
-                {!isInstructor && (
-                  <div className="mt-3 pt-3 border-t border-gray-100">
-                    <div className="flex items-center text-xs text-gray-500">
-                      <ChartBarIcon className="h-3 w-3 mr-1" />
-                      <span>Quick Stats: View student conversations to see usage</span>
-                    </div>
-                  </div>
-                )}
               </div>
             );
           })}
