@@ -46,6 +46,11 @@ export interface PromptSubmissionRequest {
   response: string;
 }
 
+export interface PromptEditSubmissionRequest {
+  submission_index: number;
+  response: string;
+}
+
 export interface PromptSubmissionResult {
   submission_index: number;
   prompt_text: string;
@@ -147,6 +152,40 @@ export class PromptDeploymentAPI {
       },
       credentials: 'include',
       body: JSON.stringify(submissionRequest),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText);
+    }
+
+    return await response.json();
+  }
+
+  // Edit an existing response for a specific submission requirement
+  static async editResponse(
+    deploymentId: string,
+    editRequest: PromptEditSubmissionRequest
+  ): Promise<PromptSubmissionResult> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    if (!editRequest.response?.trim()) {
+      throw new Error('Response is required');
+    }
+
+    if (editRequest.submission_index < 0) {
+      throw new Error('Valid submission index is required');
+    }
+
+    const response = await fetch(`${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/prompt/edit`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify(editRequest),
     });
 
     if (!response.ok) {

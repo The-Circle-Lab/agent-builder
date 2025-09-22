@@ -77,6 +77,10 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [pdfFiles, setPdfFiles] = useState<Record<number, File | null>>({});
   const [pdfProgress, setPdfProgress] = useState<{ [index: number]: { progress: number; stage?: string; state?: string } }>({});
+  
+  // Edit mode state
+  const [editingSubmissionIndex, setEditingSubmissionIndex] = useState<number | null>(null);
+  const [editResponse, setEditResponse] = useState<string>('');
 
   // Load or create prompt session
   useEffect(() => {
@@ -301,6 +305,71 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
     if (error) setError(null);
   };
 
+  // Edit functionality handlers
+  const editSubmissionResponse = async (submissionIndex: number, newResponse: string) => {
+    if (!session) return;
+
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const responseData = await PromptDeploymentAPI.editResponse(deploymentId, {
+        submission_index: submissionIndex,
+        response: newResponse,
+      });
+      
+      // Update submitted responses with the edited response
+      setSubmittedResponses(prev => ({
+        ...prev,
+        [submissionIndex]: {
+          submission_index: responseData.submission_index,
+          prompt_text: responseData.prompt_text,
+          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf' | 'list',
+          user_response: responseData.user_response,
+          submitted_at: responseData.submitted_at,
+        },
+      }));
+
+      // Exit edit mode
+      setEditingSubmissionIndex(null);
+      setEditResponse('');
+
+    } catch (err) {
+      console.error('Failed to edit response:', err);
+      setError(err instanceof Error ? err.message : 'Failed to edit response');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const startEditSubmission = (submissionIndex: number) => {
+    const existingResponse = submittedResponses[submissionIndex];
+    if (existingResponse) {
+      setEditingSubmissionIndex(submissionIndex);
+      setEditResponse(existingResponse.user_response);
+      setCurrentSubmissionIndex(submissionIndex);
+      setError(null);
+    }
+  };
+
+  const cancelEditSubmission = () => {
+    setEditingSubmissionIndex(null);
+    setEditResponse('');
+    setError(null);
+  };
+
+  const saveEditSubmission = () => {
+    if (editingSubmissionIndex !== null) {
+      editSubmissionResponse(editingSubmissionIndex, editResponse);
+    }
+  };
+
+  const handleEditResponseChange = (submissionIndex: number, value: string) => {
+    setEditResponse(value);
+    // Clear error when user starts typing
+    if (error) setError(null);
+  };
+
   const navigateToSubmission = (index: number) => {
     if (session && index >= 0 && index < session.total_submissions) {
       setCurrentSubmissionIndex(index);
@@ -471,17 +540,23 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
             <SubmissionDisplay
               session={session}
               submissionIndex={currentSubmissionIndex}
-              submissionResponse={submissionResponses[currentSubmissionIndex] || ''}
+              submissionResponse={editingSubmissionIndex === currentSubmissionIndex ? editResponse : submissionResponses[currentSubmissionIndex] || ''}
               submittedResponse={submittedResponses[currentSubmissionIndex]}
               submitting={submitting}
               error={error}
 
-              onResponseChange={handleResponseChange}
+              onResponseChange={editingSubmissionIndex === currentSubmissionIndex ? handleEditResponseChange : handleResponseChange}
               onSubmitResponse={handleResponseSubmit}
               onNavigateToSubmission={navigateToSubmission}
               selectedPdfFile={pdfFiles[currentSubmissionIndex] || null}
               onPdfSelect={(file) => handlePdfChange(currentSubmissionIndex, file)}
               pdfProgress={pdfProgress[currentSubmissionIndex]}
+              
+              // Edit functionality props
+              isEditing={editingSubmissionIndex === currentSubmissionIndex}
+              onStartEdit={() => startEditSubmission(currentSubmissionIndex)}
+              onCancelEdit={cancelEditSubmission}
+              onSaveEdit={saveEditSubmission}
             />
           </div>
         </div>
