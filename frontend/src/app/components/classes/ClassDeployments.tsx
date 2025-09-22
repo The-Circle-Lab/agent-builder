@@ -546,7 +546,7 @@ export default function ClassDeployments({
     }
 
     // For students, show their individual grade
-    const studentGrade = grades.student_grades[0]; // Should be their own grade
+    const studentGrade = grades?.student_grades?.[0]; // Should be their own grade
     
     if (studentGrade) {
       const colorClass = studentGrade.percentage >= 80 

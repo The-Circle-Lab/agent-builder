@@ -44,7 +44,7 @@ export class AuthAPI {
       throw new Error(passwordValidation.error);
     }
 
-    const response = await apiClient.post(ROUTES.AUTH.LOGIN, credentials);
+    const response = await apiClient.post(`${ROUTES.AUTH}/login`, credentials);
     
     if (response.error) {
       throw new Error(response.error);
@@ -63,7 +63,7 @@ export class AuthAPI {
       throw new Error(passwordValidation.error);
     }
 
-    const response = await apiClient.post(ROUTES.AUTH.REGISTER, {
+    const response = await apiClient.post(`${ROUTES.AUTH}/register`, {
       ...userData,
       is_instructor: userData.is_instructor ?? false
     });
@@ -74,7 +74,7 @@ export class AuthAPI {
   }
 
   static async logout(): Promise<void> {
-    const response = await apiClient.post(ROUTES.AUTH.LOGOUT);
+    const response = await apiClient.post(`${ROUTES.AUTH}/logout`);
     
     if (response.error) {
       throw new Error(response.error);
@@ -82,7 +82,7 @@ export class AuthAPI {
   }
 
   static async getCurrentUser(): Promise<User> {
-    const response = await apiClient.get<User>(ROUTES.AUTH.ME);
+    const response = await apiClient.get<User>(`${ROUTES.AUTH}/me`);
     
     if (response.error) {
       if (response.status === 401) {
@@ -108,7 +108,7 @@ export class AuthAPI {
   }
 
   static async updateProfile(profileData: UpdateProfileRequest): Promise<User> {
-    const response = await apiClient.patch<User>(ROUTES.AUTH.PROFILE, profileData);
+    const response = await apiClient.patch<User>(`${ROUTES.AUTH}/profile`, profileData);
     
     if (response.error) {
       throw new Error(response.error);

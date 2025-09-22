@@ -10,13 +10,7 @@ export const API_CONFIG = {
 
 // Application Routes
 export const ROUTES = {
-  AUTH: {
-    LOGIN: '/auth/login',
-    REGISTER: '/auth/register',
-    LOGOUT: '/auth/logout',
-    ME: '/auth/me',
-    PROFILE: '/auth/profile',
-  },
+  AUTH: '/auth',
   CLASSES: '/api/classes',
   WORKFLOWS: '/api/workflows',
   DOCUMENTS: '/api/documents',

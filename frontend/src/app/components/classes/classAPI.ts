@@ -198,4 +198,21 @@ export class ClassAPI {
     
     return response.data?.members || [];
   }
+
+  // Change password for a class member (instructors only)
+  static async changeClassMemberPassword(
+    classId: number, 
+    userId: number, 
+    newPassword: string
+  ): Promise<void> {
+    const response = await apiClient.post<void>(`${ROUTES.AUTH}/change-password`, {
+      user_id: userId,
+      new_password: newPassword,
+      class_id: classId
+    });
+    
+    if (response.error) {
+      throw new Error(response.error);
+    }
+  }
 } 

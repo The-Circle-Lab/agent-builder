@@ -42,6 +42,12 @@ class UpdateProfileRequest(BaseModel):
     birthday: date | None = None
 
 
+class ChangePasswordRequest(BaseModel):
+    user_id: int
+    new_password: str
+    class_id: int
+
+
 def get_current_user(sid: str | None = Cookie(None),
                      db: DBSession = Depends(get_session)):
     if not sid:
@@ -181,3 +187,57 @@ def update_profile(
         "about_me": current_user.about_me,
         "birthday": current_user.birthday,
     }
+
+
+@router.post("/change-password")
+def change_user_password(
+    request: ChangePasswordRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    from scripts.permission_helpers import user_has_role_in_class
+    from models.database.db_models import ClassRole, ClassMembership
+    
+    # Check if current user is an instructor in the specified class
+    if not user_has_role_in_class(current_user, request.class_id, ClassRole.INSTRUCTOR, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only instructors can change passwords in their classes"
+        )
+    
+    # Get the target user
+    target_user = db.get(User, request.user_id)
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Check if target user is a member of the same class
+    target_membership = db.exec(
+        select(ClassMembership).where(
+            ClassMembership.user_id == request.user_id,
+            ClassMembership.class_id == request.class_id,
+            ClassMembership.is_active == True
+        )
+    ).first()
+    
+    if not target_membership:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User is not a member of this class"
+        )
+    
+    # Check if target user is NOT an instructor (instructors cannot have their passwords changed)
+    if target_membership.role == ClassRole.INSTRUCTOR:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot change password of another instructor"
+        )
+    
+    # Change the password
+    target_user.hashed_password = hash_pw(request.new_password)
+    db.add(target_user)
+    db.commit()
+    
+    return Response(status_code=status.HTTP_204_NO_CONTENT)

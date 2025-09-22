@@ -3,17 +3,22 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ClassRole, ClassMember } from '@/lib/types';
 import { ClassAPI } from './classAPI';
-import { AcademicCapIcon, UserIcon } from '@heroicons/react/24/outline';
+import { AcademicCapIcon, UserIcon, EllipsisVerticalIcon } from '@heroicons/react/24/outline';
+import PasswordChangeModal from './PasswordChangeModal';
 
 interface ClassMembersProps {
   classId: number;
   currentUserRole: ClassRole;
 }
 
-export default function ClassMembers({ classId }: ClassMembersProps) {
+export default function ClassMembers({ classId, currentUserRole }: ClassMembersProps) {
   const [members, setMembers] = useState<ClassMember[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [openDropdown, setOpenDropdown] = useState<number | null>(null);
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false);
+  const [selectedMember, setSelectedMember] = useState<ClassMember | null>(null);
+  const [passwordChanging, setPasswordChanging] = useState(false);
 
   const loadMembers = useCallback(async () => {
     try {
@@ -28,9 +33,49 @@ export default function ClassMembers({ classId }: ClassMembersProps) {
     }
   }, [classId]);
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      // Check if the click was outside any dropdown
+      const target = event.target as Element;
+      if (!target.closest('.dropdown-container')) {
+        setOpenDropdown(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   useEffect(() => {
     loadMembers();
   }, [loadMembers]);
+
+  const handleChangePassword = async (newPassword: string) => {
+    if (!selectedMember) return;
+    
+    setPasswordChanging(true);
+    try {
+      await ClassAPI.changeClassMemberPassword(classId, selectedMember.id, newPassword);
+      setPasswordModalOpen(false);
+      setSelectedMember(null);
+      // You might want to show a success toast here
+    } catch (err) {
+      throw err; // Let the modal handle the error
+    } finally {
+      setPasswordChanging(false);
+    }
+  };
+
+  const openPasswordModal = (member: ClassMember) => {
+    setSelectedMember(member);
+    setPasswordModalOpen(true);
+    setOpenDropdown(null);
+  };
+
+  const toggleDropdown = (memberId: number) => {
+    setOpenDropdown(openDropdown === memberId ? null : memberId);
+  };
 
   // Sort members: instructors first, then students
   const sortedMembers = [...members].sort((a, b) => {
@@ -94,20 +139,58 @@ export default function ClassMembers({ classId }: ClassMembersProps) {
                   </div>
                 </div>
                 
-                <span className={`
-                  inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                  ${member.role === 'instructor' 
-                    ? 'bg-blue-100 text-blue-800' 
-                    : 'bg-gray-100 text-gray-700'}
-                `}>
-                  {member.role === 'instructor' ? 'Instructor' : 'Student'}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span className={`
+                    inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                    ${member.role === 'instructor' 
+                      ? 'bg-blue-100 text-blue-800' 
+                      : 'bg-gray-100 text-gray-700'}
+                  `}>
+                    {member.role === 'instructor' ? 'Instructor' : 'Student'}
+                  </span>
+
+                  {/* Dropdown menu for non-instructors if current user is instructor */}
+                  {currentUserRole === 'instructor' && member.role !== 'instructor' && (
+                    <div className="relative dropdown-container">
+                      <button
+                        onClick={() => toggleDropdown(member.id)}
+                        className="p-1 text-gray-400 hover:text-gray-600 rounded-full hover:bg-gray-100"
+                        title={`Actions for ${member.email}`}
+                      >
+                        <EllipsisVerticalIcon className="h-5 w-5" />
+                      </button>
+
+                      {openDropdown === member.id && (
+                        <div className="absolute right-0 z-10 mt-2 w-48 rounded-md bg-white py-1 shadow-lg ring-1 ring-black ring-opacity-5">
+                          <button
+                            onClick={() => openPasswordModal(member)}
+                            className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                          >
+                            Change Password
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
               </div>
             </li>
           ))}
         </ul>
       </div>
       )}
+      
+      {/* Password Change Modal */}
+      <PasswordChangeModal
+        isOpen={passwordModalOpen}
+        onClose={() => {
+          setPasswordModalOpen(false);
+          setSelectedMember(null);
+        }}
+        onConfirm={handleChangePassword}
+        userEmail={selectedMember?.email || ''}
+        loading={passwordChanging}
+      />
     </div>
   );
 } 
