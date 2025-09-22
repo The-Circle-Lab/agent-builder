@@ -215,4 +215,15 @@ export class ClassAPI {
       throw new Error(response.error);
     }
   }
+
+  // Kick out a member from the class (instructors only)
+  static async kickClassMember(classId: number, userId: number): Promise<void> {
+    const response = await apiClient.post<void>(`${ROUTES.CLASSES}/${classId}/kick-member`, {
+      user_id: userId
+    });
+    
+    if (response.error) {
+      throw new Error(response.error);
+    }
+  }
 } 

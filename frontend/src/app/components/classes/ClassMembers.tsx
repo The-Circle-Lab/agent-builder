@@ -5,6 +5,7 @@ import { ClassRole, ClassMember } from '@/lib/types';
 import { ClassAPI } from './classAPI';
 import { AcademicCapIcon, UserIcon, EllipsisVerticalIcon } from '@heroicons/react/24/outline';
 import PasswordChangeModal from './PasswordChangeModal';
+import KickMemberModal from './KickMemberModal';
 
 interface ClassMembersProps {
   classId: number;
@@ -19,6 +20,8 @@ export default function ClassMembers({ classId, currentUserRole }: ClassMembersP
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [selectedMember, setSelectedMember] = useState<ClassMember | null>(null);
   const [passwordChanging, setPasswordChanging] = useState(false);
+  const [kickModalOpen, setKickModalOpen] = useState(false);
+  const [kickingMember, setKickingMember] = useState(false);
 
   const loadMembers = useCallback(async () => {
     try {
@@ -67,9 +70,35 @@ export default function ClassMembers({ classId, currentUserRole }: ClassMembersP
     }
   };
 
+  const handleKickMember = async () => {
+    if (!selectedMember) return;
+    
+    setKickingMember(true);
+    try {
+      await ClassAPI.kickClassMember(classId, selectedMember.id);
+      setKickModalOpen(false);
+      setSelectedMember(null);
+      // Refresh the members list
+      await loadMembers();
+      // You might want to show a success toast here
+    } catch (err) {
+      console.error('Failed to kick member:', err);
+      // You might want to show an error toast here
+      throw err;
+    } finally {
+      setKickingMember(false);
+    }
+  };
+
   const openPasswordModal = (member: ClassMember) => {
     setSelectedMember(member);
     setPasswordModalOpen(true);
+    setOpenDropdown(null);
+  };
+
+  const openKickModal = (member: ClassMember) => {
+    setSelectedMember(member);
+    setKickModalOpen(true);
     setOpenDropdown(null);
   };
 
@@ -168,6 +197,12 @@ export default function ClassMembers({ classId, currentUserRole }: ClassMembersP
                           >
                             Change Password
                           </button>
+                          <button
+                            onClick={() => openKickModal(member)}
+                            className="block w-full px-4 py-2 text-left text-sm text-red-700 hover:bg-red-50"
+                          >
+                            Remove from Class
+                          </button>
                         </div>
                       )}
                     </div>
@@ -190,6 +225,18 @@ export default function ClassMembers({ classId, currentUserRole }: ClassMembersP
         onConfirm={handleChangePassword}
         userEmail={selectedMember?.email || ''}
         loading={passwordChanging}
+      />
+
+      {/* Kick Member Modal */}
+      <KickMemberModal
+        isOpen={kickModalOpen}
+        onClose={() => {
+          setKickModalOpen(false);
+          setSelectedMember(null);
+        }}
+        onConfirm={handleKickMember}
+        userEmail={selectedMember?.email || ''}
+        loading={kickingMember}
       />
     </div>
   );

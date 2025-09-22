@@ -36,6 +36,9 @@ class JoinCodeResponse(BaseModel):
     class_name: str
     join_code: str
 
+class KickMemberRequest(BaseModel):
+    user_id: int
+
 # Generate a random join code
 def generate_join_code(length: int = 8) -> str:
     characters = string.ascii_uppercase + string.digits
@@ -376,6 +379,78 @@ def get_class_details(
         user_role=membership.role,
         member_count=len(member_count)
     )
+
+# Kick out a member from the class (instructors only)
+@router.post("/{class_id}/kick-member")
+def kick_class_member(
+    class_id: int,
+    request: KickMemberRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    # Check if class exists
+    class_obj = db.get(Class, class_id)
+    if not class_obj or not class_obj.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Class not found"
+        )
+    
+    # Check if current user is an instructor in this class
+    if not user_has_role_in_class(current_user, class_id, ClassRole.INSTRUCTOR, db):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only instructors can remove members from the class"
+        )
+    
+    # Get the target user's membership
+    target_membership = db.exec(
+        select(ClassMembership).where(
+            ClassMembership.class_id == class_id,
+            ClassMembership.user_id == request.user_id,
+            ClassMembership.is_active == True
+        )
+    ).first()
+    
+    if not target_membership:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User is not a member of this class"
+        )
+    
+    # Check if target user is an instructor (instructors cannot be kicked out)
+    if target_membership.role == ClassRole.INSTRUCTOR:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Cannot remove an instructor from the class"
+        )
+    
+    # Prevent kicking out yourself (though this should be caught by the instructor check)
+    if request.user_id == current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot remove yourself from the class"
+        )
+    
+    # Get target user for response
+    target_user = db.get(User, request.user_id)
+    if not target_user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found"
+        )
+    
+    # Remove the member (soft delete)
+    target_membership.is_active = False
+    db.add(target_membership)
+    db.commit()
+    
+    return {
+        "message": f"Successfully removed {target_user.email} from class '{class_obj.name}'",
+        "removed_user_email": target_user.email,
+        "class_id": class_id,
+        "class_name": class_obj.name
+    }
 
 # Get class members
 @router.get("/{class_id}/members")
