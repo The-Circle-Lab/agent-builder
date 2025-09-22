@@ -142,7 +142,7 @@ export default function LoginPage({ onLogin }: LoginPageProps) {
       <div className="bg-white rounded-xl shadow-2xl p-8 w-full max-w-md">
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-gray-900 mb-2">
-            Agent Builder
+            SCORE
           </h1>
           <p className="text-gray-600">
             {isLogin ? "Sign in to your account" : "Create your account"}

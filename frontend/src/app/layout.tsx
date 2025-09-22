@@ -15,11 +15,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Agent Builder - Create Intelligent Workflows",
+  title: "SCORE - Educational Agentic Workflows",
   description:
     "Build and deploy intelligent AI workflows with ease using our visual workflow builder.",
   keywords: ["AI", "workflow", "automation", "agent", "builder"],
-  authors: [{ name: "Agent Builder Team" }],
+  authors: [{ name: "Rivan Jarjes" }],
   robots: "index, follow",
 
   other: {
