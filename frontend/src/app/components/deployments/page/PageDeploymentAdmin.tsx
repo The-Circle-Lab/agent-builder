@@ -16,10 +16,12 @@ import {
   ArrowLeftIcon,
   PencilSquareIcon,
   LinkIcon,
-  CogIcon
+  CogIcon,
+  XMarkIcon
 } from '@heroicons/react/24/outline';
 import { API_CONFIG } from '@/lib/constants';
 import { LivePresentationAdmin } from '../livePresentation/components/livePresentationAdmin';
+import { BaseDeploymentAPI } from '@/lib/deploymentAPIs/deploymentAPI';
 
 // =============================================================================
 // TYPES
@@ -234,6 +236,12 @@ export default function PageDeploymentAdmin({
   // Local controlled input for datetime-local
   const [dueDateInput, setDueDateInput] = useState<string>('');
 
+  // Rename deployment state
+  const [isRenameModalOpen, setIsRenameModalOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+
   // Helper: format backend UTC ISO to datetime-local (local tz) string
   const formatDateTimeLocalInput = (isoString: string | null): string => {
     if (!isoString) return '';
@@ -362,6 +370,51 @@ export default function PageDeploymentAdmin({
       console.error('Error toggling page lock:', e);
     } finally {
       setPageLockBusy(prev => ({ ...prev, [pageNumber]: false }));
+    }
+  };
+
+  // Rename deployment functions
+  const openRenameModal = () => {
+    setRenameValue(deploymentName);
+    setRenameError(null);
+    setIsRenameModalOpen(true);
+  };
+
+  const closeRenameModal = () => {
+    setIsRenameModalOpen(false);
+    setRenameValue('');
+    setRenameError(null);
+    setIsRenaming(false);
+  };
+
+  const handleRename = async () => {
+    if (!renameValue.trim()) {
+      setRenameError('Deployment name cannot be empty');
+      return;
+    }
+
+    if (renameValue.trim() === deploymentName) {
+      closeRenameModal();
+      return;
+    }
+
+    setIsRenaming(true);
+    setRenameError(null);
+
+    try {
+      await BaseDeploymentAPI.renameDeployment(deploymentId, renameValue.trim());
+      
+      // Update the deployment name in the parent component if needed
+      // This would typically trigger a re-fetch or be handled by props
+      closeRenameModal();
+      
+      // Optionally refresh the page or update the local state
+      window.location.reload(); // Simple approach for now
+    } catch (error) {
+      console.error('Error renaming deployment:', error);
+      setRenameError(error instanceof Error ? error.message : 'Failed to rename deployment');
+    } finally {
+      setIsRenaming(false);
     }
   };
   
@@ -825,7 +878,16 @@ export default function PageDeploymentAdmin({
                 <ArrowLeftIcon className="h-5 w-5" />
               </button>
               <div>
-                <h1 className="text-lg font-semibold text-gray-900">{deploymentName}</h1>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-lg font-semibold text-gray-900">{deploymentName}</h1>
+                  <button
+                    onClick={openRenameModal}
+                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+                    title="Rename deployment"
+                  >
+                    <PencilSquareIcon className="h-4 w-4" />
+                  </button>
+                </div>
                 <p className="text-sm text-gray-500">Instructor Admin Dashboard</p>
               </div>
             </div>
@@ -2048,6 +2110,66 @@ export default function PageDeploymentAdmin({
           deploymentName={livePresentationAdmin.deploymentName}
           onClose={() => setLivePresentationAdmin(null)}
         />
+      )}
+
+      {/* Rename Deployment Modal */}
+      {isRenameModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900">Rename Deployment</h3>
+              <button
+                onClick={closeRenameModal}
+                className="text-gray-400 hover:text-gray-600"
+                disabled={isRenaming}
+              >
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+            
+            <div className="mb-4">
+              <label htmlFor="rename-input" className="block text-sm font-medium text-gray-700 mb-2">
+                Deployment Name
+              </label>
+              <input
+                id="rename-input"
+                type="text"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                className="text-black w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                placeholder="Enter new deployment name"
+                disabled={isRenaming}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    handleRename();
+                  } else if (e.key === 'Escape') {
+                    closeRenameModal();
+                  }
+                }}
+              />
+              {renameError && (
+                <p className="mt-2 text-sm text-red-600">{renameError}</p>
+              )}
+            </div>
+            
+            <div className="flex justify-end space-x-3">
+              <button
+                onClick={closeRenameModal}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md"
+                disabled={isRenaming}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleRename}
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isRenaming || !renameValue.trim()}
+              >
+                {isRenaming ? 'Renaming...' : 'Rename'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       </div>
     </div>

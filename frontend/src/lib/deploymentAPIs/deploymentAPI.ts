@@ -38,6 +38,17 @@ export interface DebugAuthResponse {
   message: string;
 }
 
+export interface DeploymentRenameRequest {
+  new_name: string;
+}
+
+export interface DeploymentRenameResponse {
+  deployment_id: string;
+  old_name: string;
+  new_name: string;
+  message: string;
+}
+
 import { apiClient } from '@/lib/apiClient';
 import { ROUTES } from '@/lib/constants';
 
@@ -99,6 +110,36 @@ export class BaseDeploymentAPI {
 
     if (!response.data) {
       throw new Error('No response data received');
+    }
+
+    return response.data;
+  }
+
+  // Rename deployment
+  static async renameDeployment(deploymentId: string, newName: string): Promise<DeploymentRenameResponse> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    if (!newName?.trim()) {
+      throw new Error('New deployment name is required');
+    }
+
+    if (newName.trim().length > 255) {
+      throw new Error('Deployment name cannot exceed 255 characters');
+    }
+
+    const response = await apiClient.put<DeploymentRenameResponse>(
+      `${ROUTES.DEPLOYMENTS}/${deploymentId}/rename`,
+      { new_name: newName.trim() }
+    );
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    if (!response.data) {
+      throw new Error('No rename response data received');
     }
 
     return response.data;

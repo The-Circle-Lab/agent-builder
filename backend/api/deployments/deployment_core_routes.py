@@ -718,4 +718,88 @@ async def open_deployment_endpoint(
     db.add(db_deployment)
     db.commit()
 
-    return DeploymentStateResponse(deployment_id=deployment_id, is_open=True, message="Deployment opened successfully") 
+    return DeploymentStateResponse(deployment_id=deployment_id, is_open=True, message="Deployment opened successfully")
+
+# Rename deployment
+@router.put("/{deployment_id}/rename")
+async def rename_deployment(
+    deployment_id: str,
+    request: DeploymentRenameRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    """Rename a deployment (instructors only)"""
+    # Validate new name
+    if not request.new_name or not request.new_name.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="New deployment name cannot be empty"
+        )
+    
+    new_name = request.new_name.strip()
+    if len(new_name) > 255:  # Reasonable limit for deployment names
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Deployment name cannot exceed 255 characters"
+        )
+
+    # Check if deployment exists and user can modify it (instructors only)
+    db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db, require_instructor=True)
+
+    # Update the deployment name in database
+    old_name = db_deployment.workflow_name
+    db_deployment.workflow_name = new_name
+    db_deployment.updated_at = datetime.now(timezone.utc)
+    
+    db.add(db_deployment)
+    
+    # If this is a page-based deployment (main deployment), also update all page deployment names
+    if db_deployment.is_page_based and db_deployment.parent_deployment_id is None:
+        # Update all page deployments for this main deployment
+        page_deployments = db.exec(
+            select(Deployment).where(
+                Deployment.parent_deployment_id == deployment_id,
+                Deployment.is_active == True
+            )
+        ).all()
+        
+        for page_deployment in page_deployments:
+            # Update page deployment names to match new pattern
+            page_deployment.workflow_name = f"{new_name} - Page {page_deployment.page_number}"
+            page_deployment.updated_at = datetime.now(timezone.utc)
+            db.add(page_deployment)
+    
+    db.commit()
+    
+    # Update in-memory cache if the deployment is active
+    if is_deployment_active(deployment_id):
+        try:
+            deployment_mem = get_active_deployment(deployment_id)
+            if deployment_mem:
+                deployment_mem["workflow_name"] = new_name
+                
+            # Also update page deployment names in memory if applicable
+            if db_deployment.is_page_based and db_deployment.parent_deployment_id is None:
+                page_deployments = db.exec(
+                    select(Deployment).where(
+                        Deployment.parent_deployment_id == deployment_id,
+                        Deployment.is_active == True
+                    )
+                ).all()
+                
+                for page_deployment in page_deployments:
+                    if is_deployment_active(page_deployment.deployment_id):
+                        page_mem = get_active_deployment(page_deployment.deployment_id)
+                        if page_mem:
+                            page_mem["workflow_name"] = f"{new_name} - Page {page_deployment.page_number}"
+                            
+        except Exception as e:
+            # Don't fail if memory update fails, database is the source of truth
+            print(f"Warning: Failed to update deployment name in memory cache: {e}")
+    
+    return {
+        "deployment_id": deployment_id,
+        "old_name": old_name,
+        "new_name": new_name,
+        "message": "Deployment renamed successfully"
+    } 
