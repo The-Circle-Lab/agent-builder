@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircleIcon, XCircleIcon, ArrowRightIcon, ArrowLeftIcon, LinkIcon, PencilIcon, PaperClipIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XCircleIcon, ArrowRightIcon, ArrowLeftIcon, LinkIcon, PencilIcon, PaperClipIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import { PromptSession, PromptSubmissionResponse } from '@/lib/deploymentAPIs/promptDeploymentAPI';
 import { API_CONFIG } from '@/lib/constants';
 
@@ -16,6 +16,11 @@ interface SubmissionDisplayProps {
   selectedPdfFile?: File | null;
   onPdfSelect?: (file: File | null) => void;
   pdfProgress?: { progress: number; stage?: string; state?: string };
+  // Edit functionality props
+  isEditing?: boolean;
+  onStartEdit?: () => void;
+  onCancelEdit?: () => void;
+  onSaveEdit?: () => void;
 }
 
 export default function SubmissionDisplay({
@@ -31,6 +36,10 @@ export default function SubmissionDisplay({
   selectedPdfFile,
   onPdfSelect,
   pdfProgress,
+  isEditing = false,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
 }: SubmissionDisplayProps) {
   const currentRequirement = session.submission_requirements[submissionIndex];
   const isSubmitted = !!submittedResponse;
@@ -199,94 +208,195 @@ export default function SubmissionDisplay({
       </div>
 
       {/* Show submitted response if already submitted */}
-      {isSubmitted ? (
+      {isSubmitted && !isEditing ? (
         <div className="mb-6 p-4 bg-green-50 rounded-lg border border-green-200">
-          <div className="flex items-start space-x-3">
-            <CheckCircleIcon className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
-            <div className="flex-1">
-              <h3 className="text-sm font-medium text-green-900 mb-2">Your Submitted Response:</h3>
-              {submittedIsPdfType ? (
-                (() => {
-                  const docId = submittedResponse.user_response;
-                  const viewUrl = `${API_CONFIG.BASE_URL}/api/files/view/${docId}`;
-                  return (
-                    <a
-                      href={viewUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-blue-600 hover:text-blue-800 underline break-all"
-                    >
-                      View PDF (Document #{docId})
-                    </a>
-                  );
-                })()
-              ) : submittedIsLinkType ? (
-                <a
-                  href={submittedResponse.user_response}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-600 hover:text-blue-800 underline break-all"
-                >
-                  {submittedResponse.user_response}
-                </a>
-              ) : (submittedIsListType || isListType || isDynamicListType) ? (
-                (() => {
-                  const raw = submittedResponse.user_response ?? '';
-                  let items: string[] | null = null;
-                  try {
-                    const first = JSON.parse(raw);
-                    if (Array.isArray(first)) {
-                      items = first as string[];
-                    } else if (typeof first === 'string') {
-                      try {
-                        const second = JSON.parse(first);
-                        if (Array.isArray(second)) {
-                          items = second as string[];
-                        }
-                      } catch {
-                        // ignore
-                      }
-                    }
-                  } catch {
-                    // ignore
-                  }
-
-                  // Fallback: newline-separated values
-                  if (!items) {
-                    const split = raw.split('\n').map(s => s.trim()).filter(Boolean);
-                    if (split.length > 0) items = split;
-                  }
-
-                  if (items && items.length > 0) {
+          <div className="flex items-start justify-between">
+            <div className="flex items-start space-x-3 flex-1">
+              <CheckCircleIcon className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-green-900 mb-2">Your Submitted Response:</h3>
+                {submittedIsPdfType ? (
+                  (() => {
+                    const docId = submittedResponse.user_response;
+                    const viewUrl = `${API_CONFIG.BASE_URL}/api/files/view/${docId}`;
                     return (
-                      <div className="bg-white p-3 rounded border">
-                        <div className="space-y-2">
-                          {items.map((item: string, index: number) => (
-                            <div key={index} className="flex items-start space-x-3">
-                              <span className="text-green-600 text-sm font-medium min-w-[20px]">{index + 1}.</span>
-                              <span className="text-gray-800 flex-1">{item}</span>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                      <a
+                        href={viewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-600 hover:text-blue-800 underline break-all"
+                      >
+                        View PDF (Document #{docId})
+                      </a>
                     );
-                  }
+                  })()
+                ) : submittedIsLinkType ? (
+                  <a
+                    href={submittedResponse.user_response}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-blue-600 hover:text-blue-800 underline break-all"
+                  >
+                    {submittedResponse.user_response}
+                  </a>
+                ) : (submittedIsListType || isListType || isDynamicListType) ? (
+                  (() => {
+                    const raw = submittedResponse.user_response ?? '';
+                    let items: string[] | null = null;
+                    try {
+                      const first = JSON.parse(raw);
+                      if (Array.isArray(first)) {
+                        items = first as string[];
+                      } else if (typeof first === 'string') {
+                        try {
+                          const second = JSON.parse(first);
+                          if (Array.isArray(second)) {
+                            items = second as string[];
+                          }
+                        } catch {
+                          // ignore
+                        }
+                      }
+                    } catch {
+                      // ignore
+                    }
 
-                  return (
-                    <p className="text-gray-800 whitespace-pre-wrap">
-                      {raw}
-                    </p>
-                  );
-                })()
-              ) : (
-                <p className="text-gray-800 whitespace-pre-wrap">
-                  {submittedResponse.user_response}
+                    // Fallback: newline-separated values
+                    if (!items) {
+                      const split = raw.split('\n').map(s => s.trim()).filter(Boolean);
+                      if (split.length > 0) items = split;
+                    }
+
+                    if (items && items.length > 0) {
+                      return (
+                        <div className="bg-white p-3 rounded border">
+                          <div className="space-y-2">
+                            {items.map((item: string, index: number) => (
+                              <div key={index} className="flex items-start space-x-3">
+                                <span className="text-green-600 text-sm font-medium min-w-[20px]">{index + 1}.</span>
+                                <span className="text-gray-800 flex-1">{item}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <p className="text-gray-800 whitespace-pre-wrap">
+                        {raw}
+                      </p>
+                    );
+                  })()
+                ) : (
+                  <p className="text-gray-800 whitespace-pre-wrap">
+                    {submittedResponse.user_response}
+                  </p>
+                )}
+                <p className="text-xs text-green-600 mt-2">
+                  Submitted on {new Date(submittedResponse.submitted_at).toLocaleString()}
                 </p>
-              )}
-              <p className="text-xs text-green-600 mt-2">
-                Submitted on {new Date(submittedResponse.submitted_at).toLocaleString()}
-              </p>
+              </div>
             </div>
+            {/* Edit button - only show for non-PDF submissions */}
+            {!submittedIsPdfType && onStartEdit && (
+              <button
+                onClick={onStartEdit}
+                className="ml-3 inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                <PencilIcon className="h-3 w-3 mr-1" />
+                Edit
+              </button>
+            )}
+          </div>
+        </div>
+      ) : isEditing ? (
+        /* Edit Mode */
+        <div className="mb-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-medium text-blue-900">Edit Your Response:</h3>
+            <div className="flex space-x-2">
+              <button
+                onClick={onCancelEdit}
+                className="inline-flex items-center px-3 py-1.5 border border-gray-300 shadow-sm text-xs font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+              >
+                <XMarkIcon className="h-3 w-3 mr-1" />
+                Cancel
+              </button>
+              <button
+                onClick={onSaveEdit}
+                disabled={submitting || !isSubmissionValid()}
+                className="inline-flex items-center px-3 py-1.5 border border-transparent shadow-sm text-xs font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {submitting ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+          
+          {/* Edit form content - reuse the input form logic */}
+          <div>
+            {isListType || isDynamicListType ? (
+              <div className="space-y-3">
+                {isListType && (
+                  <p className="text-sm text-gray-600">
+                    Please provide exactly {currentRequirement.items} items:
+                  </p>
+                )}
+                {isDynamicListType && (
+                  <p className="text-sm text-gray-600">
+                    Add as many items as you need (minimum 1):
+                  </p>
+                )}
+                
+                {Array.from({
+                  length: isListType ? currentRequirement.items || 1 : Math.max(1, getListItems().length)
+                }).map((_, itemIndex) => (
+                  <div key={itemIndex} className="flex items-center space-x-2">
+                    <span className="text-sm font-medium text-gray-700 min-w-[20px]">{itemIndex + 1}.</span>
+                    <input
+                      type="text"
+                      value={getListItem(itemIndex)}
+                      onChange={(e) => handleListItemChange(itemIndex, e.target.value)}
+                      placeholder={`Item ${itemIndex + 1}`}
+                      className="text-black flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                      disabled={submitting}
+                    />
+                    {isDynamicListType && getListItems().length > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => removeDynamicListItem(itemIndex)}
+                        className="p-1 text-red-600 hover:text-red-800"
+                        disabled={submitting}
+                      >
+                        <XMarkIcon className="h-4 w-4" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                
+                {isDynamicListType && (
+                  <button
+                    type="button"
+                    onClick={addDynamicListItem}
+                    className="text-sm text-blue-600 hover:text-blue-800 font-medium"
+                    disabled={submitting}
+                  >
+                    + Add another item
+                  </button>
+                )}
+              </div>
+            ) : (
+              <textarea
+                id={`edit-response-${submissionIndex}`}
+                value={submissionResponse}
+                onChange={(e) => handleInputChange(e.target.value)}
+                placeholder={isLinkType ? "Enter a valid URL (http:// or https://)" : "Enter your response..."}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                rows={4}
+                disabled={submitting}
+                ref={(el) => autoResize(el)}
+              />
+            )}
           </div>
         </div>
       ) : (

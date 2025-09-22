@@ -48,6 +48,10 @@ class PromptSubmissionRequest(BaseModel):
     submission_index: int
     response: str
 
+class PromptEditSubmissionRequest(BaseModel):
+    submission_index: int
+    response: str
+
 class PromptSubmissionResponse(BaseModel):
     submission_index: int
     prompt_text: str
@@ -608,6 +612,126 @@ async def submit_prompt_response(
         media_type=submission.media_type,
         user_response=submission.user_response,
         submitted_at=submission.submitted_at,
+        is_valid=True,
+        validation_error=None,
+    )
+
+@router.put("/{deployment_id}/prompt/edit", response_model=PromptSubmissionResponse)
+async def edit_prompt_response(
+    deployment_id: str,
+    request: PromptEditSubmissionRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    """Edit an existing prompt submission"""
+    db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db)
+    validate_deployment_type(db_deployment, DeploymentType.PROMPT)
+    check_deployment_open(db_deployment)
+
+    # Get prompt service for validation
+    deployment_mem = await ensure_deployment_loaded(deployment_id, current_user.id, db)
+    prompt_service = deployment_mem["mcp_deployment"]._prompt_service
+    
+    if not prompt_service:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Prompt service not found",
+        )
+
+    # Check if this is a question-only prompt (no submissions allowed)
+    if prompt_service.is_question_only():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This prompt does not accept submissions. It is a question-only prompt."
+        )
+
+    # Get the user's session
+    session = db.exec(
+        select(PromptSession).where(
+            PromptSession.user_id == current_user.id,
+            PromptSession.deployment_id == db_deployment.id,
+            PromptSession.is_active == True,
+        )
+    ).first()
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active prompt session found.",
+        )
+
+    # Validate submission index
+    if request.submission_index < 0 or request.submission_index >= len(session.submission_requirements):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid submission index {request.submission_index}. Must be between 0 and {len(session.submission_requirements) - 1}",
+        )
+
+    # Get the existing submission
+    existing_submission = db.exec(
+        select(PromptSubmission).where(
+            PromptSubmission.session_id == session.id,
+            PromptSubmission.submission_index == request.submission_index,
+        )
+    ).first()
+
+    if not existing_submission:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No submission found for index {request.submission_index}. Create a submission first.",
+        )
+
+    # Don't allow editing PDF submissions through this endpoint
+    if existing_submission.media_type == 'pdf':
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="PDF submissions cannot be edited through this endpoint. Please upload a new PDF.",
+        )
+
+    # Validate the new submission
+    validation_result = prompt_service.validate_submission(request.submission_index, request.response)
+    
+    if not validation_result["valid"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=validation_result["error"],
+        )
+
+    # Get submission requirement details
+    requirement = session.submission_requirements[request.submission_index]
+    
+    # For list mediaType, store a normalized JSON array string
+    user_response_value = request.response.strip()
+    if requirement.get("mediaType") == "list":
+        import json
+        raw = request.response.strip()
+        parsed = False
+        if raw.startswith('[') and raw.endswith(']'):
+            try:
+                data = json.loads(raw)
+                if isinstance(data, list):
+                    entries = [str(x).strip() for x in data if str(x).strip()]
+                    parsed = True
+            except Exception:
+                parsed = False
+        if not parsed:
+            entries = [line.strip() for line in raw.splitlines() if line.strip()]
+        user_response_value = json.dumps(entries)
+
+    # Update the existing submission
+    existing_submission.user_response = user_response_value
+    existing_submission.submitted_at = datetime.now(timezone.utc)  # Update timestamp
+    
+    db.add(existing_submission)
+    db.commit()
+    db.refresh(existing_submission)
+    
+    return PromptSubmissionResponse(
+        submission_index=existing_submission.submission_index,
+        prompt_text=existing_submission.prompt_text,
+        media_type=existing_submission.media_type,
+        user_response=existing_submission.user_response,
+        submitted_at=existing_submission.submitted_at,
         is_valid=True,
         validation_error=None,
     )
