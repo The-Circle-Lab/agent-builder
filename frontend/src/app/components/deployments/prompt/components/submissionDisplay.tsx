@@ -353,13 +353,14 @@ export default function SubmissionDisplay({
                 }).map((_, itemIndex) => (
                   <div key={itemIndex} className="flex items-center space-x-2">
                     <span className="text-sm font-medium text-gray-700 min-w-[20px]">{itemIndex + 1}.</span>
-                    <input
-                      type="text"
+                    <textarea
                       value={getListItem(itemIndex)}
-                      onChange={(e) => handleListItemChange(itemIndex, e.target.value)}
+                      onChange={(e) => { autoResize(e.target); handleListItemChange(itemIndex, e.target.value); }}
                       placeholder={`Item ${itemIndex + 1}`}
-                      className="text-black flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                      rows={1}
+                      className="text-black flex-1 px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none overflow-hidden"
                       disabled={submitting}
+                      ref={(el) => autoResize(el)}
                     />
                     {isDynamicListType && getListItems().length > 1 && (
                       <button

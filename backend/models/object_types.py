@@ -45,6 +45,9 @@ class DeploymentRequest(BaseModel):
     type: DeploymentType = DeploymentType.CHAT
     grade: Optional[Tuple[int, int]] = None
 
+class DeploymentRenameRequest(BaseModel):
+    new_name: str
+
 class DeploymentResponse(BaseModel):
     deployment_id: str
     chat_url: str
