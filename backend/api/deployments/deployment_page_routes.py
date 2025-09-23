@@ -18,6 +18,7 @@ from services.pages_manager import (
     get_deployment_due_date
 )
 from services.celery_tasks import execute_behavior_task, check_task_status
+from services.group_member_service import GroupMemberService
 
 router = APIRouter()
 
@@ -1616,3 +1617,209 @@ async def get_deployment_due_date_route(
         is_overdue=is_overdue,
         days_until_due=days_until_due
     )
+
+
+# =============================================================================
+# GROUP MEMBER MANAGEMENT ROUTES
+# =============================================================================
+
+class AddGroupMemberRequest(BaseModel):
+    assignment_id: int = Field(..., description="The group assignment ID")
+    student_name: str = Field(..., description="Student name/email to add")
+    student_text: Optional[str] = Field(None, description="Student's submission text")
+    target_group_id: Optional[int] = Field(None, description="Specific group ID, or None to auto-assign")
+
+class AddGroupMemberResponse(BaseModel):
+    success: bool
+    group_id: Optional[int] = None
+    group_name: Optional[str] = None
+    new_member_count: Optional[int] = None
+    message: Optional[str] = None
+    error: Optional[str] = None
+
+class AvailableStudentsResponse(BaseModel):
+    students: List[Dict[str, Any]]
+    total_count: int
+
+@router.post("/{deployment_id}/group-assignments/{assignment_id}/add-member", response_model=AddGroupMemberResponse)
+async def add_member_to_group(
+    deployment_id: str,
+    assignment_id: int,
+    request: AddGroupMemberRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """Add a student to an existing group in a group assignment."""
+    # Validate deployment access
+    db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db)
+    
+    if not db_deployment.is_page_based:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This deployment is not page-based"
+        )
+    
+    try:
+        result = GroupMemberService.add_member_to_group(
+            assignment_id=request.assignment_id,
+            student_name=request.student_name,
+            student_text=request.student_text,
+            target_group_id=request.target_group_id,
+            db_session=db
+        )
+        
+        if result["success"]:
+            return AddGroupMemberResponse(
+                success=True,
+                group_id=result.get("group_id"),
+                group_name=result.get("group_name"),
+                new_member_count=result.get("new_member_count"),
+                message=result.get("message")
+            )
+        else:
+            return AddGroupMemberResponse(
+                success=False,
+                error=result.get("error")
+            )
+            
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(e)
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add member to group: {str(e)}"
+        )
+
+@router.get("/{deployment_id}/group-assignments/{assignment_id}/available-students", response_model=AvailableStudentsResponse)
+async def get_available_students(
+    deployment_id: str,
+    assignment_id: int,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """Get students who are not currently assigned to any group in this assignment."""
+    print(f"DEBUG: Getting available students for deployment {deployment_id}, assignment {assignment_id}")
+    
+    # Validate deployment access
+    db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db)
+    
+    if not db_deployment.is_page_based:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This deployment is not page-based"
+        )
+    
+    try:
+        # Get all currently assigned students
+        from sqlmodel import select
+        from models.database.grouping_models import GroupAssignment, Group, GroupMember
+        
+        # Get the assignment to validate it exists
+        assignment = db.get(GroupAssignment, assignment_id)
+        if not assignment:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Assignment with ID {assignment_id} not found"
+            )
+        
+        print(f"DEBUG: Found assignment {assignment_id} for deployment {deployment_id}")
+        
+        # Get all currently assigned students
+        stmt = (
+            select(GroupMember.student_name)
+            .join(Group)
+            .where(Group.assignment_id == assignment_id)
+            .where(GroupMember.is_active == True)
+            .where(Group.is_active == True)
+        )
+        assigned_students = set(db.exec(stmt).all())
+        print(f"DEBUG: Found {len(assigned_students)} assigned students: {assigned_students}")
+        
+        # Get all students from the class membership instead of prompt sessions
+        # First, get the deployment to find its class_id
+        from models.database.user_models import User as UserModel
+        from models.database.deployment_models import Deployment
+        from models.database.class_models import ClassMembership
+        from models.enums import ClassRole
+        
+        # Get the deployment to find its class_id
+        deployment_stmt = select(Deployment.class_id).where(Deployment.deployment_id == deployment_id)
+        class_id = db.exec(deployment_stmt).first()
+        
+        if not class_id:
+            print(f"DEBUG: No deployment found with deployment_id {deployment_id}")
+            return AvailableStudentsResponse(students=[], total_count=0)
+        
+        print(f"DEBUG: Found class_id {class_id} for deployment {deployment_id}")
+        
+        # Get all students (not instructors) from the class
+        student_stmt = (
+            select(UserModel.email)
+            .join(ClassMembership, UserModel.id == ClassMembership.user_id)
+            .where(ClassMembership.class_id == class_id)
+            .where(ClassMembership.role == ClassRole.STUDENT)
+            .where(ClassMembership.is_active == True)
+            .distinct()
+        )
+        all_students = db.exec(student_stmt).all()
+        print(f"DEBUG: Found {len(all_students)} total students: {all_students}")
+        
+        # Filter out already assigned students
+        available_students = [
+            {"student_name": student_email, "student_text": ""}
+            for student_email in all_students
+            if student_email not in assigned_students
+        ]
+        
+        print(f"DEBUG: Available students after filtering: {len(available_students)}")
+        
+        return AvailableStudentsResponse(
+            students=available_students,
+            total_count=len(available_students)
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"ERROR: Exception in get_available_students: {str(e)}")
+        print(f"ERROR: Exception type: {type(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get available students: {str(e)}"
+        )
+
+@router.delete("/{deployment_id}/group-members/{member_id}")
+async def remove_member_from_group(
+    deployment_id: str,
+    member_id: int,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """Remove a student from a group."""
+    # Validate deployment access
+    db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db)
+    
+    if not db_deployment.is_page_based:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This deployment is not page-based"
+        )
+    
+    try:
+        result = GroupMemberService.remove_member_from_group(member_id, db)
+        
+        if result["success"]:
+            return {"success": True, "message": result.get("message")}
+        else:
+            return {"success": False, "error": result.get("error")}
+            
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to remove member from group: {str(e)}"
+        )
