@@ -47,6 +47,7 @@ interface GroupMemberInfo {
 }
 
 interface GroupInfo {
+  group_id?: number;  // Add group_id for backend operations
   group_name: string;
   group_number: number;
   explanation?: string;
@@ -173,6 +174,22 @@ interface PageDeploymentAdminProps {
   deploymentId: string;
   deploymentName: string;
   onBack: () => void;
+}
+
+interface AvailableStudent {
+  student_name: string;
+  student_text: string;
+}
+
+interface AddMemberModalState {
+  isOpen: boolean;
+  assignmentId: number | null;
+  groupId: number | null;
+  groupName: string;
+  availableStudents: AvailableStudent[];
+  selectedStudent: string;
+  loading: boolean;
+  error: string | null;
 }
 
 // =============================================================================
@@ -437,6 +454,18 @@ export default function PageDeploymentAdmin({
     pageNumber: number;
   } | null>(null);
 
+  // Add member modal state
+  const [addMemberModal, setAddMemberModal] = useState<AddMemberModalState>({
+    isOpen: false,
+    assignmentId: null,
+    groupId: null,
+    groupName: '',
+    availableStudents: [],
+    selectedStudent: '',
+    loading: false,
+    error: null
+  });
+
   // Fetch analytics data
   const fetchAnalytics = async () => {
     try {
@@ -515,6 +544,115 @@ export default function PageDeploymentAdmin({
       }
     } catch (error) {
       console.error('Error fetching theme assignments:', error);
+    }
+  };
+
+  // Add member functions
+  const openAddMemberModal = async (assignmentId: number, groupId: number, groupName: string) => {
+    setAddMemberModal(prev => ({
+      ...prev,
+      isOpen: true,
+      assignmentId,
+      groupId,
+      groupName,
+      loading: true,
+      error: null,
+      selectedStudent: ''
+    }));
+
+    try {
+      const response = await fetch(
+        `${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/group-assignments/${assignmentId}/available-students`,
+        { credentials: 'include' }
+      );
+
+      if (response.ok) {
+        const data = await response.json();
+        setAddMemberModal(prev => ({
+          ...prev,
+          availableStudents: data.students,
+          loading: false
+        }));
+      } else {
+        setAddMemberModal(prev => ({
+          ...prev,
+          loading: false,
+          error: 'Failed to fetch available students'
+        }));
+      }
+    } catch (error) {
+      console.error('Error fetching available students:', error);
+      setAddMemberModal(prev => ({
+        ...prev,
+        loading: false,
+        error: 'Error fetching available students'
+      }));
+    }
+  };
+
+  const closeAddMemberModal = () => {
+    setAddMemberModal({
+      isOpen: false,
+      assignmentId: null,
+      groupId: null,
+      groupName: '',
+      availableStudents: [],
+      selectedStudent: '',
+      loading: false,
+      error: null
+    });
+  };
+
+  const handleAddMember = async () => {
+    if (!addMemberModal.selectedStudent || !addMemberModal.assignmentId) {
+      return;
+    }
+
+    setAddMemberModal(prev => ({ ...prev, loading: true, error: null }));
+
+    try {
+      const response = await fetch(
+        `${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/group-assignments/${addMemberModal.assignmentId}/add-member`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            assignment_id: addMemberModal.assignmentId,
+            student_name: addMemberModal.selectedStudent,
+            student_text: '',
+            target_group_id: addMemberModal.groupId
+          })
+        }
+      );
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          // Refresh group assignments to show the new member
+          await fetchGroupAssignments();
+          closeAddMemberModal();
+        } else {
+          setAddMemberModal(prev => ({
+            ...prev,
+            loading: false,
+            error: result.error || 'Failed to add member'
+          }));
+        }
+      } else {
+        setAddMemberModal(prev => ({
+          ...prev,
+          loading: false,
+          error: 'Failed to add member to group'
+        }));
+      }
+    } catch (error) {
+      console.error('Error adding member to group:', error);
+      setAddMemberModal(prev => ({
+        ...prev,
+        loading: false,
+        error: 'Error adding member to group'
+      }));
     }
   };
 
@@ -1951,7 +2089,15 @@ export default function PageDeploymentAdmin({
                             
                             {/* Group Members */}
                             <div>
-                              <p className="text-xs font-medium text-gray-700 mb-2">Members:</p>
+                              <div className="flex items-center justify-between mb-2">
+                                <p className="text-xs font-medium text-gray-700">Members:</p>
+                                <button
+                                  onClick={() => openAddMemberModal(assignment.assignment_id, group.group_id || 0, group.group_name)}
+                                  className="text-xs bg-indigo-600 hover:bg-indigo-700 text-white px-2 py-1 rounded transition-colors"
+                                >
+                                  + Add
+                                </button>
+                              </div>
                               <div className="space-y-2">
                                 {group.members.map((member, memberIndex) => (
                                   <div key={memberIndex} className="text-xs text-gray-600">
@@ -2168,6 +2314,77 @@ export default function PageDeploymentAdmin({
                 {isRenaming ? 'Renaming...' : 'Rename'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Member Modal */}
+      {addMemberModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900">Add Member to {addMemberModal.groupName}</h3>
+              <button
+                onClick={closeAddMemberModal}
+                className="text-gray-400 hover:text-gray-600"
+                disabled={addMemberModal.loading}
+              >
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+            
+            {addMemberModal.loading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                <span className="ml-2 text-gray-600">Loading available students...</span>
+              </div>
+            ) : (
+              <>
+                <div className="mb-4">
+                  <label htmlFor="student-select" className="block text-sm font-medium text-gray-700 mb-2">
+                    Select Student
+                  </label>
+                  {addMemberModal.availableStudents.length > 0 ? (
+                    <select
+                      id="student-select"
+                      value={addMemberModal.selectedStudent}
+                      onChange={(e) => setAddMemberModal(prev => ({ ...prev, selectedStudent: e.target.value }))}
+                      className="text-black w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                      disabled={addMemberModal.loading}
+                    >
+                      <option value="">Choose a student...</option>
+                      {addMemberModal.availableStudents.map((student) => (
+                        <option key={student.student_name} value={student.student_name}>
+                          {student.student_name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <p className="text-sm text-gray-500 py-2">No available students to add to this group.</p>
+                  )}
+                  {addMemberModal.error && (
+                    <p className="mt-2 text-sm text-red-600">{addMemberModal.error}</p>
+                  )}
+                </div>
+                
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={closeAddMemberModal}
+                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md"
+                    disabled={addMemberModal.loading}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleAddMember}
+                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={addMemberModal.loading || !addMemberModal.selectedStudent || addMemberModal.availableStudents.length === 0}
+                  >
+                    {addMemberModal.loading ? 'Adding...' : 'Add Member'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
