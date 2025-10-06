@@ -1867,34 +1867,64 @@ export default function PageDeploymentAdmin({
                                         ) : submission.media_type === 'websiteInfo' ? (
                                           (() => {
                                             try {
-                                              const info = JSON.parse(submission.user_response);
-                                              return (
-                                                <div className="bg-gray-50 p-3 rounded space-y-2">
-                                                  <div>
-                                                    <span className="text-xs font-medium text-gray-600">URL:</span>
-                                                    <a
-                                                      href={info.url}
-                                                      target="_blank"
-                                                      rel="noopener noreferrer"
-                                                      className="ml-2 text-blue-600 hover:text-blue-800 underline break-all text-sm"
-                                                    >
-                                                      {info.url}
-                                                    </a>
+                                              const parsed = JSON.parse(submission.user_response);
+                                              let websiteDataList: Array<{ url?: string; name?: string; purpose?: string; platform?: string }> = [];
+                                              
+                                              if (Array.isArray(parsed)) {
+                                                websiteDataList = parsed;
+                                              } else if (typeof parsed === 'object' && parsed !== null) {
+                                                // Legacy support: single object converted to array
+                                                websiteDataList = [parsed];
+                                              }
+                                              
+                                              if (websiteDataList.length > 0) {
+                                                return (
+                                                  <div className="space-y-3">
+                                                    {websiteDataList.map((info, idx) => (
+                                                      <div key={idx} className="bg-gray-50 p-3 rounded space-y-2 border border-gray-200">
+                                                        {websiteDataList.length > 1 && (
+                                                          <div className="pb-2 border-b border-gray-300">
+                                                            <span className="text-xs font-semibold text-gray-700">Website #{idx + 1}</span>
+                                                          </div>
+                                                        )}
+                                                        {info.name && (
+                                                          <div>
+                                                            <span className="text-xs font-medium text-gray-600">Name:</span>
+                                                            <span className="ml-2 text-gray-800 text-sm font-semibold">{info.name}</span>
+                                                          </div>
+                                                        )}
+                                                        {info.url && (
+                                                          <div>
+                                                            <span className="text-xs font-medium text-gray-600">URL:</span>
+                                                            <a
+                                                              href={info.url}
+                                                              target="_blank"
+                                                              rel="noopener noreferrer"
+                                                              className="ml-2 text-blue-600 hover:text-blue-800 underline break-all text-sm"
+                                                            >
+                                                              {info.url}
+                                                            </a>
+                                                          </div>
+                                                        )}
+                                                        {info.purpose && (
+                                                          <div>
+                                                            <span className="text-xs font-medium text-gray-600 block mb-1">Purpose:</span>
+                                                            <p className="text-gray-800 text-sm whitespace-pre-wrap pl-2">{info.purpose}</p>
+                                                          </div>
+                                                        )}
+                                                        {info.platform && (
+                                                          <div>
+                                                            <span className="text-xs font-medium text-gray-600 block mb-1">Platform:</span>
+                                                            <p className="text-gray-800 text-sm whitespace-pre-wrap pl-2">{info.platform}</p>
+                                                          </div>
+                                                        )}
+                                                      </div>
+                                                    ))}
                                                   </div>
-                                                  <div>
-                                                    <span className="text-xs font-medium text-gray-600">Name:</span>
-                                                    <span className="ml-2 text-gray-800 text-sm">{info.name}</span>
-                                                  </div>
-                                                  <div>
-                                                    <span className="text-xs font-medium text-gray-600 block mb-1">Purpose:</span>
-                                                    <p className="text-gray-800 text-sm whitespace-pre-wrap pl-2">{info.purpose}</p>
-                                                  </div>
-                                                  <div>
-                                                    <span className="text-xs font-medium text-gray-600 block mb-1">Platform:</span>
-                                                    <p className="text-gray-800 text-sm whitespace-pre-wrap pl-2">{info.platform}</p>
-                                                  </div>
-                                                </div>
-                                              );
+                                                );
+                                              }
+                                              
+                                              return <p className="text-gray-800">{submission.user_response}</p>;
                                             } catch {
                                               return <p className="text-gray-800">{submission.user_response}</p>;
                                             }
