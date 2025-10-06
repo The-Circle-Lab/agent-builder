@@ -26,6 +26,9 @@ class LivePresentationSession(SQLModel, table=True):
     # Saved prompts configuration
     saved_prompts: List[Dict[str, Any]] = Field(default=[], sa_column=Column(JSON))
     
+    # Navigation state for group submission navigation
+    navigation_state: Dict[str, Any] | None = Field(default=None, sa_column=Column(JSON))
+    
     # Metadata
     created_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
     updated_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
@@ -119,6 +122,14 @@ class LivePresentationPrompt(SQLModel, table=True):
     input_placeholder: str = Field(default="")
     use_random_list_item: bool = Field(default=False)
     list_variable_id: str | None = None
+    
+    # Group submission navigation fields
+    enable_group_submission_navigation: bool = Field(default=False)
+    submission_prompt_id: str | None = None
+    allow_editing: bool = Field(default=False)
+    current_submission_index: int = Field(default=0)
+    total_submissions: int = Field(default=0)
+    current_student_name: str | None = None
     
     # Prompt metadata
     sent_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))

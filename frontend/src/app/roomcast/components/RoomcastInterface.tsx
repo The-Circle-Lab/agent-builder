@@ -14,8 +14,12 @@ import {
   RoomcastConnectedMessage, 
   RoomcastRegisteredMessage, 
   RoomcastPromptMessage,
+  RoomcastNavigationPromptMessage,
+  RoomcastNavigationUpdateMessage,
+  RoomcastSubmissionUpdatedMessage,
   RoomcastGroupInfoMessage,
   LivePresentationPrompt,
+  NavigationSubmissionPayload,
   StudentResponseReceivedMessage,
   GroupSummaryMessage,
   TimerStartedMessage,
@@ -60,6 +64,25 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
   const lastServerRemainingRef = useRef<number>(0);
   const [wsRef, setWsRef] = useState<WebSocket | null>(null);
   const debug = (...args: unknown[]) => console.log('[Roomcast]', ...args);
+
+  const normalizeNavigationSubmission = (
+    payload?: NavigationSubmissionPayload | LivePresentationPrompt['currentSubmission'] | Record<string, unknown> | null
+  ): LivePresentationPrompt['currentSubmission'] | undefined => {
+    if (!payload) {
+      return undefined;
+    }
+
+    const submissionSource =
+      typeof payload === 'object' && payload !== null && 'submission' in payload
+        ? (payload as NavigationSubmissionPayload).submission
+        : payload;
+
+    if (submissionSource && typeof submissionSource === 'object') {
+      return { ...(submissionSource as Record<string, unknown>) };
+    }
+
+    return undefined;
+  };
 
   // Fetch code info
   useEffect(() => {
@@ -125,6 +148,98 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           setGroupMembers([]);
         }
         break;
+      case 'roomcast_navigation_prompt':
+        {
+          // Handle navigation prompt - shows one submission at a time
+          const navMsg = msg as unknown as RoomcastNavigationPromptMessage;
+          debug('roomcast_navigation_prompt', navMsg);
+
+          const normalizedPrompt = navMsg.prompt
+            ? {
+                ...navMsg.prompt,
+                currentSubmission: normalizeNavigationSubmission(navMsg.prompt.currentSubmission)
+              }
+            : null;
+
+          if (normalizedPrompt) {
+            delete (normalizedPrompt as Record<string, unknown>).group_submission_responses;
+            delete (normalizedPrompt as Record<string, unknown>).groupSubmissions;
+          }
+
+          setCurrentPrompt(normalizedPrompt || null);
+          setCurrentPromptWithResponses(null);
+          setResponsesByStudent({});
+          setGroupMembers([]);
+          setGroupSummary(null);
+          setSummaryGenerating(false);
+        }
+        break;
+
+      case 'roomcast_navigation_update':
+        {
+          const updateMsg = msg as unknown as RoomcastNavigationUpdateMessage;
+          debug('roomcast_navigation_update', updateMsg);
+
+          setCurrentPrompt(prev => {
+            if (!prev) {
+              return prev;
+            }
+
+            const normalizedSubmission = normalizeNavigationSubmission(updateMsg.currentSubmission ?? undefined);
+
+            return {
+              ...prev,
+              currentSubmissionIndex:
+                typeof updateMsg.currentIndex === 'number' ? updateMsg.currentIndex : prev.currentSubmissionIndex,
+              currentStudentName: updateMsg.currentSubmission?.studentName ?? prev.currentStudentName,
+              currentSubmission: normalizedSubmission ?? prev.currentSubmission
+            };
+          });
+        }
+        break;
+
+      case 'roomcast_submission_updated':
+        {
+          const updatedMsg = msg as unknown as RoomcastSubmissionUpdatedMessage;
+          debug('roomcast_submission_updated', updatedMsg);
+
+          setCurrentPrompt(prev => {
+            if (!prev) {
+              return prev;
+            }
+
+            if ((prev.currentSubmissionIndex ?? 0) !== updatedMsg.submissionIndex) {
+              return prev;
+            }
+
+            const current = prev.currentSubmission;
+            if (current && typeof current === 'object') {
+              if ('type' in current && current.type === 'websiteInfo') {
+                return {
+                  ...prev,
+                  currentSubmission: {
+                    ...current,
+                    data: {
+                      ...(current.data as Record<string, unknown> ?? {}),
+                      ...updatedMsg.updatedData
+                    }
+                  }
+                };
+              }
+
+              return {
+                ...prev,
+                currentSubmission: {
+                  ...current,
+                  ...updatedMsg.updatedData
+                }
+              };
+            }
+
+            return prev;
+          });
+        }
+        break;
       case 'roomcast_prompt':
         {
           const promptMsg = msg as unknown as RoomcastPromptMessage;
@@ -133,10 +248,41 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           // Always clear old responses first when any new prompt arrives
           setCurrentPromptWithResponses(null);
           
+          // Clear and reinitialize response tracking for the new prompt
+          // This ensures we start fresh and don't show stale data from previous prompts
+          const newResponsesByStudent: Record<string, { response?: string; timestamp?: string }> = {};
+          
+          // If this prompt includes group_submission_responses (past responses from DB),
+          // initialize the response tracking from that data
+          if (promptMsg.prompt?.group_submission_responses) {
+            Object.keys(promptMsg.prompt.group_submission_responses).forEach(studentName => {
+              // Mark these students as having submitted (from historical data)
+              newResponsesByStudent[studentName] = { 
+                response: 'submitted', // Use a marker to indicate they have responses
+                timestamp: new Date().toISOString() 
+              };
+            });
+            debug('Initialized response tracking from group_submission_responses', Object.keys(newResponsesByStudent));
+          }
+          
+          // If prompt includes live_response_state, use that to show current submissions
+          if (promptMsg.prompt && typeof promptMsg.prompt === 'object' && 'live_response_state' in promptMsg.prompt) {
+            const liveState = (promptMsg.prompt as unknown as { live_response_state?: Record<string, { response?: string; timestamp?: string }> }).live_response_state;
+            if (liveState) {
+              Object.entries(liveState).forEach(([studentName, responseData]) => {
+                newResponsesByStudent[studentName] = responseData;
+              });
+              debug('Updated response tracking from live_response_state', Object.keys(liveState));
+            }
+          }
+          
+          setResponsesByStudent(newResponsesByStudent);
+          
           // Store the base prompt without responses
           const basePrompt = promptMsg.prompt ? { ...promptMsg.prompt } : null;
           if (basePrompt && typeof basePrompt === 'object') {
             delete (basePrompt as LivePresentationPrompt).group_submission_responses;
+            delete (basePrompt as unknown as { live_response_state?: unknown }).live_response_state;
           }
           
           setCurrentPrompt(basePrompt);
@@ -148,6 +294,10 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           
           // Clear previous group info when new prompt arrives
           setGroupMembers([]);
+          // Clear summary state for new prompt
+          setGroupSummary(null);
+          setSummaryGenerating(false);
+          
           // If timer already hit 0, remove timer instance on new display content
           if (timerRemainingSeconds === 0) {
             debug('roomcast_prompt: clearing expired timer before displaying new content');
@@ -165,10 +315,14 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           debug('roomcast_group_info', groupInfoMsg);
           setGroupMembers(groupInfoMsg.members);
           setGroupExplanation(groupInfoMsg.explanation || null);
-          // Reset progress map for any new members not seen yet
+          // Add any new members to progress map while preserving existing response data
           setResponsesByStudent(prev => {
             const next: Record<string, { response?: string; timestamp?: string }> = { ...prev };
-            groupInfoMsg.members.forEach(m => { if (!next[m]) next[m] = {}; });
+            groupInfoMsg.members.forEach(m => { 
+              if (!next[m]) {
+                next[m] = {}; // Initialize new members with empty state
+              }
+            });
             return next;
           });
         }
@@ -641,6 +795,85 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
                 {displayPrompt.statement}
               </div>
               
+              {/* Navigation Display - Show current submission for navigation prompts */}
+              {displayPrompt.enableGroupSubmissionNavigation && displayPrompt.currentSubmission && (
+                (() => {
+                  const currentSubmission = displayPrompt.currentSubmission;
+                  const submissionData = (() => {
+                    if (!currentSubmission) return undefined;
+                    if (
+                      currentSubmission.type === 'websiteInfo' &&
+                      currentSubmission.data &&
+                      typeof currentSubmission.data === 'object'
+                    ) {
+                      return currentSubmission.data as Record<string, unknown>;
+                    }
+                    return currentSubmission as Record<string, unknown>;
+                  })();
+
+                  const getString = (value: unknown): string | undefined =>
+                    typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+
+                  const websiteName = submissionData ? getString(submissionData['name']) : undefined;
+                  const websiteUrl = submissionData ? getString(submissionData['url']) : undefined;
+                  const websitePurpose = submissionData ? getString(submissionData['purpose']) : undefined;
+                  const websitePlatform = submissionData ? getString(submissionData['platform']) : undefined;
+
+                  return (
+                    <div className="mt-6 p-6 bg-indigo-50 border-2 border-indigo-200 rounded-lg">
+                      <div className="flex justify-between items-center mb-4">
+                        <h3 className="text-xl font-semibold text-indigo-900">
+                          {displayPrompt.currentStudentName}&apos;s Submission
+                        </h3>
+                        <span className="text-sm text-indigo-600 font-medium">
+                          {(displayPrompt.currentSubmissionIndex ?? 0) + 1} of {displayPrompt.totalSubmissions ?? 0}
+                        </span>
+                      </div>
+
+                      {websiteUrl || websiteName || websitePurpose || websitePlatform ? (
+                        <div className="space-y-4">
+                          {websiteName && (
+                            <div>
+                              <span className="text-sm font-medium text-gray-600">Website Name:</span>
+                              <p className="text-2xl font-bold text-gray-900 mt-1">{websiteName}</p>
+                            </div>
+                          )}
+                          {websiteUrl && (
+                            <div>
+                              <span className="text-sm font-medium text-gray-600">URL:</span>
+                              <a
+                                href={websiteUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xl text-blue-600 hover:underline block mt-1 break-all"
+                              >
+                                {websiteUrl}
+                              </a>
+                            </div>
+                          )}
+                          {websitePurpose && (
+                            <div>
+                              <span className="text-sm font-medium text-gray-600">Purpose:</span>
+                              <p className="text-lg text-gray-800 mt-1">{websitePurpose}</p>
+                            </div>
+                          )}
+                          {websitePlatform && (
+                            <div>
+                              <span className="text-sm font-medium text-gray-600">Platform:</span>
+                              <p className="text-gray-700 mt-1">{websitePlatform}</p>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="text-center text-gray-600">
+                          <p>No submission data available yet.</p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()
+              )}
+              
               {!!displayPrompt.assigned_list_item && (
                 <div className="mt-6 p-4 bg-blue-50 rounded-lg border border-blue-200">
                   <h3 className="font-semibold text-blue-900 mb-2">Your Group&apos;s Topic:</h3>
@@ -651,7 +884,7 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
               )}
 
               {/* Group Submission Responses */}
-              {displayPrompt?.group_submission_responses && Object.keys(displayPrompt.group_submission_responses).length > 0 && (
+              {!displayPrompt.enableGroupSubmissionNavigation && displayPrompt?.group_submission_responses && Object.keys(displayPrompt.group_submission_responses).length > 0 && (
                 <div className="mt-6 px-4 py-2 bg-amber-50 rounded-lg border border-amber-200">
                   <h3 className="font-semibold text-amber-900 mb-4 text-center">Your Group&apos;s Responses</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -1669,6 +1669,79 @@ async def add_member_to_group(
         )
         
         if result["success"]:
+            # CRITICAL: Refresh live presentation group data after adding member
+            # This ensures roomcast displays and student assignments are updated immediately
+            print(f"✅ Group member added successfully - FORCE REFRESHING all cached data for {deployment_id}")
+            
+            # Note: GroupMemberService.add_member_to_group() already commits the transaction internally
+            # We don't need to commit again here, just refresh the cached data
+            
+            try:
+                # Load the page deployment to trigger variable refresh
+                page_deployment_data = get_active_page_deployment(deployment_id)
+                if page_deployment_data:
+                    print(f"🔄 Found active page deployment - FORCE RESTORING variables from database")
+                    
+                    # Extract the actual PageDeployment object from the dictionary
+                    page_deployment = page_deployment_data.get("page_deployment")
+                    page_count = page_deployment_data.get("page_count", 0)
+                    
+                    if page_deployment:
+                        # CRITICAL: Force restore variables from database (this will reload group assignments)
+                        if hasattr(page_deployment, '_restore_variables_from_database'):
+                            page_deployment._restore_variables_from_database()
+                            print(f"✅ Page deployment variables FORCE RESTORED from database")
+                            
+                            # Verify the variable was actually updated
+                            from services.page_service import VariableType
+                            group_vars = [v for v in page_deployment.get_deployment_variables() if v.variable_type == VariableType.GROUP]
+                            if group_vars:
+                                print(f"🔍 Verification: Found {len(group_vars)} GROUP variables after restore")
+                                for gv in group_vars:
+                                    print(f"🔍 Verification: Variable '{gv.name}' has data: {not gv.is_empty()}, type: {type(gv.variable_value)}")
+                                    if gv.variable_value and isinstance(gv.variable_value, dict):
+                                        print(f"🔍 Verification: Variable '{gv.name}' groups: {list(gv.variable_value.keys())}")
+                    
+                        # Now refresh all live presentations with the updated data
+                        for page_num in range(1, page_count + 1):
+                            page_dep_id = f"{deployment_id}_page_{page_num}"
+                            from services.deployment_manager import ACTIVE_DEPLOYMENTS
+                            from services.deployment_types.live_presentation import LivePresentationDeployment
+                            
+                            if page_dep_id in ACTIVE_DEPLOYMENTS:
+                                deployment = ACTIVE_DEPLOYMENTS[page_dep_id]
+                                if hasattr(deployment, 'mcp_deployment') and isinstance(deployment['mcp_deployment'], LivePresentationDeployment):
+                                    live_pres = deployment['mcp_deployment']
+                                    print(f"🔄 FORCE REFRESHING live presentation group data for page {page_num}")
+                                    
+                                    # Force refresh with direct database read (bypasses all caches)
+                                    live_pres.refresh_group_variable_data()
+                                    
+                                    # Verify the data was updated
+                                    if live_pres.input_variable_data:
+                                        print(f"✅ Live presentation data updated: {len(live_pres.input_variable_data) if isinstance(live_pres.input_variable_data, dict) else 'N/A'} groups")
+                                        if isinstance(live_pres.input_variable_data, dict):
+                                            print(f"✅ Groups: {list(live_pres.input_variable_data.keys())}")
+                                            
+                                            # Resync all roomcast devices to show updated member lists
+                                            print(f"🔄 Resyncing roomcast devices for all groups...")
+                                            import asyncio
+                                            for group_name in live_pres.input_variable_data.keys():
+                                                try:
+                                                    asyncio.create_task(live_pres._resync_roomcast_device_state(group_name))
+                                                    print(f"✅ Triggered resync for {group_name}")
+                                                except Exception as resync_err:
+                                                    print(f"⚠️ Error resyncing {group_name}: {resync_err}")
+                                    else:
+                                        print(f"⚠️ WARNING: Live presentation input_variable_data is still None after refresh!")
+                else:
+                    print(f"⚠️ No active page deployment found for {deployment_id}")
+            except Exception as refresh_error:
+                # Log the error but don't fail the entire operation - member was already added successfully
+                print(f"⚠️ Error during cache refresh (member was added successfully): {refresh_error}")
+                import traceback
+                traceback.print_exc()
+            
             return AddGroupMemberResponse(
                 success=True,
                 group_id=result.get("group_id"),

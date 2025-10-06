@@ -5,6 +5,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
 import os
+import json
 
 # Suppress HuggingFace tokenizer parallelism warnings in concurrent environments
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -390,6 +391,7 @@ class GroupAssignmentBehavior:
                             normalized_var_type = (
                                 'list' if variable_type == 'dynamic_list' else
                                 'text' if variable_type == 'textarea' else
+                                'websiteInfo' if variable_type == 'websiteinfo' else
                                 variable_type
                             )
                             
@@ -410,6 +412,9 @@ class GroupAssignmentBehavior:
                                 # Cross-match text and hyperlink selection (treat both as textual content)
                                 elif normalized_var_type in ('text', 'hyperlink') and media_type in ('text', 'hyperlink'):
                                     type_match = True
+                                # Cross-match websiteInfo variations
+                                elif normalized_var_type == 'websiteInfo' and media_type == 'websiteInfo':
+                                    type_match = True
 
                                 if type_match:
                                     filtered_responses[submission_key] = response
@@ -426,6 +431,26 @@ class GroupAssignmentBehavior:
                                             if list_text:
                                                 selected_texts.append(list_text)
                                                 print(f"      ✅ Added {media_type} items text: {list_text[:50]}...")
+                                    elif media_type == 'websiteInfo':
+                                        try:
+                                            # Parse websiteInfo JSON and extract text fields
+                                            website_data = json.loads(response.get('response', '{}'))
+                                            website_parts = []
+                                            
+                                            # Extract and combine all text fields
+                                            if website_data.get('name'):
+                                                website_parts.append(f"Website: {website_data['name']}")
+                                            if website_data.get('purpose'):
+                                                website_parts.append(f"Purpose: {website_data['purpose']}")
+                                            if website_data.get('platform'):
+                                                website_parts.append(f"Platform: {website_data['platform']}")
+                                            
+                                            if website_parts:
+                                                website_text = ' | '.join(website_parts)
+                                                selected_texts.append(website_text)
+                                                print(f"      ✅ Added websiteInfo text: {website_text[:80]}...")
+                                        except (json.JSONDecodeError, TypeError) as e:
+                                            print(f"      ❌ Error parsing websiteInfo JSON: {e}")
                                     elif media_type == 'pdf':
                                         try:
                                             pdf_id = int(response.get('response', ''))

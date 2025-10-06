@@ -21,9 +21,9 @@ class PromptDeployment:
         for i, req in enumerate(submission_requirements):
             if 'prompt' not in req or 'mediaType' not in req:
                 raise ValueError(f"Submission requirement {i} missing 'prompt' or 'mediaType'")
-            if req['mediaType'] not in ['textarea', 'hyperlink', 'pdf', 'list', 'dynamic_list']:
+            if req['mediaType'] not in ['textarea', 'hyperlink', 'pdf', 'list', 'dynamic_list', 'websiteInfo']:
                 raise ValueError(
-                    f"Invalid mediaType '{req['mediaType']}' in requirement {i}. Must be 'textarea', 'hyperlink', 'pdf', 'list', or 'dynamic_list'"
+                    f"Invalid mediaType '{req['mediaType']}' in requirement {i}. Must be 'textarea', 'hyperlink', 'pdf', 'list', 'dynamic_list', or 'websiteInfo'"
                 )
             # Additional validation for list type
             if req['mediaType'] == 'list':
@@ -204,6 +204,26 @@ class PromptDeployment:
                     "valid": False,
                     "error": "Dynamic list submission requires at least 1 item"
                 }
+        elif media_type == 'websiteInfo':
+            # For website info submissions, response should be JSON with url, name, purpose, platform
+            import json
+            try:
+                data = json.loads(response)
+                if not isinstance(data, dict):
+                    return {"valid": False, "error": "Website info must be a JSON object"}
+                
+                # Validate required fields
+                required_fields = ['url', 'name', 'purpose', 'platform']
+                for field in required_fields:
+                    if field not in data or not data[field] or not str(data[field]).strip():
+                        return {"valid": False, "error": f"Website info requires '{field}' field"}
+                
+                # Validate URL format
+                if not self._is_valid_url(data['url'].strip()):
+                    return {"valid": False, "error": "URL must be valid (http:// or https://)"}
+                
+            except json.JSONDecodeError:
+                return {"valid": False, "error": "Website info must be valid JSON"}
         
         return {
             "valid": True,

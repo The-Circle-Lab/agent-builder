@@ -130,7 +130,7 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
         [submissionIndex]: {
           submission_index: responseData.submission_index,
           prompt_text: responseData.prompt_text,
-          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf' | 'list',
+          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf' | 'list' | 'dynamic_list' | 'websiteInfo',
           user_response: responseData.user_response,
           submitted_at: responseData.submitted_at,
         },
@@ -180,7 +180,7 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
         [submissionIndex]: {
           submission_index: responseData.submission_index,
           prompt_text: responseData.prompt_text,
-          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf' | 'list',
+          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf' | 'list' | 'dynamic_list' | 'websiteInfo',
           user_response: responseData.user_response,
           submitted_at: responseData.submitted_at,
         },
@@ -276,6 +276,37 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
       }
     }
 
+    // Validation for websiteInfo inputs
+    if (currentRequirement.mediaType === 'websiteInfo') {
+      try {
+        const info = JSON.parse(response);
+        
+        if (!info || typeof info !== 'object') {
+          setError('Invalid website info format');
+          return;
+        }
+        
+        // Check all required fields
+        const requiredFields = ['url', 'name', 'purpose', 'platform'];
+        for (const field of requiredFields) {
+          if (!info[field] || !info[field].trim()) {
+            setError(`Please fill in all fields: ${field} is missing`);
+            return;
+          }
+        }
+        
+        // Validate URL format
+        const urlPattern = /^https?:\/\/.+/i;
+        if (!urlPattern.test(info.url.trim())) {
+          setError('URL must be valid (start with http:// or https://)');
+          return;
+        }
+      } catch {
+        setError('Invalid website info format');
+        return;
+      }
+    }
+
     if (currentRequirement.mediaType === 'pdf') {
       const file = pdfFiles[currentSubmissionIndex];
       if (!file) {
@@ -324,7 +355,7 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
         [submissionIndex]: {
           submission_index: responseData.submission_index,
           prompt_text: responseData.prompt_text,
-          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf' | 'list',
+          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf' | 'list' | 'dynamic_list' | 'websiteInfo',
           user_response: responseData.user_response,
           submitted_at: responseData.submitted_at,
         },

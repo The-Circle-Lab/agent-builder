@@ -84,7 +84,7 @@ export interface MultipleChoiceQuestion {
 // Submission prompt representation for submission nodes
 export interface SubmissionPrompt {
   prompt: string;
-  mediaType: "textarea" | "hyperlink";
+  mediaType: "textarea" | "hyperlink" | "pdf" | "list" | "dynamic_list" | "websiteInfo";
 }
 
 // Live presentation prompt representation for live presentation nodes

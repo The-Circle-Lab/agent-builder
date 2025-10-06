@@ -17,6 +17,23 @@ export interface LivePresentationPrompt {
   is_late_join?: boolean; // Flag to indicate this prompt was sent to a late-joining student
   submission_responses?: Record<string, SubmissionResponse | string>;
   group_submission_responses?: Record<string, Record<string, SubmissionResponse | string>>;
+  
+  // Group submission navigation fields
+  enableGroupSubmissionNavigation?: boolean;
+  submissionPromptId?: string;
+  allowEditing?: boolean;
+  currentSubmissionIndex?: number; // Current navigation index
+  totalSubmissions?: number; // Total number of submissions in group
+  currentStudentName?: string; // Name of student whose submission is displayed
+  currentSubmission?: {
+    type?: string;
+    data?: Record<string, unknown>;
+    url?: string;
+    name?: string;
+    purpose?: string;
+    platform?: string;
+    [key: string]: unknown;
+  }; // The actual submission data being displayed
 }
 
 export interface GroupInfo {
@@ -118,6 +135,8 @@ export type MessageType =
   | 'presentation_ended'
   | 'presentation_state_changed'
   | 'prompt_received'
+  | 'navigation_update'
+  | 'submission_updated'
   | 'group_info'
   | 'group_info_sent'
   | 'group_summary'
@@ -133,6 +152,9 @@ export type MessageType =
   | 'roomcast_status'
   | 'roomcast_connected'
   | 'roomcast_registered'
+  | 'roomcast_navigation_prompt'
+  | 'roomcast_navigation_update'
+  | 'roomcast_submission_updated'
   | 'roomcast_prompt'
   | 'roomcast_group_info'
   | 'timer_started'
@@ -287,6 +309,9 @@ export type TypedWebSocketMessage =
   | PresentationEndedMessage
   | PresentationStateChangedMessage
   | PromptReceivedMessage 
+  | SendPromptMessage
+  | NavigationUpdateMessage
+  | SubmissionUpdatedMessage
   | GroupInfoMessage
   | GroupSummaryMessage
   | ReadyCheckMessage
@@ -307,6 +332,9 @@ export type TypedWebSocketMessage =
   | RoomcastStatusMessage
   | RoomcastConnectedMessage
   | RoomcastRegisteredMessage
+  | RoomcastNavigationPromptMessage
+  | RoomcastNavigationUpdateMessage
+  | RoomcastSubmissionUpdatedMessage
   | RoomcastPromptMessage
   | RoomcastGroupInfoMessage;
 
@@ -402,6 +430,46 @@ export interface RoomcastConnectedMessage {
 export interface RoomcastRegisteredMessage {
   type: 'roomcast_registered';
   group_name: string;
+}
+
+export interface NavigationSubmissionPayload {
+  studentName?: string;
+  userId?: string;
+  submission?: {
+    type?: string;
+    data?: Record<string, unknown>;
+    [key: string]: unknown;
+  } | Record<string, unknown> | null;
+}
+
+export interface NavigationUpdateMessage {
+  type: 'navigation_update';
+  currentIndex: number;
+  currentSubmission?: NavigationSubmissionPayload;
+}
+
+export interface SubmissionUpdatedMessage {
+  type: 'submission_updated';
+  submissionIndex: number;
+  updatedData: Record<string, unknown>;
+}
+
+export interface RoomcastNavigationPromptMessage {
+  type: 'roomcast_navigation_prompt';
+  group_name: string;
+  prompt: LivePresentationPrompt;
+}
+
+export interface RoomcastNavigationUpdateMessage {
+  type: 'roomcast_navigation_update';
+  currentIndex: number;
+  currentSubmission?: NavigationSubmissionPayload;
+}
+
+export interface RoomcastSubmissionUpdatedMessage {
+  type: 'roomcast_submission_updated';
+  submissionIndex: number;
+  updatedData: Record<string, unknown>;
 }
 
 export interface RoomcastPromptMessage {

@@ -9,7 +9,9 @@ import {
   StudentResponse,
   TeacherMessage,
   GroupSummaryMessage,
-  RoomcastStatus
+  RoomcastStatus,
+  NavigationUpdateMessage,
+  SubmissionUpdatedMessage
 } from '../types/livePresentation';
 
 interface UseLivePresentationWebSocketProps {
@@ -142,6 +144,74 @@ export const useLivePresentationWebSocket = ({
         setWaitingForSummary(false); // Reset waiting state
         setSummaryGenerating(false); // Reset generation state
         setMessageWithTimeout(null); // Clear message when prompt is received
+        break;
+
+      case 'send_prompt':
+        // Direct prompt from server (includes navigation prompts)
+        setCurrentPrompt(message.prompt);
+        setGroupSummary(null);
+        setWaitingForSummary(false);
+        setSummaryGenerating(false);
+        setMessageWithTimeout(null);
+        break;
+
+      case 'navigation_update':
+        {
+          const updateMsg = message as NavigationUpdateMessage;
+          setCurrentPrompt(prev => {
+            if (!prev) return prev;
+
+            const submissionPayload = updateMsg.currentSubmission?.submission ?? updateMsg.currentSubmission;
+            const normalizedSubmission = submissionPayload && typeof submissionPayload === 'object'
+              ? { ...(submissionPayload as Record<string, unknown>) }
+              : prev.currentSubmission;
+
+            return {
+              ...prev,
+              currentSubmissionIndex: typeof updateMsg.currentIndex === 'number'
+                ? updateMsg.currentIndex
+                : prev.currentSubmissionIndex,
+              currentStudentName: updateMsg.currentSubmission?.studentName ?? prev.currentStudentName,
+              currentSubmission: normalizedSubmission ?? prev.currentSubmission
+            };
+          });
+        }
+        break;
+
+      case 'submission_updated':
+        {
+          const updatedMsg = message as SubmissionUpdatedMessage;
+          setCurrentPrompt(prev => {
+            if (!prev) return prev;
+
+            // Only update if the currently displayed submission matches index
+            if ((prev.currentSubmissionIndex ?? 0) !== updatedMsg.submissionIndex) {
+              return prev;
+            }
+
+            if (prev.currentSubmission && typeof prev.currentSubmission === 'object') {
+              const current = prev.currentSubmission;
+              if ('type' in current && current.type === 'websiteInfo') {
+                return {
+                  ...prev,
+                  currentSubmission: {
+                    ...current,
+                    data: { ...(current.data as Record<string, unknown> ?? {}), ...updatedMsg.updatedData }
+                  }
+                };
+              }
+              return {
+                ...prev,
+                currentSubmission: {
+                  ...current,
+                  ...updatedMsg.updatedData
+                }
+              };
+            }
+
+            return prev;
+          });
+        }
         break;
 
       case 'group_info':

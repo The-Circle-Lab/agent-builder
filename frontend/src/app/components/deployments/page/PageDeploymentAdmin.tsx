@@ -1864,6 +1864,41 @@ export default function PageDeploymentAdmin({
                                               </p>
                                             );
                                           })()
+                                        ) : submission.media_type === 'websiteInfo' ? (
+                                          (() => {
+                                            try {
+                                              const info = JSON.parse(submission.user_response);
+                                              return (
+                                                <div className="bg-gray-50 p-3 rounded space-y-2">
+                                                  <div>
+                                                    <span className="text-xs font-medium text-gray-600">URL:</span>
+                                                    <a
+                                                      href={info.url}
+                                                      target="_blank"
+                                                      rel="noopener noreferrer"
+                                                      className="ml-2 text-blue-600 hover:text-blue-800 underline break-all text-sm"
+                                                    >
+                                                      {info.url}
+                                                    </a>
+                                                  </div>
+                                                  <div>
+                                                    <span className="text-xs font-medium text-gray-600">Name:</span>
+                                                    <span className="ml-2 text-gray-800 text-sm">{info.name}</span>
+                                                  </div>
+                                                  <div>
+                                                    <span className="text-xs font-medium text-gray-600 block mb-1">Purpose:</span>
+                                                    <p className="text-gray-800 text-sm whitespace-pre-wrap pl-2">{info.purpose}</p>
+                                                  </div>
+                                                  <div>
+                                                    <span className="text-xs font-medium text-gray-600 block mb-1">Platform:</span>
+                                                    <p className="text-gray-800 text-sm whitespace-pre-wrap pl-2">{info.platform}</p>
+                                                  </div>
+                                                </div>
+                                              );
+                                            } catch {
+                                              return <p className="text-gray-800">{submission.user_response}</p>;
+                                            }
+                                          })()
                                         ) : (
                                           <p className="text-gray-800 whitespace-pre-wrap">
                                             {submission.user_response}
