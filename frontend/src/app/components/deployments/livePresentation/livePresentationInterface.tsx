@@ -61,9 +61,12 @@ export default function LivePresentationInterface({ deploymentId, userName }: Li
   const handleResponse = (promptId: string, response: string) => sendResponse(promptId, response);
   const isRoomcastEnabled = roomcastStatus?.enabled ?? deploymentInfo?.roomcast?.enabled ?? false;
   const title = deploymentInfo?.title || 'Live Presentation';
+  
+  // Check if current prompt is a navigation prompt
+  const isNavigationPrompt = currentPrompt?.enableGroupSubmissionNavigation ?? false;
 
-  // Roomcast branch
-  if (isRoomcastEnabled && isConnected) {
+  // Roomcast branch - but NOT for navigation prompts (students need to see and control navigation)
+  if (isRoomcastEnabled && isConnected && !isNavigationPrompt) {
     return (
       <div className="min-h-screen bg-indigo-50">
         <StudentHeader

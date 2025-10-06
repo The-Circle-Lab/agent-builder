@@ -36,6 +36,9 @@ export const PromptDisplay: React.FC<PromptDisplayProps> = ({
   }
   
   const typedPrompt = prompt;
+  
+  // Check if this is a navigation prompt
+  const isNavigationPrompt = typedPrompt.enableGroupSubmissionNavigation && typedPrompt.currentSubmission;
 
   const handleSubmit = () => {
     if (response.trim() && !submitted) {
@@ -50,6 +53,96 @@ export const PromptDisplay: React.FC<PromptDisplayProps> = ({
       handleSubmit();
     }
   };
+  
+  // Render navigation prompt
+  if (isNavigationPrompt) {
+    const currentSubmission = typedPrompt.currentSubmission;
+    const submissionData = (() => {
+      if (!currentSubmission) return undefined;
+      if (
+        currentSubmission.type === 'websiteInfo' &&
+        currentSubmission.data &&
+        typeof currentSubmission.data === 'object'
+      ) {
+        return currentSubmission.data as Record<string, unknown>;
+      }
+      return currentSubmission as Record<string, unknown>;
+    })();
+
+    const getString = (value: unknown): string | undefined =>
+      typeof value === 'string' && value.trim().length > 0 ? value : undefined;
+
+    const websiteName = submissionData ? getString(submissionData['name']) : undefined;
+    const websiteUrl = submissionData ? getString(submissionData['url']) : undefined;
+    const websitePurpose = submissionData ? getString(submissionData['purpose']) : undefined;
+    const websitePlatform = submissionData ? getString(submissionData['platform']) : undefined;
+
+    return (
+      <div className="bg-white rounded-lg shadow-md p-6 border border-gray-200">
+        <h2 className="text-2xl font-bold text-gray-900 mb-6">
+          {typedPrompt.statement}
+        </h2>
+        
+        {/* Current Submission Display */}
+        <div className="mb-6 p-6 bg-indigo-50 border-2 border-indigo-200 rounded-lg">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-xl font-semibold text-indigo-900">
+              {typedPrompt.currentStudentName}&apos;s Submission
+            </h3>
+            <span className="text-sm text-indigo-600 font-medium">
+              {(typedPrompt.currentSubmissionIndex ?? 0) + 1} of {typedPrompt.totalSubmissions ?? 0}
+            </span>
+          </div>
+          
+          {/* Display websiteInfo or other submission types */}
+          {websiteUrl || websiteName || websitePurpose || websitePlatform ? (
+            <div className="space-y-3">
+              {websiteName && (
+                <div>
+                  <span className="text-sm font-medium text-gray-600">Website Name:</span>
+                  <p className="text-xl font-bold text-gray-900 mt-1">{websiteName}</p>
+                </div>
+              )}
+              {websiteUrl && (
+                <div>
+                  <span className="text-sm font-medium text-gray-600">URL:</span>
+                  <a 
+                    href={websiteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-lg text-blue-600 hover:underline block mt-1 break-all"
+                  >
+                    {websiteUrl}
+                  </a>
+                </div>
+              )}
+              {websitePurpose && (
+                <div>
+                  <span className="text-sm font-medium text-gray-600">Purpose:</span>
+                  <p className="text-gray-800 mt-1">{websitePurpose}</p>
+                </div>
+              )}
+              {websitePlatform && (
+                <div>
+                  <span className="text-sm font-medium text-gray-600">Platform:</span>
+                  <p className="text-gray-700 mt-1">{websitePlatform}</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-center text-gray-600">
+              <p>No submission data available yet.</p>
+            </div>
+          )}
+        </div>
+        
+        {/* Navigation note */}
+        <div className="text-center text-sm text-gray-600 bg-gray-50 p-4 rounded-lg">
+          <p>🧭 Navigation controls will be added here - currently viewing submission {(typedPrompt.currentSubmissionIndex ?? 0) + 1} of {typedPrompt.totalSubmissions ?? 0}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-lg shadow-md border border-gray-200 overflow-hidden">

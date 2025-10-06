@@ -185,6 +185,9 @@ class LivePresentationDeployment:
         # Separate storage for theme data (list items) to avoid conflicts with group data
         self._theme_data: Optional[List[Any]] = None
         
+        # Track current group item assignments for late-joining roomcast devices
+        self._current_group_item_assignments: Dict[str, Any] = {}
+        
         # Cache for submission prompt data for display alongside live presentation prompts
         self._submission_data: Optional[Dict[str, Any]] = None
         
@@ -199,6 +202,9 @@ class LivePresentationDeployment:
         
         # Group response completion tracking: prompt_id -> {group_name -> {completed: bool, summary_sent: bool}}
         self._group_completion_status: Dict[str, Dict[str, Dict[str, bool]]] = {}
+        
+        # Navigation state for group submission navigation
+        self.navigation_state: Optional[Dict[str, Any]] = None
         
         # Initialize response summarizer for group summaries using GPT-4 (more stable than GPT-5)
         self._response_summarizer = None
@@ -333,6 +339,14 @@ class LivePresentationDeployment:
         for student in self.students.values():
             if student.status != ConnectionStatus.DISCONNECTED:
                 self._assign_group_info_to_student(student)
+        
+        # CRITICAL: Resync roomcast devices with updated group membership and live response state
+        # This ensures roomcast displays show correct members after group changes
+        if self.roomcast_devices and self.current_prompt:
+            prompt_id = self.current_prompt.get("id")
+            print(f"🔄 Group data changed - resyncing {len(self.roomcast_devices)} roomcast devices with updated membership")
+            for group_name in self.roomcast_devices.keys():
+                asyncio.create_task(self._resync_roomcast_device_state(group_name, prompt_id))
         
         # Persist the change
         asyncio.create_task(self._save_session_state())
@@ -789,16 +803,22 @@ class LivePresentationDeployment:
     def refresh_group_variable_data(self):
         """Manually refresh group variable data from parent page deployment"""
         print(f"🔄 Manual refresh of group variable data requested")
-        try:
-            # Best effort: refresh page variables from DB first
-            from asyncio import create_task
-            try:
-                create_task(self._refresh_page_variables_from_database())  # type: ignore[attr-defined]
-            except Exception:
-                pass
-        except Exception:
-            pass
-        self._auto_detect_group_variable()
+        print(f"🔄 FORCE REFRESH: Bypassing all caches and reading directly from database")
+        
+        # CRITICAL: Force fresh database read to bypass all caches
+        # First try to get the latest group assignment directly from database
+        fresh_group_data = self._get_latest_group_assignment_from_database()
+        if fresh_group_data:
+            print(f"✅ FORCE REFRESH: Found fresh group data in database with {len(fresh_group_data)} groups")
+            print(f"✅ FORCE REFRESH: Group data preview: {str(fresh_group_data)[:300]}...")
+            # Directly set the input variable data to bypass all intermediary caches
+            self.set_input_variable_data(fresh_group_data)
+            print(f"✅ FORCE REFRESH: Group data updated successfully")
+        else:
+            print(f"⚠️ FORCE REFRESH: No group data found in database, falling back to normal detection")
+            # Fallback to normal auto-detection
+            self._auto_detect_group_variable()
+        
         # Also refresh theme variables
         self._auto_detect_theme_variables()
         # Also refresh submission data if configured
@@ -1823,6 +1843,20 @@ class LivePresentationDeployment:
                     await self._check_group_completion_and_summarize(prompt_id)
                 else:
                     print(f"❌ No prompt_id in student response from {student.user_name}")
+            
+            # Navigation actions
+            elif message_type == "navigate_next":
+                await self.handle_navigation_action(user_id, "navigate_next", message)
+            
+            elif message_type == "navigate_previous":
+                await self.handle_navigation_action(user_id, "navigate_previous", message)
+            
+            elif message_type == "navigate_to":
+                await self.handle_navigation_action(user_id, "navigate_to", message)
+            
+            elif message_type == "edit_submission":
+                await self.handle_submission_edit(user_id, message.get("editData", {}))
+            
             else:
                 print(f"🔍 Unknown message type from student {student.user_name}: {message_type}")
             
@@ -2008,6 +2042,12 @@ class LivePresentationDeployment:
         # Clean up expired prompts
         await self._cleanup_expired_prompts()
         
+        # Check if this is a navigation prompt
+        if prompt_data.get('enableGroupSubmissionNavigation'):
+            print(f"🧭 Detected navigation prompt - using navigation mode")
+            await self.send_navigation_prompt_to_students(prompt_data)
+            return
+        
         # Check if this prompt uses random list items that should be assigned per group
         use_random_list_item = prompt_data.get("useRandomListItem", False)
         # Support both old and new list variable formats
@@ -2049,6 +2089,9 @@ class LivePresentationDeployment:
             await self._send_prompt_with_group_list_items(prompt_data, list_variable_id)
         else:
             # Standard prompt - send same message to all students
+            # Clear group item assignments since this is not a group-item prompt
+            self._current_group_item_assignments = {}
+            
             print(f"🔍 USING STANDARD PROMPT - NOT group-based assignment")
             print(f"   Reason: use_random_list_item={use_random_list_item}, list_variable_id={list_variable_id}")
             print(f"   Available theme variables: {available_theme_vars if 'available_theme_vars' in locals() else 'None checked'}")
@@ -2225,11 +2268,15 @@ class LivePresentationDeployment:
             print(f"🎯 Using deterministic shuffle based on prompt ID: {prompt_id}")
             
             group_assignments = {}
+            # Store assignments for late-joining roomcast devices
+            self._current_group_item_assignments = {}
+            
             for i, (group_name, students) in enumerate(groups_to_students.items()):
                 # Cycle through available items if we have more groups than items
                 item_index = i % len(available_items)
                 selected_item = available_items[item_index]
                 group_assignments[group_name] = selected_item
+                self._current_group_item_assignments[group_name] = selected_item
                 
                 # Log what's being assigned (truncate for theme data)
                 item_preview = str(selected_item)[:100] if not isinstance(selected_item, dict) else selected_item.get('title', 'Theme')
@@ -2802,10 +2849,32 @@ class LivePresentationDeployment:
 
     def _get_group_members(self, group_name: str) -> List[str]:
         """Get list of member names for a specific group.
-        Prefer connected student assignments; fallback to page variable data if none.
+        ALWAYS uses input_variable_data as source of truth to avoid stale group_info.
+        This is critical when group membership changes after students connect.
         """
-        # Primary: derive from connected students' group_info
         group_members: List[str] = []
+        
+        # PRIMARY: Use input_variable_data as source of truth (handles post-connection group changes)
+        try:
+            if self.input_variable_data:
+                if isinstance(self.input_variable_data, dict):
+                    members = self.input_variable_data.get(group_name)
+                    if isinstance(members, list) and members:
+                        print(f"✅ Found {len(members)} members for group '{group_name}' from input_variable_data (dict)")
+                        return [str(m) for m in members]
+                elif isinstance(self.input_variable_data, list):
+                    # Theme format: list of dicts with title and student_names
+                    for theme in self.input_variable_data:
+                        if isinstance(theme, dict) and theme.get("title") == group_name:
+                            members = theme.get("student_names", [])
+                            if isinstance(members, list) and members:
+                                print(f"✅ Found {len(members)} members for group '{group_name}' from theme data")
+                                return [str(m) for m in members]
+        except Exception as e:
+            print(f"⚠️ Error reading input_variable_data for group '{group_name}': {e}")
+
+        # FALLBACK: Use connected students' group_info (only if input_variable_data not available)
+        # This handles edge cases where groups are managed purely through student connections
         for student in self.students.values():
             if (
                 student.status != ConnectionStatus.DISCONNECTED
@@ -2815,28 +2884,99 @@ class LivePresentationDeployment:
                 group_members.append(student.user_name)
 
         if group_members:
+            print(f"🔄 Using fallback: {len(group_members)} connected students for group '{group_name}'")
             return group_members
 
-        # Fallback: use input_variable_data if available (actual groups from page)
-        try:
-            if self.input_variable_data:
-                if isinstance(self.input_variable_data, dict):
-                    members = self.input_variable_data.get(group_name)
-                    if isinstance(members, list) and members:
-                        print(f"🔄 Using fallback members from input_variable_data for group '{group_name}' ({len(members)} names)")
-                        return [str(m) for m in members]
-                elif isinstance(self.input_variable_data, list):
-                    # Theme format: list of dicts with title and student_names
-                    for theme in self.input_variable_data:
-                        if isinstance(theme, dict) and theme.get("title") == group_name:
-                            members = theme.get("student_names", [])
-                            if isinstance(members, list) and members:
-                                print(f"🔄 Using fallback members from theme data for group '{group_name}' ({len(members)} names)")
-                                return [str(m) for m in members]
-        except Exception:
-            pass
-
+        print(f"❌ No members found for group '{group_name}'")
         return []
+    
+    def _get_live_response_state_for_group(self, group_name: str, prompt_id: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+        """Get current live response tracking state for a group's members.
+        Returns dict mapping student_name -> {response: str, timestamp: str}
+        """
+        if prompt_id is None and self.current_prompt:
+            prompt_id = self.current_prompt.get("id")
+        
+        if not prompt_id:
+            return {}
+        
+        group_members = self._get_group_members(group_name)
+        if not group_members:
+            return {}
+        
+        live_state: Dict[str, Dict[str, Any]] = {}
+        
+        for student in self.students.values():
+            if (student.user_name in group_members and 
+                student.status != ConnectionStatus.DISCONNECTED and
+                prompt_id in student.responses):
+                response_data = student.responses[prompt_id]
+                live_state[student.user_name] = {
+                    "response": response_data.get("response", ""),
+                    "timestamp": response_data.get("timestamp", datetime.now().isoformat())
+                }
+        
+        return live_state
+    
+    async def _resync_roomcast_device_state(self, group_name: str, prompt_id: Optional[str] = None):
+        """Resync a roomcast device with current group membership and response state.
+        Called when group membership changes to update the display immediately.
+        """
+        try:
+            device = self.roomcast_devices.get(group_name)
+            if not device:
+                return
+            
+            ws: WebSocket = device["websocket"]
+            
+            # Get updated group members from source of truth
+            group_members = self._get_group_members(group_name)
+            print(f"🔄 Resyncing roomcast for {group_name}: {len(group_members)} members")
+            
+            # Send updated group info
+            group_info_message = {
+                "type": "roomcast_group_info",
+                "group_name": group_name,
+                "members": group_members
+            }
+            
+            try:
+                await ws.send_text(json.dumps(group_info_message))
+                print(f"✅ Sent updated group info to roomcast for {group_name}")
+            except Exception as e:
+                print(f"❌ Failed to send group info update: {e}")
+                await self.disconnect_roomcast(ws)
+                return
+            
+            # If there's an active prompt, resend it with updated live response state
+            if self.current_prompt:
+                prompt_payload = dict(self.current_prompt)
+                
+                # Get live response state with updated membership
+                live_response_state = self._get_live_response_state_for_group(group_name, prompt_id)
+                if live_response_state:
+                    prompt_payload["live_response_state"] = live_response_state
+                    print(f"📺 Including updated live response state: {len(live_response_state)} students responded")
+                
+                # Check if prompt has group-specific list items
+                if hasattr(self, '_current_group_item_assignments') and group_name in self._current_group_item_assignments:
+                    prompt_payload["assigned_list_item"] = self._current_group_item_assignments[group_name]
+                
+                prompt_message = {
+                    "type": "roomcast_prompt",
+                    "group_name": group_name,
+                    "prompt": prompt_payload
+                }
+                
+                try:
+                    await ws.send_text(json.dumps(prompt_message))
+                    print(f"✅ Sent updated prompt state to roomcast for {group_name}")
+                except Exception as e:
+                    print(f"❌ Failed to send prompt update: {e}")
+                    await self.disconnect_roomcast(ws)
+                    
+        except Exception as e:
+            print(f"❌ Error resyncing roomcast device for {group_name}: {e}")
     
     async def _send_standard_prompt_to_all(self):
         """Send standard prompt (no list items) to all students"""
@@ -3833,6 +3973,462 @@ class LivePresentationDeployment:
                 hasattr(self, 'teacher_websockets'))
 
     # -----------------------------
+    
+    # -----------------------------
+    # Group Submission Navigation Support
+    # -----------------------------
+    
+    async def send_navigation_prompt_to_students(self, prompt_data: Dict[str, Any]):
+        """
+        Send a group submission navigation prompt to students.
+        This prompt allows students to navigate through and edit group member submissions.
+        """
+        print(f"🧭 Sending navigation prompt for submission: {prompt_data.get('submissionPromptId')}")
+        
+        # Extract navigation configuration
+        enable_navigation = prompt_data.get('enableGroupSubmissionNavigation', False)
+        submission_prompt_id = prompt_data.get('submissionPromptId')
+        allow_editing = prompt_data.get('allowEditing', False)
+        
+        if not enable_navigation or not submission_prompt_id:
+            print(f"❌ Navigation prompt missing required configuration")
+            await self._send_standard_prompt_to_all(prompt_data)
+            return
+        
+        # Get group assignments
+        groups_to_students = self._group_students_by_assignment()
+        if not groups_to_students:
+            print(f"❌ No group assignments found for navigation")
+            return
+        
+        # Get submission data for each group
+        navigation_data = await self._prepare_navigation_data_by_group(
+            submission_prompt_id, 
+            groups_to_students
+        )
+        
+        # Send to each student with their group's submissions
+        sent_count = 0
+        for student in self.students.values():
+            if student.status == ConnectionStatus.DISCONNECTED:
+                continue
+            
+            group_name = student.group_info.get('group_name') if student.group_info else None
+            if not group_name or group_name not in navigation_data:
+                print(f"⚠️ Student {student.user_name} has no group or no submission data")
+                continue
+            
+            group_submissions = navigation_data[group_name]
+            
+            # Prepare prompt with navigation data
+            student_prompt = {
+                **prompt_data,
+                'groupSubmissions': group_submissions,
+                'currentSubmissionIndex': 0,
+                'totalSubmissions': len(group_submissions),
+                'currentStudentName': group_submissions[0]['studentName'] if group_submissions else None,
+                'currentSubmission': group_submissions[0]['submission'] if group_submissions else None,
+                'allowEditing': allow_editing
+            }
+            
+            await student.send_message({
+                'type': 'send_prompt',
+                'prompt': student_prompt
+            })
+            sent_count += 1
+        
+        # Also send to roomcast displays with group-specific data
+        await self._broadcast_navigation_to_roomcast(prompt_data, navigation_data)
+        
+        # Store current navigation state
+        self.navigation_state = {
+            'prompt_id': prompt_data.get('id'),
+            'submission_prompt_id': submission_prompt_id,
+            'allow_editing': allow_editing,
+            'navigation_data': navigation_data
+        }
+        
+        self.current_prompt = prompt_data
+        await self._save_session_state()
+        
+        print(f"🧭 Navigation prompt sent to {sent_count} students")
+    
+    async def _prepare_navigation_data_by_group(
+        self, 
+        submission_prompt_id: str, 
+        groups_to_students: Dict[str, List]
+    ) -> Dict[str, List[Dict[str, Any]]]:
+        """
+        Prepare navigation data for each group by fetching their members' submissions.
+        Returns: {group_name: [{ studentName, submission }, ...]}
+        """
+        navigation_data = {}
+        
+        for group_name, students_in_group in groups_to_students.items():
+            if group_name == "No Group":
+                continue
+            
+            group_submissions = []
+            
+            # Fetch each student's submission
+            for student in students_in_group:
+                student_name = student.user_name
+                
+                # Get submission data for this student
+                submission = await self._fetch_student_submission(
+                    student_name, 
+                    submission_prompt_id
+                )
+                
+                if submission:
+                    group_submissions.append({
+                        'studentName': student_name,
+                        'userId': student.user_id,
+                        'submission': submission
+                    })
+            
+            navigation_data[group_name] = group_submissions
+        
+        print(f"🧭 Prepared navigation data for {len(navigation_data)} groups")
+        return navigation_data
+    
+    async def _fetch_student_submission(
+        self, 
+        student_name: str, 
+        submission_prompt_id: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Fetch a specific student's submission for a given submission prompt.
+        Returns the submission data (e.g., websiteInfo JSON object).
+        """
+        if not self._submission_data:
+            # Try to refresh submission data from database
+            self._submission_data = self._get_submission_data_from_database()
+        
+        if not self._submission_data:
+            print(f"⚠️ No submission data available")
+            return None
+        
+        # Find the student's submission
+        students = self._submission_data.get('students', [])
+        for student in students:
+            if student.get('name') == student_name:
+                # Look for the specific submission prompt
+                submission_responses = student.get('submission_responses', {})
+                
+                # Parse submission_prompt_id to get the index
+                # Format: "submission_0", "submission_1", etc.
+                if submission_responses:
+                    # Try direct key match first
+                    if submission_prompt_id in submission_responses:
+                        response = submission_responses[submission_prompt_id]
+                        return self._parse_submission_response(response)
+                    
+                    # Try extracting index and building key
+                    try:
+                        if '_' in submission_prompt_id:
+                            parts = submission_prompt_id.split('_')
+                            index = parts[-1]
+                            key = f"submission_{index}"
+                            if key in submission_responses:
+                                response = submission_responses[key]
+                                return self._parse_submission_response(response)
+                    except:
+                        pass
+        
+        print(f"⚠️ No submission found for {student_name} prompt {submission_prompt_id}")
+        return None
+    
+    def _parse_submission_response(self, response: Dict[str, Any]) -> Dict[str, Any]:
+        """Parse a submission response into a structured format"""
+        media_type = response.get('media_type', '')
+        
+        if media_type == 'websiteInfo':
+            # Parse JSON response for websiteInfo
+            try:
+                response_str = response.get('response', '{}')
+                if isinstance(response_str, str):
+                    parsed = json.loads(response_str)
+                    return {
+                        'type': 'websiteInfo',
+                        'data': parsed
+                    }
+            except json.JSONDecodeError:
+                print(f"❌ Failed to parse websiteInfo JSON")
+                return None
+        
+        # Handle other media types
+        return {
+            'type': media_type,
+            'data': response.get('response', '')
+        }
+    
+    async def handle_navigation_action(
+        self, 
+        user_id: str, 
+        action: str, 
+        data: Dict[str, Any]
+    ):
+        """
+        Handle navigation actions from students (next, previous, edit).
+        Actions are broadcast to all students in the same group and roomcast.
+        """
+        student = self.students.get(user_id)
+        if not student or not student.group_info:
+            print(f"❌ Student {user_id} not found or has no group")
+            return
+        
+        group_name = student.group_info.get('group_name')
+        if not group_name or not self.navigation_state:
+            print(f"❌ No active navigation state")
+            return
+        
+        navigation_data = self.navigation_state.get('navigation_data', {})
+        group_submissions = navigation_data.get(group_name, [])
+        
+        if not group_submissions:
+            print(f"❌ No submissions found for group {group_name}")
+            return
+        
+        current_index = data.get('currentIndex', 0)
+        total_submissions = len(group_submissions)
+        
+        # Handle different actions
+        if action == 'navigate_next':
+            new_index = min(current_index + 1, total_submissions - 1)
+        elif action == 'navigate_previous':
+            new_index = max(current_index - 1, 0)
+        elif action == 'navigate_to':
+            new_index = max(0, min(data.get('index', 0), total_submissions - 1))
+        else:
+            print(f"❌ Unknown navigation action: {action}")
+            return
+        
+        # Get the new submission to display
+        current_submission = group_submissions[new_index]
+        
+        # Broadcast navigation update to all students in the group
+        await self._broadcast_navigation_update_to_group(
+            group_name,
+            new_index,
+            current_submission
+        )
+        
+        # Also broadcast to roomcast for this group
+        await self._broadcast_navigation_update_to_roomcast_group(
+            group_name,
+            new_index,
+            current_submission
+        )
+        
+        print(f"🧭 Navigation: {action} by {student.user_name} -> index {new_index}")
+    
+    async def handle_submission_edit(
+        self, 
+        user_id: str, 
+        edit_data: Dict[str, Any]
+    ):
+        """
+        Handle submission edit from a student.
+        Updates the submission and broadcasts to group members and roomcast.
+        """
+        student = self.students.get(user_id)
+        if not student or not student.group_info:
+            print(f"❌ Student {user_id} not found or has no group")
+            return
+        
+        # Check if editing is allowed
+        if not self.navigation_state or not self.navigation_state.get('allow_editing'):
+            print(f"❌ Editing not allowed in current navigation state")
+            return
+        
+        group_name = student.group_info.get('group_name')
+        submission_index = edit_data.get('submissionIndex')
+        updated_data = edit_data.get('updatedData')
+        
+        # Update the submission in navigation data
+        navigation_data = self.navigation_state.get('navigation_data', {})
+        group_submissions = navigation_data.get(group_name, [])
+        
+        if submission_index >= len(group_submissions):
+            print(f"❌ Invalid submission index: {submission_index}")
+            return
+        
+        # Update the submission
+        group_submissions[submission_index]['submission']['data'] = updated_data
+        
+        # Broadcast update to all students in the group
+        await self._broadcast_submission_update_to_group(
+            group_name,
+            submission_index,
+            updated_data
+        )
+        
+        # Broadcast to roomcast
+        await self._broadcast_submission_update_to_roomcast_group(
+            group_name,
+            submission_index,
+            updated_data
+        )
+        
+        print(f"✏️ Submission edited by {student.user_name} for index {submission_index}")
+    
+    async def _broadcast_navigation_update_to_group(
+        self, 
+        group_name: str, 
+        new_index: int,
+        current_submission: Dict[str, Any]
+    ):
+        """Broadcast navigation update to all students in a group"""
+        for student in self.students.values():
+            if (student.status != ConnectionStatus.DISCONNECTED and 
+                student.group_info and 
+                student.group_info.get('group_name') == group_name):
+                
+                await student.send_message({
+                    'type': 'navigation_update',
+                    'currentIndex': new_index,
+                    'currentSubmission': current_submission
+                })
+    
+    async def _broadcast_submission_update_to_group(
+        self, 
+        group_name: str, 
+        submission_index: int,
+        updated_data: Dict[str, Any]
+    ):
+        """Broadcast submission edit to all students in a group"""
+        for student in self.students.values():
+            if (student.status != ConnectionStatus.DISCONNECTED and 
+                student.group_info and 
+                student.group_info.get('group_name') == group_name):
+                
+                await student.send_message({
+                    'type': 'submission_updated',
+                    'submissionIndex': submission_index,
+                    'updatedData': updated_data
+                })
+    
+    async def _broadcast_navigation_to_roomcast(
+        self, 
+        prompt_data: Dict[str, Any],
+        navigation_data: Dict[str, List[Dict[str, Any]]]
+    ):
+        """Broadcast navigation prompt to roomcast displays - shows only current submission"""
+        for ws in list(self.roomcast_websockets):
+            group_name = self._roomcast_ws_lookup.get(ws)
+            if group_name and group_name in navigation_data:
+                group_submissions = navigation_data[group_name]
+                current_index = 0
+                current_submission = group_submissions[current_index] if group_submissions else None
+
+                # Normalise submission payload for UI consumption
+                submission_payload: Optional[Dict[str, Any]] = None
+                if current_submission and isinstance(current_submission.get('submission'), dict):
+                    raw_submission = current_submission['submission']
+                    submission_type = raw_submission.get('type')
+                    submission_data = raw_submission.get('data')
+                    if submission_type == 'websiteInfo' and isinstance(submission_data, dict):
+                        submission_payload = {
+                            'type': submission_type,
+                            'data': submission_data
+                        }
+                    else:
+                        submission_payload = raw_submission
+                else:
+                    submission_payload = current_submission['submission'] if current_submission else None
+
+                # Remove large group response blobs before sending to roomcast
+                sanitized_prompt = {**prompt_data}
+                sanitized_prompt.pop('group_submission_responses', None)
+                sanitized_prompt.pop('groupSubmissions', None)
+
+                try:
+                    await ws.send_json({
+                        'type': 'roomcast_navigation_prompt',
+                        'group_name': group_name,
+                        'prompt': {
+                            **sanitized_prompt,
+                            'currentSubmissionIndex': current_index,
+                            'totalSubmissions': len(group_submissions),
+                            'currentStudentName': current_submission['studentName'] if current_submission else None,
+                            'currentSubmission': submission_payload,
+                            'allowEditing': prompt_data.get('allowEditing', False)
+                        }
+                    })
+                except Exception as e:
+                    print(f"❌ Error sending navigation to roomcast: {e}")
+    
+    async def _broadcast_navigation_update_to_roomcast_group(
+        self, 
+        group_name: str, 
+        new_index: int,
+        current_submission: Dict[str, Any]
+    ):
+        """Broadcast navigation update to roomcast for a specific group"""
+        for ws in list(self.roomcast_websockets):
+            ws_group_name = self._roomcast_ws_lookup.get(ws)
+            if ws_group_name == group_name:
+                submission_payload: Optional[Dict[str, Any]] = None
+                if isinstance(current_submission.get('submission'), dict):
+                    raw_submission = current_submission['submission']
+                    submission_type = raw_submission.get('type')
+                    submission_data = raw_submission.get('data')
+                    if submission_type == 'websiteInfo' and isinstance(submission_data, dict):
+                        submission_payload = {
+                            'type': submission_type,
+                            'data': submission_data
+                        }
+                    else:
+                        submission_payload = raw_submission
+                else:
+                    submission_payload = current_submission.get('submission')
+
+                try:
+                    await ws.send_json({
+                        'type': 'roomcast_navigation_update',
+                        'currentIndex': new_index,
+                        'currentSubmission': {
+                            'studentName': current_submission.get('studentName'),
+                            'userId': current_submission.get('userId'),
+                            'submission': submission_payload
+                        }
+                    })
+                except Exception as e:
+                    print(f"❌ Error sending navigation update to roomcast: {e}")
+    
+    async def _broadcast_submission_update_to_roomcast_group(
+        self, 
+        group_name: str, 
+        submission_index: int,
+        updated_data: Dict[str, Any]
+    ):
+        """Broadcast submission edit to roomcast for a specific group"""
+        for ws in list(self.roomcast_websockets):
+            ws_group_name = self._roomcast_ws_lookup.get(ws)
+            if ws_group_name == group_name:
+                try:
+                    await ws.send_json({
+                        'type': 'roomcast_submission_updated',
+                        'submissionIndex': submission_index,
+                        'updatedData': updated_data
+                    })
+                except Exception as e:
+                    print(f"❌ Error sending submission update to roomcast: {e}")
+    
+    async def _send_standard_prompt_to_all(self, prompt_data: Dict[str, Any] = None):
+        """Fallback: send standard prompt without navigation"""
+        if prompt_data:
+            self.current_prompt = prompt_data
+        
+        for student in self.students.values():
+            if student.status != ConnectionStatus.DISCONNECTED:
+                await student.send_message({
+                    'type': 'send_prompt',
+                    'prompt': self.current_prompt
+                })
+    
+    # -----------------------------
     # Roomcast support (backend)
     # -----------------------------
 
@@ -4032,6 +4628,35 @@ class LivePresentationDeployment:
                 "type": "roomcast_registered",
                 "group_name": group_name
             }))
+            
+            # Send current prompt state immediately if there's an active prompt
+            # This ensures late-joining roomcast devices get synced with current state
+            if self.current_prompt:
+                print(f"📺 Syncing current prompt state to newly registered roomcast for {group_name}")
+                prompt_payload = dict(self.current_prompt)
+                
+                # Add live response tracking state for this group
+                live_response_state = self._get_live_response_state_for_group(group_name, self.current_prompt.get("id"))
+                if live_response_state:
+                    prompt_payload["live_response_state"] = live_response_state
+                    print(f"📺 Including live response state for {group_name}: {len(live_response_state)} students responded")
+                
+                # Check if prompt has group-specific list items
+                if hasattr(self, '_current_group_item_assignments') and group_name in self._current_group_item_assignments:
+                    prompt_payload["assigned_list_item"] = self._current_group_item_assignments[group_name]
+                
+                sync_message = {
+                    "type": "roomcast_prompt",
+                    "group_name": group_name,
+                    "prompt": prompt_payload
+                }
+                
+                try:
+                    await websocket.send_text(json.dumps(sync_message))
+                    print(f"✅ Sent current prompt state to {group_name}")
+                except Exception as e:
+                    print(f"❌ Failed to send prompt state to {group_name}: {e}")
+            
             # Do not auto-send group info; wait for explicit teacher action
             # Notify everyone of updated roomcast status
             await self._notify_all_roomcast_status()
@@ -4119,6 +4744,13 @@ class LivePresentationDeployment:
                     ws: WebSocket = device["websocket"]
                     # Build prompt payload and embed submission data (if any)
                     prompt_payload = {**prompt, "assigned_list_item": item}
+                    
+                    # Add live response tracking state for this group
+                    live_response_state = self._get_live_response_state_for_group(group_name, prompt.get("id"))
+                    if live_response_state:
+                        prompt_payload["live_response_state"] = live_response_state
+                        print(f"📺 Including live response state for {group_name}: {len(live_response_state)} students responded")
+                    
                     message = {
                         "type": "roomcast_prompt",
                         "group_name": group_name,
@@ -4174,6 +4806,13 @@ class LivePresentationDeployment:
                 for group_name, device in list(self.roomcast_devices.items()):
                     ws: WebSocket = device["websocket"]
                     prompt_payload = dict(prompt)
+                    
+                    # Add live response tracking state for this group
+                    live_response_state = self._get_live_response_state_for_group(group_name, prompt.get("id"))
+                    if live_response_state:
+                        prompt_payload["live_response_state"] = live_response_state
+                        print(f"📺 Including live response state for {group_name}: {len(live_response_state)} students responded")
+                    
                     message = {
                         "type": "roomcast_prompt",
                         "group_name": group_name,
@@ -4284,15 +4923,13 @@ class LivePresentationDeployment:
             device = self.roomcast_devices.get(group_name)
             # If the group device is connected, send directly; otherwise broadcast to all roomcast sockets
             ws: Optional[WebSocket] = device["websocket"] if device else None
-            # Build group members list from available data
-            members: List[str] = []
-            if self.input_variable_data and isinstance(self.input_variable_data, dict):
-                members = self.input_variable_data.get(group_name, []) if isinstance(self.input_variable_data.get(group_name, []), list) else []
-            elif self.input_variable_data and isinstance(self.input_variable_data, list):
-                for theme in self.input_variable_data:
-                    if isinstance(theme, dict) and theme.get('title') == group_name:
-                        members = theme.get('student_names', [])
-                        break
+            
+            # CRITICAL: Use _get_group_members() to ensure we get updated membership
+            # This is the source of truth that prioritizes input_variable_data
+            members = self._get_group_members(group_name)
+            
+            print(f"📺 Sending group info for {group_name}: {len(members)} members")
+            
             message = {
                 "type": "roomcast_group_info",
                 "group_name": group_name,
@@ -4307,6 +4944,7 @@ class LivePresentationDeployment:
             if ws:
                 try:
                     await ws.send_text(json.dumps(message))
+                    print(f"✅ Sent group info to registered roomcast for {group_name}")
                 except Exception:
                     await self.disconnect_roomcast(ws)
             else:
@@ -4314,6 +4952,7 @@ class LivePresentationDeployment:
                 for rws in list(self.roomcast_websockets):
                     try:
                         await rws.send_text(json.dumps(message))
+                        print(f"✅ Broadcast group info to unregistered roomcast device")
                     except Exception:
                         await self.disconnect_roomcast(rws)
         except Exception as e:

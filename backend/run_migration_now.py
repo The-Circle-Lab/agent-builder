@@ -135,6 +135,32 @@ def run_migration_now():
                 print(f"❌ Due date migration failed: {e}")
                 session.rollback()
 
+    # Migration 4: Add navigation_state column to livepresentationsession
+    with Session(engine) as session:
+        try:
+            print("🔧 Adding navigation_state column to livepresentationsession table...")
+            result = session.execute(text("PRAGMA table_info(livepresentationsession)")).fetchall()
+            existing_columns = [row[1] for row in result]
+
+            if 'navigation_state' not in existing_columns:
+                print("➕ Adding navigation_state column...")
+                session.execute(text("""
+                    ALTER TABLE livepresentationsession
+                    ADD COLUMN navigation_state JSON DEFAULT NULL
+                """))
+                print("✅ Added navigation_state column")
+            else:
+                print("ℹ️  navigation_state column already exists")
+
+            session.commit()
+            print("✅ navigation_state migration completed successfully!")
+        except Exception as e:
+            if "duplicate column name" in str(e).lower() or "already exists" in str(e).lower():
+                print("✅ navigation_state column already exists - no action needed")
+            else:
+                print(f"❌ navigation_state migration failed: {e}")
+                session.rollback()
+
 if __name__ == "__main__":
     run_migration_now()
 

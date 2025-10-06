@@ -47,11 +47,13 @@ export default function SubmissionDisplay({
   const isPdfType = currentRequirement.mediaType === 'pdf';
   const isListType = currentRequirement.mediaType === 'list';
   const isDynamicListType = currentRequirement.mediaType === 'dynamic_list';
+  const isWebsiteInfoType = currentRequirement.mediaType === 'websiteInfo';
 
   // For submitted responses, also check the actual media type of the response
   const submittedIsListType = isSubmitted && (submittedResponse.media_type === 'list' || submittedResponse.media_type === 'dynamic_list');
   const submittedIsPdfType = isSubmitted && submittedResponse.media_type === 'pdf';
   const submittedIsLinkType = isSubmitted && submittedResponse.media_type === 'hyperlink';
+  const submittedIsWebsiteInfoType = isSubmitted && submittedResponse.media_type === 'websiteInfo';
 
   const handleInputChange = (value: string) => {
     onResponseChange(submissionIndex, value);
@@ -111,6 +113,29 @@ export default function SubmissionDisplay({
     }
   };
 
+  // Helper functions for website info handling
+  const getWebsiteInfo = (): { url: string; name: string; purpose: string; platform: string } => {
+    if (!isWebsiteInfoType) return { url: '', name: '', purpose: '', platform: '' };
+    try {
+      const parsed = JSON.parse(submissionResponse || '{}');
+      return {
+        url: parsed.url || '',
+        name: parsed.name || '',
+        purpose: parsed.purpose || '',
+        platform: parsed.platform || ''
+      };
+    } catch {
+      return { url: '', name: '', purpose: '', platform: '' };
+    }
+  };
+
+  const handleWebsiteInfoChange = (field: 'url' | 'name' | 'purpose' | 'platform', value: string) => {
+    if (!isWebsiteInfoType) return;
+    const current = getWebsiteInfo();
+    current[field] = value;
+    onResponseChange(submissionIndex, JSON.stringify(current));
+  };
+
   // Helper function to check if submission is valid
   const isSubmissionValid = (): boolean => {
     if (isPdfType) {
@@ -118,6 +143,10 @@ export default function SubmissionDisplay({
     } else if (isDynamicListType) {
       const items = getListItems();
       return items.length > 0 && items.some(item => item.trim() !== '');
+    } else if (isWebsiteInfoType) {
+      const info = getWebsiteInfo();
+      return info.url.trim() !== '' && info.name.trim() !== '' && 
+             info.purpose.trim() !== '' && info.platform.trim() !== '';
     } else {
       return submissionResponse.trim() !== '';
     }
@@ -184,6 +213,11 @@ export default function SubmissionDisplay({
                 <>
                   <PencilIcon className="w-3 h-3 mr-1" />
                   Dynamic List
+                </>
+              ) : isWebsiteInfoType ? (
+                <>
+                  <LinkIcon className="w-3 h-3 mr-1" />
+                  Website Info
                 </>
               ) : (
                 <>
@@ -288,6 +322,41 @@ export default function SubmissionDisplay({
                       </p>
                     );
                   })()
+                ) : submittedIsWebsiteInfoType ? (
+                  (() => {
+                    try {
+                      const info = JSON.parse(submittedResponse.user_response);
+                      return (
+                        <div className="bg-white p-4 rounded border space-y-3">
+                          <div>
+                            <span className="text-sm font-medium text-gray-600">URL:</span>
+                            <a
+                              href={info.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="ml-2 text-blue-600 hover:text-blue-800 underline break-all"
+                            >
+                              {info.url}
+                            </a>
+                          </div>
+                          <div>
+                            <span className="text-sm font-medium text-gray-600">Name:</span>
+                            <span className="ml-2 text-gray-800">{info.name}</span>
+                          </div>
+                          <div>
+                            <span className="text-sm font-medium text-gray-600">Purpose:</span>
+                            <p className="mt-1 text-gray-800 whitespace-pre-wrap">{info.purpose}</p>
+                          </div>
+                          <div>
+                            <span className="text-sm font-medium text-gray-600">Platform:</span>
+                            <p className="mt-1 text-gray-800 whitespace-pre-wrap">{info.platform}</p>
+                          </div>
+                        </div>
+                      );
+                    } catch {
+                      return <p className="text-gray-800">{submittedResponse.user_response}</p>;
+                    }
+                  })()
                 ) : (
                   <p className="text-gray-800 whitespace-pre-wrap">
                     {submittedResponse.user_response}
@@ -386,6 +455,66 @@ export default function SubmissionDisplay({
                   </button>
                 )}
               </div>
+            ) : isWebsiteInfoType ? (
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    URL <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="url"
+                    value={getWebsiteInfo().url}
+                    onChange={(e) => handleWebsiteInfoChange('url', e.target.value)}
+                    placeholder="https://example.com"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                    disabled={submitting}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Name of Item <span className="text-red-500">*</span>
+                  </label>
+                  <p className="text-xs text-gray-500 mb-1">Creative names encouraged!</p>
+                  <input
+                    type="text"
+                    value={getWebsiteInfo().name}
+                    onChange={(e) => handleWebsiteInfoChange('name', e.target.value)}
+                    placeholder="Enter the name"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                    disabled={submitting}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Purpose of Item <span className="text-red-500">*</span>
+                  </label>
+                  <p className="text-xs text-gray-500 mb-1">Who was the target of this misinformation? About what?</p>
+                  <textarea
+                    value={getWebsiteInfo().purpose}
+                    onChange={(e) => { autoResize(e.target); handleWebsiteInfoChange('purpose', e.target.value); }}
+                    placeholder="Describe the purpose..."
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
+                    disabled={submitting}
+                    ref={(el) => autoResize(el)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Platform <span className="text-red-500">*</span>
+                  </label>
+                  <p className="text-xs text-gray-500 mb-1">How, when and where would it be used?</p>
+                  <textarea
+                    value={getWebsiteInfo().platform}
+                    onChange={(e) => { autoResize(e.target); handleWebsiteInfoChange('platform', e.target.value); }}
+                    placeholder="Describe the platform..."
+                    rows={3}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
+                    disabled={submitting}
+                    ref={(el) => autoResize(el)}
+                  />
+                </div>
+              </div>
             ) : (
               <textarea
                 id={`edit-response-${submissionIndex}`}
@@ -404,7 +533,7 @@ export default function SubmissionDisplay({
         /* Input Form */
         <div className="mb-6">
           <label htmlFor={`response-${submissionIndex}`} className="block text-sm font-medium text-gray-700 mb-2">
-            Your Response {(isLinkType || isListType || isDynamicListType) && <span className="text-red-500">*</span>}
+            Your Response {(isLinkType || isListType || isDynamicListType || isWebsiteInfoType) && <span className="text-red-500">*</span>}
           </label>
           
           {isPdfType ? (
@@ -505,6 +634,66 @@ export default function SubmissionDisplay({
                 + Add another item
               </button>
             </div>
+          ) : isWebsiteInfoType ? (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  URL <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="url"
+                  value={getWebsiteInfo().url}
+                  onChange={(e) => handleWebsiteInfoChange('url', e.target.value)}
+                  placeholder="https://example.com"
+                  className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                  disabled={submitting}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Name of Item <span className="text-red-500">*</span>
+                </label>
+                <p className="text-xs text-gray-500 mb-1">Creative names encouraged!</p>
+                <input
+                  type="text"
+                  value={getWebsiteInfo().name}
+                  onChange={(e) => handleWebsiteInfoChange('name', e.target.value)}
+                  placeholder="Enter the name"
+                  className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                  disabled={submitting}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Purpose of Item <span className="text-red-500">*</span>
+                </label>
+                <p className="text-xs text-gray-500 mb-1">Who was the target of this misinformation? About what?</p>
+                <textarea
+                  value={getWebsiteInfo().purpose}
+                  onChange={(e) => { autoResize(e.target); handleWebsiteInfoChange('purpose', e.target.value); }}
+                  placeholder="Describe the purpose..."
+                  rows={3}
+                  className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
+                  disabled={submitting}
+                  ref={(el) => autoResize(el)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Platform <span className="text-red-500">*</span>
+                </label>
+                <p className="text-xs text-gray-500 mb-1">How, when and where would it be used?</p>
+                <textarea
+                  value={getWebsiteInfo().platform}
+                  onChange={(e) => { autoResize(e.target); handleWebsiteInfoChange('platform', e.target.value); }}
+                  placeholder="Describe the platform..."
+                  rows={3}
+                  className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
+                  disabled={submitting}
+                  ref={(el) => autoResize(el)}
+                />
+              </div>
+            </div>
           ) : (
             <textarea
               id={`response-${submissionIndex}`}
@@ -532,6 +721,12 @@ export default function SubmissionDisplay({
           {isDynamicListType && (
             <p className="mt-1 text-xs text-gray-500">
               Add at least 1 item to submit your response. You can add or remove items as needed.
+            </p>
+          )}
+
+          {isWebsiteInfoType && (
+            <p className="mt-1 text-xs text-gray-500">
+              All fields are required to submit your website information
             </p>
           )}
         </div>

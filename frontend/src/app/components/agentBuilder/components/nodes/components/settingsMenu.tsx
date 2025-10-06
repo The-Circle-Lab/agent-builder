@@ -927,6 +927,17 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                       />
                       <span className="text-sm text-gray-300">Dynamic List</span>
                     </label>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="radio"
+                        name={`mediaType-${pIdx}`}
+                        value="websiteInfo"
+                        checked={prompt.mediaType === "websiteInfo"}
+                        onChange={(e) => updatePrompt(pIdx, "mediaType", e.target.value)}
+                        className="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-300">Website Info</span>
+                    </label>
                   </div>
                   {prompt.mediaType === "list" && 
                     <div className="mt-2">
@@ -946,6 +957,12 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                     <div className="mt-2 p-3 bg-gray-600 rounded-md">
                       <p className="text-sm text-gray-300">
                         Students can add or remove items from their list dynamically. No fixed number of items required.
+                      </p>
+                    </div>}
+                  {prompt.mediaType === "websiteInfo" && 
+                    <div className="mt-2 p-3 bg-gray-600 rounded-md">
+                      <p className="text-sm text-gray-300">
+                        Students will provide: URL, Name, Purpose, and Platform information about a website.
                       </p>
                     </div>}
                 </div>
@@ -1149,6 +1166,18 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
               return newPrompt;
             } else if (field === "listVariableId") {
               return { ...p, listVariableId: val };
+            } else if (field === "enableGroupSubmissionNavigation") {
+              const newPrompt = { ...p, enableGroupSubmissionNavigation: val };
+              // Clear related fields if unchecked
+              if (!val) {
+                delete newPrompt.submissionPromptId;
+                delete newPrompt.allowEditing;
+              }
+              return newPrompt;
+            } else if (field === "submissionPromptId") {
+              return { ...p, submissionPromptId: val };
+            } else if (field === "allowEditing") {
+              return { ...p, allowEditing: val };
             }
             return p;
           });
@@ -1215,6 +1244,84 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                     Include input field for student responses
                   </label>
                 </div>
+
+                {/* Group Submission Navigation Checkbox */}
+                <div className="flex items-center space-x-2">
+                  <input
+                    type="checkbox"
+                    checked={prompt.enableGroupSubmissionNavigation ?? false}
+                    onChange={(e) => updatePrompt(pIdx, "enableGroupSubmissionNavigation", e.target.checked)}
+                    className="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500 rounded"
+                  />
+                  <label className="text-sm text-gray-300">
+                    Enable group submission navigation (allows students to view and edit group member&apos;s submissions)
+                  </label>
+                </div>
+
+                {/* Group Submission Navigation Configuration */}
+                {prompt.enableGroupSubmissionNavigation && (
+                  <div className="space-y-3 ml-6 border-l-2 border-yellow-600 pl-4 bg-yellow-900/10 p-3 rounded">
+                    <div className="text-xs text-yellow-200 mb-2">
+                      <strong>📝 Group Submission Navigator:</strong> Students will be able to navigate through their group members&apos; submissions and optionally edit them. Perfect for collaborative review tasks.
+                    </div>
+                    
+                    <div className="space-y-2">
+                      <label className="block text-sm font-medium text-gray-300">
+                        Select Submission Prompt to Navigate
+                      </label>
+                      <select
+                        value={prompt.submissionPromptId ?? ""}
+                        onChange={(e) => updatePrompt(pIdx, "submissionPromptId", e.target.value)}
+                        className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      >
+                        <option value="">Choose a submission prompt...</option>
+                        {(() => {
+                          // Get available submission prompts from connected submission nodes
+                          const availablePrompts = getAvailableSubmissionPrompts(
+                            currentNodeId || '',
+                            edges || [],
+                            nodes || [],
+                            pageRelationships
+                          );
+                          
+                          // Create flat list of all prompts with their identifiers
+                          const allPrompts: Array<{ id: string; label: string; nodeLabel: string }> = [];
+                          availablePrompts.forEach(nodeInfo => {
+                            nodeInfo.prompts.forEach(promptInfo => {
+                              allPrompts.push({
+                                id: promptInfo.id,
+                                label: promptInfo.prompt.length > 50 ? promptInfo.prompt.substring(0, 50) + '...' : promptInfo.prompt,
+                                nodeLabel: nodeInfo.nodeLabel
+                              });
+                            });
+                          });
+                          
+                          return allPrompts.map(p => (
+                            <option key={p.id} value={p.id}>
+                              {p.label} (from {p.nodeLabel})
+                            </option>
+                          ));
+                        })()}
+                      </select>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="checkbox"
+                        checked={prompt.allowEditing ?? false}
+                        onChange={(e) => updatePrompt(pIdx, "allowEditing", e.target.checked)}
+                        className="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500 rounded"
+                      />
+                      <label className="text-sm text-gray-300">
+                        Allow students to edit submissions while navigating
+                      </label>
+                    </div>
+
+                    <div className="text-xs text-gray-400 mt-2">
+                      💡 When a student navigates to a submission, it will update for everyone in the session including roomcast displays.
+                    </div>
+                  </div>
+                )}
 
                 {/* Input Configuration (only show if hasInput is true) */}
                 {prompt.hasInput && (
