@@ -310,6 +310,37 @@ def get_all_prompt_submissions_for_deployment(deployment_id: str, db_session) ->
                             "text": joined_items,
                             "submission_index": sub.submission_index
                         }
+                    elif media_type == 'websiteInfo':
+                        # Stored as JSON array of website objects
+                        import json
+                        websites_raw = sub.user_response
+                        try:
+                            data = json.loads(websites_raw) if websites_raw else []
+                            if isinstance(data, list):
+                                websites = data
+                            else:
+                                websites = [data]
+                        except Exception:
+                            websites = []
+                        
+                        # Create text representation of websites for behaviors
+                        website_texts = []
+                        for website in websites:
+                            if isinstance(website, dict):
+                                website_text = f"{website.get('name', 'Unknown')}: {website.get('url', '')} - {website.get('purpose', '')} (Platform: {website.get('platform', 'Unknown')})"
+                                website_texts.append(website_text)
+                        
+                        joined_websites = " | ".join(website_texts)
+                        if joined_websites:
+                            text_responses.append(joined_websites)
+                        
+                        submission_responses[submission_key] = {
+                            "media_type": "websiteInfo",
+                            "response": sub.user_response,  # raw stored JSON string
+                            "websites": websites,
+                            "text": joined_websites,
+                            "submission_index": sub.submission_index
+                        }
                     else:
                         # Treat any other (textarea/hyperlink) as text
                         text_responses.append(sub.user_response)

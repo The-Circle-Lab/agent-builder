@@ -85,6 +85,8 @@ export interface MultipleChoiceQuestion {
 export interface SubmissionPrompt {
   prompt: string;
   mediaType: "textarea" | "hyperlink" | "pdf" | "list" | "dynamic_list" | "websiteInfo";
+  items?: number | null; // For list type: number of items required
+  max?: number | null; // For websiteInfo type: maximum number of website entries allowed
 }
 
 // Live presentation prompt representation for live presentation nodes
