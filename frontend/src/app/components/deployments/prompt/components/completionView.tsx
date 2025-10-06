@@ -91,6 +91,7 @@ export default function CompletionView({
               const isPdfType = requirement.mediaType === 'pdf';
               const isListType = requirement.mediaType === 'list';
               const isDynamicListType = requirement.mediaType === 'dynamic_list';
+              const isWebsiteInfoType = requirement.mediaType === 'websiteInfo';
               
               if (!submittedResponse) return null;
               
@@ -104,6 +105,8 @@ export default function CompletionView({
                         <LinkIcon className="h-5 w-5 text-purple-600" />
                       ) : isListType || isDynamicListType ? (
                         <PencilIcon className="h-5 w-5 text-orange-600" />
+                      ) : isWebsiteInfoType ? (
+                        <LinkIcon className="h-5 w-5 text-indigo-600" />
                       ) : (
                         <PencilIcon className="h-5 w-5 text-blue-600" />
                       )}
@@ -121,9 +124,11 @@ export default function CompletionView({
                               ? 'bg-purple-100 text-purple-800' 
                               : (isListType || isDynamicListType)
                                 ? 'bg-orange-100 text-orange-800'
-                                : 'bg-blue-100 text-blue-800'
+                                : isWebsiteInfoType
+                                  ? 'bg-indigo-100 text-indigo-800'
+                                  : 'bg-blue-100 text-blue-800'
                         }`}>
-                          {isPdfType ? 'PDF' : isLinkType ? 'Link' : (isListType ? 'List' : isDynamicListType ? 'Dynamic List' : 'Text')}
+                          {isPdfType ? 'PDF' : isLinkType ? 'Link' : (isListType ? 'List' : isDynamicListType ? 'Dynamic List' : isWebsiteInfoType ? 'Website Info' : 'Text')}
                         </span>
                       </div>
                       
@@ -156,6 +161,62 @@ export default function CompletionView({
                           >
                             {submittedResponse.user_response}
                           </a>
+                        ) : isWebsiteInfoType ? (
+                          (() => {
+                            const raw = submittedResponse.user_response ?? '';
+                            let websiteData: { url?: string; name?: string; purpose?: string; platform?: string } | null = null;
+                            
+                            try {
+                              const parsed = JSON.parse(raw);
+                              if (typeof parsed === 'object' && parsed !== null) {
+                                websiteData = parsed;
+                              }
+                            } catch { /* ignore */ }
+
+                            if (websiteData) {
+                              return (
+                                <div className="bg-white p-4 rounded border space-y-3">
+                                  {websiteData.name && (
+                                    <div>
+                                      <span className="text-xs font-medium text-gray-600">Website Name:</span>
+                                      <p className="text-lg font-bold text-gray-900 mt-1">{websiteData.name}</p>
+                                    </div>
+                                  )}
+                                  {websiteData.url && (
+                                    <div>
+                                      <span className="text-xs font-medium text-gray-600">URL:</span>
+                                      <a
+                                        href={websiteData.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-blue-600 hover:underline block mt-1 break-all"
+                                      >
+                                        {websiteData.url}
+                                      </a>
+                                    </div>
+                                  )}
+                                  {websiteData.purpose && (
+                                    <div>
+                                      <span className="text-xs font-medium text-gray-600">Purpose:</span>
+                                      <p className="text-gray-800 mt-1">{websiteData.purpose}</p>
+                                    </div>
+                                  )}
+                                  {websiteData.platform && (
+                                    <div>
+                                      <span className="text-xs font-medium text-gray-600">Platform:</span>
+                                      <p className="text-gray-700 mt-1">{websiteData.platform}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            }
+
+                            return (
+                              <p className="text-black whitespace-pre-wrap">
+                                {raw}
+                              </p>
+                            );
+                          })()
                         ) : (isListType || isDynamicListType) ? (
                           (() => {
                             const raw = submittedResponse.user_response ?? '';
