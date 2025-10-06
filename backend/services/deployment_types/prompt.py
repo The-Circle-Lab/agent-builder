@@ -32,6 +32,12 @@ class PromptDeployment:
                     raise ValueError(f"List submission requirement {i} missing 'items' field")
                 if not isinstance(items, int) or items < 1:
                     raise ValueError(f"List submission requirement {i} has invalid 'items' value '{items}'. Must be integer >= 1")
+            # Additional validation for websiteInfo type
+            if req['mediaType'] == 'websiteInfo':
+                max_websites = req.get('max')
+                if max_websites is not None:
+                    if not isinstance(max_websites, int) or max_websites < 1:
+                        raise ValueError(f"WebsiteInfo submission requirement {i} has invalid 'max' value '{max_websites}'. Must be integer >= 1")
 
     def get_main_question(self) -> str:
         """Get the main prompt question"""
@@ -205,22 +211,35 @@ class PromptDeployment:
                     "error": "Dynamic list submission requires at least 1 item"
                 }
         elif media_type == 'websiteInfo':
-            # For website info submissions, response should be JSON with url, name, purpose, platform
+            # For website info submissions, response should be JSON array of website objects
+            # Each object should have: url, name, purpose, platform
             import json
             try:
                 data = json.loads(response)
-                if not isinstance(data, dict):
-                    return {"valid": False, "error": "Website info must be a JSON object"}
+                if not isinstance(data, list):
+                    return {"valid": False, "error": "Website info must be a JSON array"}
                 
-                # Validate required fields
+                if len(data) < 1:
+                    return {"valid": False, "error": "At least one website entry is required"}
+                
+                # Check max limit if specified
+                max_websites = requirement.get('max')
+                if max_websites and isinstance(max_websites, int) and len(data) > max_websites:
+                    return {"valid": False, "error": f"Maximum {max_websites} website entries allowed, received {len(data)}"}
+                
+                # Validate each website entry
                 required_fields = ['url', 'name', 'purpose', 'platform']
-                for field in required_fields:
-                    if field not in data or not data[field] or not str(data[field]).strip():
-                        return {"valid": False, "error": f"Website info requires '{field}' field"}
-                
-                # Validate URL format
-                if not self._is_valid_url(data['url'].strip()):
-                    return {"valid": False, "error": "URL must be valid (http:// or https://)"}
+                for i, website in enumerate(data):
+                    if not isinstance(website, dict):
+                        return {"valid": False, "error": f"Website entry {i+1} must be a JSON object"}
+                    
+                    for field in required_fields:
+                        if field not in website or not website[field] or not str(website[field]).strip():
+                            return {"valid": False, "error": f"Website entry {i+1} requires '{field}' field"}
+                    
+                    # Validate URL format
+                    if not self._is_valid_url(website['url'].strip()):
+                        return {"valid": False, "error": f"Website entry {i+1}: URL must be valid (http:// or https://)"}
                 
             except json.JSONDecodeError:
                 return {"valid": False, "error": "Website info must be valid JSON"}

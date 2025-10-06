@@ -114,26 +114,71 @@ export default function SubmissionDisplay({
   };
 
   // Helper functions for website info handling
-  const getWebsiteInfo = (): { url: string; name: string; purpose: string; platform: string } => {
-    if (!isWebsiteInfoType) return { url: '', name: '', purpose: '', platform: '' };
+  const getWebsiteInfoList = (): Array<{ url: string; name: string; purpose: string; platform: string }> => {
+    if (!isWebsiteInfoType) return [];
     try {
-      const parsed = JSON.parse(submissionResponse || '{}');
-      return {
-        url: parsed.url || '',
-        name: parsed.name || '',
-        purpose: parsed.purpose || '',
-        platform: parsed.platform || ''
-      };
+      const parsed = JSON.parse(submissionResponse || '[]');
+      if (Array.isArray(parsed)) {
+        return parsed.map((item: { url?: string; name?: string; purpose?: string; platform?: string }) => ({
+          url: item.url || '',
+          name: item.name || '',
+          purpose: item.purpose || '',
+          platform: item.platform || ''
+        }));
+      }
+      // Legacy support: if it's a single object, convert to array
+      if (typeof parsed === 'object' && parsed !== null) {
+        return [{
+          url: parsed.url || '',
+          name: parsed.name || '',
+          purpose: parsed.purpose || '',
+          platform: parsed.platform || ''
+        }];
+      }
+      return [];
     } catch {
-      return { url: '', name: '', purpose: '', platform: '' };
+      return [];
     }
   };
 
-  const handleWebsiteInfoChange = (field: 'url' | 'name' | 'purpose' | 'platform', value: string) => {
+  const getWebsiteInfo = (websiteIndex: number): { url: string; name: string; purpose: string; platform: string } => {
+    const websites = getWebsiteInfoList();
+    if (websites.length === 0) {
+      return { url: '', name: '', purpose: '', platform: '' };
+    }
+    return websites[websiteIndex] || { url: '', name: '', purpose: '', platform: '' };
+  };
+
+  const handleWebsiteInfoChange = (websiteIndex: number, field: 'url' | 'name' | 'purpose' | 'platform', value: string) => {
     if (!isWebsiteInfoType) return;
-    const current = getWebsiteInfo();
-    current[field] = value;
-    onResponseChange(submissionIndex, JSON.stringify(current));
+    const websites = getWebsiteInfoList();
+    
+    // Ensure array has enough slots
+    while (websites.length <= websiteIndex) {
+      websites.push({ url: '', name: '', purpose: '', platform: '' });
+    }
+    
+    websites[websiteIndex][field] = value;
+    onResponseChange(submissionIndex, JSON.stringify(websites));
+  };
+
+  const addWebsiteInfoEntry = () => {
+    if (!isWebsiteInfoType) return;
+    const maxWebsites = currentRequirement.max || 5;
+    const websites = getWebsiteInfoList();
+    if (websites.length < maxWebsites) {
+      websites.push({ url: '', name: '', purpose: '', platform: '' });
+      onResponseChange(submissionIndex, JSON.stringify(websites));
+    }
+  };
+
+  const removeWebsiteInfoEntry = (websiteIndex: number) => {
+    if (!isWebsiteInfoType) return;
+    const websites = getWebsiteInfoList();
+    if (websites.length > 1) { // Keep at least one entry
+      websites.splice(websiteIndex, 1);
+      onResponseChange(submissionIndex, JSON.stringify(websites));
+    }
   };
 
   // Helper function to check if submission is valid
@@ -144,9 +189,15 @@ export default function SubmissionDisplay({
       const items = getListItems();
       return items.length > 0 && items.some(item => item.trim() !== '');
     } else if (isWebsiteInfoType) {
-      const info = getWebsiteInfo();
-      return info.url.trim() !== '' && info.name.trim() !== '' && 
-             info.purpose.trim() !== '' && info.platform.trim() !== '';
+      const websites = getWebsiteInfoList();
+      if (websites.length === 0) return false;
+      // Check if at least one website has all fields filled
+      return websites.some(website => 
+        website.url.trim() !== '' && 
+        website.name.trim() !== '' && 
+        website.purpose.trim() !== '' && 
+        website.platform.trim() !== ''
+      );
     } else {
       return submissionResponse.trim() !== '';
     }
@@ -456,64 +507,108 @@ export default function SubmissionDisplay({
                 )}
               </div>
             ) : isWebsiteInfoType ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    URL <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="url"
-                    value={getWebsiteInfo().url}
-                    onChange={(e) => handleWebsiteInfoChange('url', e.target.value)}
-                    placeholder="https://example.com"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    disabled={submitting}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Name of Item <span className="text-red-500">*</span>
-                  </label>
-                  <p className="text-xs text-gray-500 mb-1">Creative names encouraged!</p>
-                  <input
-                    type="text"
-                    value={getWebsiteInfo().name}
-                    onChange={(e) => handleWebsiteInfoChange('name', e.target.value)}
-                    placeholder="Enter the name"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                    disabled={submitting}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Purpose of Item <span className="text-red-500">*</span>
-                  </label>
-                  <p className="text-xs text-gray-500 mb-1">Who was the target of this misinformation? About what?</p>
-                  <textarea
-                    value={getWebsiteInfo().purpose}
-                    onChange={(e) => { autoResize(e.target); handleWebsiteInfoChange('purpose', e.target.value); }}
-                    placeholder="Describe the purpose..."
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
-                    disabled={submitting}
-                    ref={(el) => autoResize(el)}
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Platform <span className="text-red-500">*</span>
-                  </label>
-                  <p className="text-xs text-gray-500 mb-1">How, when and where would it be used?</p>
-                  <textarea
-                    value={getWebsiteInfo().platform}
-                    onChange={(e) => { autoResize(e.target); handleWebsiteInfoChange('platform', e.target.value); }}
-                    placeholder="Describe the platform..."
-                    rows={3}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
-                    disabled={submitting}
-                    ref={(el) => autoResize(el)}
-                  />
-                </div>
+              <div className="space-y-4">
+                {(() => {
+                  const websites = getWebsiteInfoList();
+                  const displayWebsites = websites.length === 0 ? [{ url: '', name: '', purpose: '', platform: '' }] : websites;
+                  const maxWebsites = currentRequirement.max || 5;
+                  
+                  return (
+                    <>
+                      {displayWebsites.map((_, websiteIndex) => (
+                        <div key={websiteIndex} className="space-y-3 p-4 border border-gray-300 rounded-lg bg-gray-50">
+                          <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-sm font-semibold text-gray-700">Website #{websiteIndex + 1}</h4>
+                            {displayWebsites.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => removeWebsiteInfoEntry(websiteIndex)}
+                                disabled={submitting}
+                                className="text-red-600 hover:text-red-800 disabled:opacity-50"
+                                title="Remove website"
+                              >
+                                <XMarkIcon className="h-5 w-5" />
+                              </button>
+                            )}
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              URL <span className="text-red-500">*</span>
+                            </label>
+                            <input
+                              type="url"
+                              value={getWebsiteInfo(websiteIndex).url}
+                              onChange={(e) => handleWebsiteInfoChange(websiteIndex, 'url', e.target.value)}
+                              placeholder="https://example.com"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                              disabled={submitting}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Name of Item <span className="text-red-500">*</span>
+                            </label>
+                            <p className="text-xs text-gray-500 mb-1">Creative names encouraged!</p>
+                            <input
+                              type="text"
+                              value={getWebsiteInfo(websiteIndex).name}
+                              onChange={(e) => handleWebsiteInfoChange(websiteIndex, 'name', e.target.value)}
+                              placeholder="Enter the name"
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                              disabled={submitting}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Purpose of Item <span className="text-red-500">*</span>
+                            </label>
+                            <p className="text-xs text-gray-500 mb-1">Who was the target of this misinformation? About what?</p>
+                            <textarea
+                              value={getWebsiteInfo(websiteIndex).purpose}
+                              onChange={(e) => { autoResize(e.target); handleWebsiteInfoChange(websiteIndex, 'purpose', e.target.value); }}
+                              placeholder="Describe the purpose..."
+                              rows={3}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
+                              disabled={submitting}
+                              ref={(el) => autoResize(el)}
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                              Platform <span className="text-red-500">*</span>
+                            </label>
+                            <p className="text-xs text-gray-500 mb-1">How, when and where would it be used?</p>
+                            <textarea
+                              value={getWebsiteInfo(websiteIndex).platform}
+                              onChange={(e) => { autoResize(e.target); handleWebsiteInfoChange(websiteIndex, 'platform', e.target.value); }}
+                              placeholder="Describe the platform..."
+                              rows={3}
+                              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
+                              disabled={submitting}
+                              ref={(el) => autoResize(el)}
+                            />
+                          </div>
+                        </div>
+                      ))}
+                      
+                      {displayWebsites.length < maxWebsites && (
+                        <button
+                          type="button"
+                          onClick={addWebsiteInfoEntry}
+                          disabled={submitting}
+                          className="w-full px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-300 rounded-md hover:bg-blue-100 disabled:opacity-50"
+                        >
+                          + Add Another Website (Max: {maxWebsites})
+                        </button>
+                      )}
+                      
+                      <p className="text-xs text-gray-500">
+                        You can add up to {maxWebsites} website{maxWebsites !== 1 ? 's' : ''}. All fields are required for each website.
+                      </p>
+                    </>
+                  );
+                })()}
               </div>
             ) : (
               <textarea
@@ -636,63 +731,103 @@ export default function SubmissionDisplay({
             </div>
           ) : isWebsiteInfoType ? (
             <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  URL <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="url"
-                  value={getWebsiteInfo().url}
-                  onChange={(e) => handleWebsiteInfoChange('url', e.target.value)}
-                  placeholder="https://example.com"
-                  className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  disabled={submitting}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Name of Item <span className="text-red-500">*</span>
-                </label>
-                <p className="text-xs text-gray-500 mb-1">Creative names encouraged!</p>
-                <input
-                  type="text"
-                  value={getWebsiteInfo().name}
-                  onChange={(e) => handleWebsiteInfoChange('name', e.target.value)}
-                  placeholder="Enter the name"
-                  className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
-                  disabled={submitting}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Purpose of Item <span className="text-red-500">*</span>
-                </label>
-                <p className="text-xs text-gray-500 mb-1">Who was the target of this misinformation? About what?</p>
-                <textarea
-                  value={getWebsiteInfo().purpose}
-                  onChange={(e) => { autoResize(e.target); handleWebsiteInfoChange('purpose', e.target.value); }}
-                  placeholder="Describe the purpose..."
-                  rows={3}
-                  className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
-                  disabled={submitting}
-                  ref={(el) => autoResize(el)}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Platform <span className="text-red-500">*</span>
-                </label>
-                <p className="text-xs text-gray-500 mb-1">How, when and where would it be used?</p>
-                <textarea
-                  value={getWebsiteInfo().platform}
-                  onChange={(e) => { autoResize(e.target); handleWebsiteInfoChange('platform', e.target.value); }}
-                  placeholder="Describe the platform..."
-                  rows={3}
-                  className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
-                  disabled={submitting}
-                  ref={(el) => autoResize(el)}
-                />
-              </div>
+              {(() => {
+                const websites = getWebsiteInfoList();
+                const displayWebsites = websites.length === 0 ? [{ url: '', name: '', purpose: '', platform: '' }] : websites;
+                const maxWebsites = currentRequirement.max || 5;
+                
+                return (
+                  <>
+                    {displayWebsites.map((_, websiteIndex) => (
+                      <div key={websiteIndex} className="space-y-3 p-4 border border-gray-300 rounded-lg bg-gray-50">
+                        <div className="flex items-center justify-between mb-2">
+                          <h4 className="text-sm font-semibold text-gray-700">Website #{websiteIndex + 1}</h4>
+                          {displayWebsites.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeWebsiteInfoEntry(websiteIndex)}
+                              disabled={submitting}
+                              className="text-red-600 hover:text-red-800 disabled:opacity-50"
+                              title="Remove website"
+                            >
+                              <XMarkIcon className="h-5 w-5" />
+                            </button>
+                          )}
+                        </div>
+                        
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            URL <span className="text-red-500">*</span>
+                          </label>
+                          <input
+                            type="url"
+                            value={getWebsiteInfo(websiteIndex).url}
+                            onChange={(e) => handleWebsiteInfoChange(websiteIndex, 'url', e.target.value)}
+                            placeholder="https://example.com"
+                            className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                            disabled={submitting}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Name of Item <span className="text-red-500">*</span>
+                          </label>
+                          <p className="text-xs text-gray-500 mb-1">Creative names encouraged!</p>
+                          <input
+                            type="text"
+                            value={getWebsiteInfo(websiteIndex).name}
+                            onChange={(e) => handleWebsiteInfoChange(websiteIndex, 'name', e.target.value)}
+                            placeholder="Enter the name"
+                            className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500"
+                            disabled={submitting}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Purpose of Item <span className="text-red-500">*</span>
+                          </label>
+                          <p className="text-xs text-gray-500 mb-1">Who was the target of this misinformation? About what?</p>
+                          <textarea
+                            value={getWebsiteInfo(websiteIndex).purpose}
+                            onChange={(e) => { autoResize(e.target); handleWebsiteInfoChange(websiteIndex, 'purpose', e.target.value); }}
+                            placeholder="Describe the purpose..."
+                            rows={3}
+                            className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
+                            disabled={submitting}
+                            ref={(el) => autoResize(el)}
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">
+                            Platform <span className="text-red-500">*</span>
+                          </label>
+                          <p className="text-xs text-gray-500 mb-1">How, when and where would it be used?</p>
+                          <textarea
+                            value={getWebsiteInfo(websiteIndex).platform}
+                            onChange={(e) => { autoResize(e.target); handleWebsiteInfoChange(websiteIndex, 'platform', e.target.value); }}
+                            placeholder="Describe the platform..."
+                            rows={3}
+                            className="w-full px-3 py-2 border text-black border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 resize-none"
+                            disabled={submitting}
+                            ref={(el) => autoResize(el)}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    
+                    {displayWebsites.length < maxWebsites && (
+                      <button
+                        type="button"
+                        onClick={addWebsiteInfoEntry}
+                        disabled={submitting}
+                        className="w-full px-4 py-2 text-sm font-medium text-blue-600 bg-blue-50 border border-blue-300 rounded-md hover:bg-blue-100 disabled:opacity-50"
+                      >
+                        + Add Another Website (Max: {maxWebsites})
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
             </div>
           ) : (
             <textarea
@@ -726,7 +861,7 @@ export default function SubmissionDisplay({
 
           {isWebsiteInfoType && (
             <p className="mt-1 text-xs text-gray-500">
-              All fields are required to submit your website information
+              You can add up to {currentRequirement.max || 5} website{(currentRequirement.max || 5) !== 1 ? 's' : ''}. All fields are required for each website.
             </p>
           )}
         </div>

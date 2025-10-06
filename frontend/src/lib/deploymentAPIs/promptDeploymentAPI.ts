@@ -3,6 +3,7 @@ export interface PromptSubmissionRequirement {
   prompt: string;
   mediaType: 'textarea' | 'hyperlink' | 'pdf' | 'list' | 'dynamic_list' | 'websiteInfo';
   items?: number; // Number of items required for list type (not applicable to dynamic_list)
+  max?: number; // Maximum number of entries for websiteInfo type
 }
 
 export interface GroupInfo {

@@ -279,27 +279,43 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
     // Validation for websiteInfo inputs
     if (currentRequirement.mediaType === 'websiteInfo') {
       try {
-        const info = JSON.parse(response);
+        const websites = JSON.parse(response);
         
-        if (!info || typeof info !== 'object') {
-          setError('Invalid website info format');
+        if (!Array.isArray(websites) || websites.length === 0) {
+          setError('Please add at least one website');
           return;
         }
         
-        // Check all required fields
+        // Check max limit
+        const maxWebsites = currentRequirement.max || 5;
+        if (websites.length > maxWebsites) {
+          setError(`Maximum ${maxWebsites} websites allowed`);
+          return;
+        }
+        
+        // Check all required fields for each website
         const requiredFields = ['url', 'name', 'purpose', 'platform'];
-        for (const field of requiredFields) {
-          if (!info[field] || !info[field].trim()) {
-            setError(`Please fill in all fields: ${field} is missing`);
+        for (let i = 0; i < websites.length; i++) {
+          const website = websites[i];
+          
+          if (!website || typeof website !== 'object') {
+            setError(`Website ${i + 1} has invalid format`);
             return;
           }
-        }
-        
-        // Validate URL format
-        const urlPattern = /^https?:\/\/.+/i;
-        if (!urlPattern.test(info.url.trim())) {
-          setError('URL must be valid (start with http:// or https://)');
-          return;
+          
+          for (const field of requiredFields) {
+            if (!website[field] || !website[field].trim()) {
+              setError(`Website ${i + 1}: ${field} is missing or empty`);
+              return;
+            }
+          }
+          
+          // Validate URL format
+          const urlPattern = /^https?:\/\/.+/i;
+          if (!urlPattern.test(website.url.trim())) {
+            setError(`Website ${i + 1}: URL must be valid (start with http:// or https://)`);
+            return;
+          }
         }
       } catch {
         setError('Invalid website info format');

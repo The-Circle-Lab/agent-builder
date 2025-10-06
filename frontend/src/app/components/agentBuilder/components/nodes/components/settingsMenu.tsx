@@ -806,9 +806,18 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                 // Initialize items to 1 when switching to list type
                 updatedPrompt.items = 1;
               }
+              // Reset max to null when changing away from websiteInfo type
+              if (val !== "websiteInfo") {
+                updatedPrompt.max = null;
+              } else if (!updatedPrompt.max) {
+                // Initialize max to 5 when switching to websiteInfo type
+                updatedPrompt.max = 5;
+              }
               return updatedPrompt;
             } else if (field === "items") {
               return { ...p, items: val };
+            } else if (field === "max") {
+              return { ...p, max: val };
             }
             return p;
           });
@@ -818,7 +827,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
         const addPrompt = () => {
           const newPrompts = [
             ...prompts,
-            { prompt: "", mediaType: "textarea", items: null },
+            { prompt: "", mediaType: "textarea", items: null, max: null },
           ];
           handleInputChange(key, newPrompts);
         };
@@ -960,10 +969,26 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                       </p>
                     </div>}
                   {prompt.mediaType === "websiteInfo" && 
-                    <div className="mt-2 p-3 bg-gray-600 rounded-md">
-                      <p className="text-sm text-gray-300">
-                        Students will provide: URL, Name, Purpose, and Platform information about a website.
-                      </p>
+                    <div className="mt-2 space-y-2">
+                      <div className="p-3 bg-gray-600 rounded-md">
+                        <p className="text-sm text-gray-300">
+                          Students can add multiple websites with URL, Name, Purpose, and Platform information.
+                        </p>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-300 mb-1">
+                          Maximum number of websites:
+                        </label>
+                        <input
+                          type="number"
+                          value={prompt.max || 5}
+                          onChange={(e) => updatePrompt(pIdx, "max", parseInt(e.target.value) || 5)}
+                          placeholder="Maximum websites"
+                          min="1"
+                          max="20"
+                          className="px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
                     </div>}
                 </div>
               </div>

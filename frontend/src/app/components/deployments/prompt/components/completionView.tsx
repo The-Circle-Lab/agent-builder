@@ -164,49 +164,61 @@ export default function CompletionView({
                         ) : isWebsiteInfoType ? (
                           (() => {
                             const raw = submittedResponse.user_response ?? '';
-                            let websiteData: { url?: string; name?: string; purpose?: string; platform?: string } | null = null;
+                            let websiteDataList: Array<{ url?: string; name?: string; purpose?: string; platform?: string }> = [];
                             
                             try {
                               const parsed = JSON.parse(raw);
-                              if (typeof parsed === 'object' && parsed !== null) {
-                                websiteData = parsed;
+                              if (Array.isArray(parsed)) {
+                                websiteDataList = parsed;
+                              } else if (typeof parsed === 'object' && parsed !== null) {
+                                // Legacy support: single object converted to array
+                                websiteDataList = [parsed];
                               }
                             } catch { /* ignore */ }
 
-                            if (websiteData) {
+                            if (websiteDataList.length > 0) {
                               return (
-                                <div className="bg-white p-4 rounded border space-y-3">
-                                  {websiteData.name && (
-                                    <div>
-                                      <span className="text-xs font-medium text-gray-600">Website Name:</span>
-                                      <p className="text-lg font-bold text-gray-900 mt-1">{websiteData.name}</p>
+                                <div className="space-y-4">
+                                  {websiteDataList.map((websiteData, idx) => (
+                                    <div key={idx} className="bg-white p-4 rounded border space-y-3">
+                                      {websiteDataList.length > 1 && (
+                                        <div className="pb-2 border-b border-gray-200">
+                                          <span className="text-sm font-semibold text-gray-700">Website #{idx + 1}</span>
+                                        </div>
+                                      )}
+                                      {websiteData.name && (
+                                        <div>
+                                          <span className="text-xs font-medium text-gray-600">Website Name:</span>
+                                          <p className="text-lg font-bold text-gray-900 mt-1">{websiteData.name}</p>
+                                        </div>
+                                      )}
+                                      {websiteData.url && (
+                                        <div>
+                                          <span className="text-xs font-medium text-gray-600">URL:</span>
+                                          <a
+                                            href={websiteData.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="text-blue-600 hover:underline block mt-1 break-all"
+                                          >
+                                            {websiteData.url}
+                                          </a>
+                                        </div>
+                                      )}
+                                      {websiteData.purpose && (
+                                        <div>
+                                          <span className="text-xs font-medium text-gray-600">Purpose:</span>
+                                          <p className="text-gray-800 mt-1">{websiteData.purpose}</p>
+                                        </div>
+                                      )}
+                                      {websiteData.platform && (
+                                        <div>
+                                          <span className="text-xs font-medium text-gray-600">Platform:</span>
+                                          <p className="text-gray-700 mt-1">{websiteData.platform}</p>
+                                        </div>
+                                      )}
                                     </div>
-                                  )}
-                                  {websiteData.url && (
-                                    <div>
-                                      <span className="text-xs font-medium text-gray-600">URL:</span>
-                                      <a
-                                        href={websiteData.url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-blue-600 hover:underline block mt-1 break-all"
-                                      >
-                                        {websiteData.url}
-                                      </a>
-                                    </div>
-                                  )}
-                                  {websiteData.purpose && (
-                                    <div>
-                                      <span className="text-xs font-medium text-gray-600">Purpose:</span>
-                                      <p className="text-gray-800 mt-1">{websiteData.purpose}</p>
-                                    </div>
-                                  )}
-                                  {websiteData.platform && (
-                                    <div>
-                                      <span className="text-xs font-medium text-gray-600">Platform:</span>
-                                      <p className="text-gray-700 mt-1">{websiteData.platform}</p>
-                                    </div>
-                                  )}
+                                  ))}
                                 </div>
                               );
                             }
