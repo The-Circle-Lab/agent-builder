@@ -146,6 +146,52 @@ export const useLivePresentationWebSocket = ({
         setMessageWithTimeout(null); // Clear message when prompt is received
         break;
 
+      case 'navigation_update':
+        {
+          const msg = message as NavigationUpdateMessage;
+          console.log('🧭 Navigation update received:', msg);
+          
+          // Update the current prompt with new navigation state
+          setCurrentPrompt(prev => {
+            if (!prev || !prev.enableGroupSubmissionNavigation) return prev;
+            
+            const updatedSubmission = msg.currentSubmission?.submission 
+              ? { ...msg.currentSubmission.submission }
+              : prev.currentSubmission;
+            
+            return {
+              ...prev,
+              currentSubmissionIndex: msg.currentIndex,
+              currentStudentName: msg.currentSubmission?.studentName,
+              currentSubmission: updatedSubmission
+            };
+          });
+        }
+        break;
+
+      case 'submission_updated':
+        {
+          const msg = message as SubmissionUpdatedMessage;
+          console.log('📝 Submission updated:', msg);
+          
+          // Update the current submission data
+          setCurrentPrompt(prev => {
+            if (!prev || !prev.enableGroupSubmissionNavigation) return prev;
+            if (prev.currentSubmissionIndex !== msg.submissionIndex) return prev;
+            
+            const currentSub = prev.currentSubmission || {};
+            
+            return {
+              ...prev,
+              currentSubmission: {
+                ...currentSub,
+                ...msg.updatedData
+              }
+            };
+          });
+        }
+        break;
+
       case 'send_prompt':
         // Direct prompt from server (includes navigation prompts)
         setCurrentPrompt(message.prompt);
@@ -308,6 +354,26 @@ export const useLivePresentationWebSocket = ({
             user_name: message.student.user_name
           };
           setStudentResponses(prev => [response, ...prev]);
+        }
+        break;
+
+      case 'summary_submitted':
+        if (isTeacher) {
+          // Add summary submission as a special response type
+          const summaryResponse: StudentResponse = {
+            response: JSON.stringify({
+              type: 'summary_submission',
+              group_name: message.group_name,
+              summary: message.summary_data,
+              match_result: message.match_result
+            }),
+            prompt_id: 'summary_' + message.group_name,
+            timestamp: message.timestamp,
+            user_id: message.group_name,
+            user_name: `${message.group_name} Summary`
+          };
+          setStudentResponses(prev => [summaryResponse, ...prev]);
+          console.log('📊 Received summary submission from', message.group_name);
         }
         break;
 
@@ -606,13 +672,40 @@ export const useLivePresentationWebSocket = ({
 
   const sendResponse = useCallback((promptId: string, response: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN && !isTeacher) {
-      wsRef.current.send(JSON.stringify({
-        type: 'student_response',
-        prompt_id: promptId,
-        response: response
-      }));
-      // Set waiting state after sending response
-      setWaitingForSummary(true);
+      // Check if this is an edit submission action
+      if (promptId === 'edit_submission') {
+        try {
+          const editData = JSON.parse(response);
+          wsRef.current.send(JSON.stringify({
+            type: 'edit_submission',
+            editData: editData
+          }));
+        } catch (e) {
+          console.error('Failed to parse edit submission data:', e);
+        }
+      }
+      // Check if this is a navigation action (starts with 'navigate_')
+      else if (promptId.startsWith('navigate_')) {
+        // Parse the response as navigation data
+        try {
+          const navData = JSON.parse(response);
+          wsRef.current.send(JSON.stringify({
+            type: promptId, // 'navigate_next' or 'navigate_previous'
+            ...navData
+          }));
+        } catch (e) {
+          console.error('Failed to parse navigation data:', e);
+        }
+      } else {
+        // Regular student response
+        wsRef.current.send(JSON.stringify({
+          type: 'student_response',
+          prompt_id: promptId,
+          response: response
+        }));
+        // Set waiting state after sending response
+        setWaitingForSummary(true);
+      }
     }
   }, [isTeacher]);
 
@@ -671,6 +764,10 @@ export const useLivePresentationWebSocket = ({
     lastTimerSyncRef.current = null;
     lastServerRemainingRef.current = 0;
     sendMessage({ type: 'stop_timer' });
+  }, [sendMessage]);
+
+  const rotateSummaries = useCallback(() => {
+    sendMessage({ type: 'rotate_summaries' });
   }, [sendMessage]);
 
   // Connect on mount, disconnect on unmount
@@ -779,6 +876,7 @@ export const useLivePresentationWebSocket = ({
     testConnections,
     startTimer,
     stopTimer,
+    rotateSummaries,
     
     // Connection actions
     connect,

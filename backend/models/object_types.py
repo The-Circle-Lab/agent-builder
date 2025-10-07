@@ -48,6 +48,9 @@ class DeploymentRequest(BaseModel):
 class DeploymentRenameRequest(BaseModel):
     new_name: str
 
+class DeploymentUpdateConfigRequest(BaseModel):
+    config: Dict[str, Any]
+
 class DeploymentResponse(BaseModel):
     deployment_id: str
     chat_url: str

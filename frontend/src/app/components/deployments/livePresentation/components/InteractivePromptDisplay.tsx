@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   PaperAirplaneIcon,
   CheckCircleIcon,
@@ -36,6 +36,16 @@ export const InteractivePromptDisplay: React.FC<InteractivePromptDisplayProps> =
 }) => {
   const [response, setResponse] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [currentNavIndex, setCurrentNavIndex] = useState(0);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editedPurpose, setEditedPurpose] = useState('');
+  const [editedPlatform, setEditedPlatform] = useState('');
+  
+  // Reset navigation index when prompt changes
+  useEffect(() => {
+    setCurrentNavIndex(0);
+    setIsEditing(false);
+  }, [prompt.id]);
 
   // Type guard to ensure prompt is treated as LivePresentationPrompt
   if (!isValidPrompt(prompt)) {
@@ -92,6 +102,392 @@ export const InteractivePromptDisplay: React.FC<InteractivePromptDisplayProps> =
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+        ) : null}
+
+        {/* Display GROUP submission responses if present - with navigation like roomcast */}
+        {typedPrompt?.group_submission_responses && Object.keys(typedPrompt.group_submission_responses).length > 0 ? (
+          <div className="mb-6">
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+              {(() => {
+                const submissionEntries = Object.entries(typedPrompt.group_submission_responses);
+                const totalSubmissions = submissionEntries.length;
+                const currentEntry = submissionEntries[currentNavIndex];
+                
+                if (!currentEntry) return null;
+                
+                const [memberName, responses] = currentEntry;
+                
+                return (
+                  <>
+                    {/* Navigation Controls */}
+                    <div className="flex items-center justify-between mb-4">
+                      <button
+                        onClick={() => setCurrentNavIndex(prev => Math.max(0, prev - 1))}
+                        disabled={currentNavIndex === 0}
+                        className="p-2 rounded-lg border border-amber-300 bg-white hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <svg className="w-6 h-6 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                        </svg>
+                      </button>
+                      
+                      <div className="text-center flex-1">
+                        <h3 className="font-semibold text-amber-900 mb-1">Your Group&apos;s Responses</h3>
+                        <p className="text-sm text-amber-700">{currentNavIndex + 1} of {totalSubmissions}</p>
+                      </div>
+                      
+                      <button
+                        onClick={() => setCurrentNavIndex(prev => Math.min(totalSubmissions - 1, prev + 1))}
+                        disabled={currentNavIndex === totalSubmissions - 1}
+                        className="p-2 rounded-lg border border-amber-300 bg-white hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      >
+                        <svg className="w-6 h-6 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                        </svg>
+                      </button>
+                    </div>
+                    
+                    {/* Current Submission Display */}
+                    <div className="bg-white rounded-lg px-6 py-4 border border-amber-200 shadow-sm">
+                      <h4 className="font-semibold text-amber-800 mb-4 text-center text-xl border-b border-amber-200 pb-3">
+                        {memberName.split('@')[0]}
+                      </h4>
+                      <div className="space-y-4">
+                        {Object.entries(responses).map(([promptId, responseData]) => {
+                          // Extract the actual response content
+                          let responseContent = '';
+                          if (typeof responseData === 'object' && responseData?.response) {
+                            responseContent = responseData.response;
+                          } else {
+                            responseContent = String(responseData);
+                          }
+
+                          // Try to parse as website info first
+                          let websiteData = null;
+                          let websiteArray: Array<{ url?: string; name?: string; purpose?: string; platform?: string }> = [];
+                          
+                          try {
+                            const parsed = JSON.parse(responseContent);
+                            
+                            // Check if it's an array of website objects
+                            if (Array.isArray(parsed)) {
+                              const hasWebsiteFields = parsed.some(item => 
+                                item && typeof item === 'object' && 
+                                ('url' in item || 'name' in item || 'purpose' in item || 'platform' in item)
+                              );
+                              
+                              if (hasWebsiteFields) {
+                                websiteArray = parsed;
+                              }
+                            } 
+                            // Check if it's a single website object
+                            else if (parsed && typeof parsed === 'object' && ('url' in parsed || 'name' in parsed)) {
+                              websiteData = parsed;
+                            }
+                          } catch {
+                            // Not website JSON, continue with other parsing
+                          }
+
+                          // If it's an array of website data, display each website
+                          if (websiteArray.length > 0) {
+                            return (
+                              <div key={promptId} className="space-y-4">
+                                {websiteArray.map((website, idx) => {
+                                  const handleEdit = () => {
+                                    setIsEditing(true);
+                                    setEditedPurpose(website.purpose || '');
+                                    setEditedPlatform(website.platform || '');
+                                  };
+                                  
+                                  const handleSave = () => {
+                                    // Update the website with edited values
+                                    website.purpose = editedPurpose;
+                                    website.platform = editedPlatform;
+                                    
+                                    // Update the array and send to backend
+                                    const updatedArray = [...websiteArray];
+                                    updatedArray[idx] = website;
+                                    
+                                    onResponse('edit_submission', JSON.stringify({
+                                      promptId: promptId,
+                                      studentEmail: memberName,
+                                      updatedData: updatedArray
+                                    }));
+                                    
+                                    setIsEditing(false);
+                                  };
+                                  
+                                  const handleCancel = () => {
+                                    setIsEditing(false);
+                                    setEditedPurpose('');
+                                    setEditedPlatform('');
+                                  };
+                                  
+                                  return (
+                                    <div key={idx} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                      {websiteArray.length > 1 && (
+                                        <div className="text-xs font-semibold text-gray-500 mb-2">
+                                          Website {idx + 1} of {websiteArray.length}
+                                        </div>
+                                      )}
+                                      <div className="space-y-3">
+                                        {website.name && (
+                                          <div>
+                                            <span className="text-sm font-medium text-gray-600">Website Name:</span>
+                                            <p className="text-xl font-bold text-gray-900 mt-1">{website.name}</p>
+                                          </div>
+                                        )}
+                                        {website.url && (
+                                          <div>
+                                            <span className="text-sm font-medium text-gray-600">URL:</span>
+                                            <a
+                                              href={website.url}
+                                              target="_blank"
+                                              rel="noopener noreferrer"
+                                              className="text-lg text-blue-600 hover:underline block mt-1 break-all"
+                                            >
+                                              {website.url}
+                                            </a>
+                                          </div>
+                                        )}
+                                        {website.purpose && (
+                                          <div>
+                                            <span className="text-sm font-medium text-gray-600">Purpose:</span>
+                                            {isEditing ? (
+                                              <textarea
+                                                value={editedPurpose}
+                                                onChange={(e) => setEditedPurpose(e.target.value)}
+                                                className="w-full mt-1 px-3 py-2 border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-gray-800"
+                                                rows={3}
+                                              />
+                                            ) : (
+                                              <p className="text-lg text-gray-800 mt-1">{website.purpose}</p>
+                                            )}
+                                          </div>
+                                        )}
+                                        {website.platform && (
+                                          <div>
+                                            <span className="text-sm font-medium text-gray-600">Platform:</span>
+                                            {isEditing ? (
+                                              <input
+                                                type="text"
+                                                value={editedPlatform}
+                                                onChange={(e) => setEditedPlatform(e.target.value)}
+                                                className="w-full mt-1 px-3 py-2 border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-gray-800"
+                                              />
+                                            ) : (
+                                              <p className="text-gray-700 mt-1">{website.platform}</p>
+                                            )}
+                                          </div>
+                                        )}
+                                        
+                                        {/* Edit/Save/Cancel buttons */}
+                                        <div className="flex gap-2 mt-4 pt-3 border-t border-gray-200">
+                                          {!isEditing ? (
+                                            <button
+                                              onClick={handleEdit}
+                                              className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors flex items-center gap-2"
+                                            >
+                                              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                              </svg>
+                                              Edit
+                                            </button>
+                                          ) : (
+                                            <>
+                                              <button
+                                                onClick={handleSave}
+                                                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                                              >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                                </svg>
+                                                Save
+                                              </button>
+                                              <button
+                                                onClick={handleCancel}
+                                                className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-colors flex items-center gap-2"
+                                              >
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                                </svg>
+                                                Cancel
+                                              </button>
+                                            </>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            );
+                          }
+
+                          // If it's a single website data object, display it
+                          if (websiteData) {
+                            const handleEdit = () => {
+                              setIsEditing(true);
+                              setEditedPurpose(websiteData.purpose || '');
+                              setEditedPlatform(websiteData.platform || '');
+                            };
+                            
+                            const handleSave = () => {
+                              // Update the websiteData with edited values
+                              websiteData.purpose = editedPurpose;
+                              websiteData.platform = editedPlatform;
+                              
+                              // Send update to backend
+                              onResponse('edit_submission', JSON.stringify({
+                                promptId: promptId,
+                                studentEmail: memberName,
+                                updatedData: websiteData
+                              }));
+                              
+                              setIsEditing(false);
+                            };
+                            
+                            const handleCancel = () => {
+                              setIsEditing(false);
+                              setEditedPurpose('');
+                              setEditedPlatform('');
+                            };
+                            
+                            return (
+                              <div key={promptId} className="space-y-3">
+                                {websiteData.name && (
+                                  <div>
+                                    <span className="text-sm font-medium text-gray-600">Website Name:</span>
+                                    <p className="text-xl font-bold text-gray-900 mt-1">{websiteData.name}</p>
+                                  </div>
+                                )}
+                                {websiteData.url && (
+                                  <div>
+                                    <span className="text-sm font-medium text-gray-600">URL:</span>
+                                    <a
+                                      href={websiteData.url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="text-lg text-blue-600 hover:underline block mt-1 break-all"
+                                    >
+                                      {websiteData.url}
+                                    </a>
+                                  </div>
+                                )}
+                                {websiteData.purpose && (
+                                  <div>
+                                    <span className="text-sm font-medium text-gray-600">Purpose:</span>
+                                    {isEditing ? (
+                                      <textarea
+                                        value={editedPurpose}
+                                        onChange={(e) => setEditedPurpose(e.target.value)}
+                                        className="w-full mt-1 px-3 py-2 border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-gray-800"
+                                        rows={3}
+                                      />
+                                    ) : (
+                                      <p className="text-lg text-gray-800 mt-1">{websiteData.purpose}</p>
+                                    )}
+                                  </div>
+                                )}
+                                {websiteData.platform && (
+                                  <div>
+                                    <span className="text-sm font-medium text-gray-600">Platform:</span>
+                                    {isEditing ? (
+                                      <input
+                                        type="text"
+                                        value={editedPlatform}
+                                        onChange={(e) => setEditedPlatform(e.target.value)}
+                                        className="w-full mt-1 px-3 py-2 border border-amber-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 text-gray-800"
+                                      />
+                                    ) : (
+                                      <p className="text-gray-700 mt-1">{websiteData.platform}</p>
+                                    )}
+                                  </div>
+                                )}
+                                
+                                {/* Edit/Save/Cancel buttons */}
+                                <div className="flex gap-2 mt-4 pt-3 border-t border-amber-200">
+                                  {!isEditing ? (
+                                    <button
+                                      onClick={handleEdit}
+                                      className="px-4 py-2 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors flex items-center gap-2"
+                                    >
+                                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                                      </svg>
+                                      Edit
+                                    </button>
+                                  ) : (
+                                    <>
+                                      <button
+                                        onClick={handleSave}
+                                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        Save
+                                      </button>
+                                      <button
+                                        onClick={handleCancel}
+                                        className="px-4 py-2 bg-gray-400 text-white rounded-lg hover:bg-gray-500 transition-colors flex items-center gap-2"
+                                      >
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                        Cancel
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          }
+
+                          // Check if it's a JSON array of plain strings
+                          let responseItems: string[] = [];
+                          try {
+                            const parsed = JSON.parse(responseContent);
+                            if (Array.isArray(parsed)) {
+                              // Make sure they're simple strings/numbers, not objects
+                              if (parsed.every(item => typeof item === 'string' || typeof item === 'number')) {
+                                responseItems = parsed.map(item => String(item));
+                              } else {
+                                // Array of objects we couldn't parse, just show the raw content
+                                responseItems = [responseContent];
+                              }
+                            } else {
+                              responseItems = [responseContent];
+                            }
+                          } catch {
+                            // Not JSON, treat as single text response
+                            responseItems = [responseContent];
+                          }
+
+                          return (
+                            <div key={promptId} className="text-sm">
+                              {responseItems.length > 1 ? (
+                                <div className="space-y-2">
+                                  {responseItems.map((item, index) => (
+                                    <div key={index} className="flex items-start group">
+                                      <div className="w-2 h-2 bg-gradient-to-r from-amber-500 to-amber-600 rounded-full mt-2 mr-3 flex-shrink-0 group-hover:scale-110 transition-transform"></div>
+                                      <span className="flex-1 text-gray-700 font-medium leading-relaxed text-lg">{item}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : (
+                                <div className="text-gray-700 font-medium leading-relaxed text-lg">{responseItems[0]}</div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         ) : null}

@@ -46,7 +46,8 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
     endPresentation,
     testConnections,
     startTimer,
-    stopTimer
+    stopTimer,
+    rotateSummaries
   } = useLivePresentationWebSocket({
     deploymentId,
     isTeacher: true
@@ -241,6 +242,7 @@ export const LivePresentationAdmin: React.FC<LivePresentationAdminProps> = ({
               responses={studentResponses}
               students={stats?.students || []}
               currentPromptId={stats?.current_prompt?.id}
+              onRotateSummaries={rotateSummaries}
             />
           )}
         </div>

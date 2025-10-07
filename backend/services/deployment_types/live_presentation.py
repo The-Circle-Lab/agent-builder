@@ -206,6 +206,12 @@ class LivePresentationDeployment:
         # Navigation state for group submission navigation
         self.navigation_state: Optional[Dict[str, Any]] = None
         
+        # Summary rotation game state
+        self._summary_rotation_count: int = 0  # Number of times summaries have been rotated
+        self._submitted_summaries: Dict[str, Dict[str, Any]] = {}  # group_name -> {summary_data, submissions, match_result}
+        self._current_rotation_mapping: Dict[str, str] = {}  # receiving_group -> source_group
+        self._quiz_answers: Dict[str, Dict[str, Any]] = {}  # group_name -> {selected_answer, is_correct, revealed}
+        
         # Initialize response summarizer for group summaries using GPT-4 (more stable than GPT-5)
         self._response_summarizer = None
         try:
@@ -1699,6 +1705,23 @@ class LivePresentationDeployment:
                         prompt_message["prompt"]["assigned_list_item"] = assigned_list_item
                         print(f"🎤 Including assigned list item for late-joining student {user_name}")
                     
+                    # Check if this is a navigation prompt and add navigation data
+                    if recent_prompt.get('enableGroupSubmissionNavigation') and student.group_info:
+                        group_name = student.group_info.get('group_name')
+                        submission_prompt_id = recent_prompt.get('submissionPromptId')
+                        
+                        if group_name and submission_prompt_id and self.navigation_state:
+                            navigation_data = self.navigation_state.get('navigation_data', {})
+                            group_submissions = navigation_data.get(group_name, [])
+                            
+                            if group_submissions:
+                                print(f"🧭 Adding navigation data for late-joining student {user_name} in {group_name}")
+                                prompt_message["prompt"]["groupSubmissions"] = group_submissions
+                                prompt_message["prompt"]["currentSubmissionIndex"] = 0
+                                prompt_message["prompt"]["totalSubmissions"] = len(group_submissions)
+                                prompt_message["prompt"]["currentStudentName"] = group_submissions[0].get('studentName') if group_submissions else None
+                                prompt_message["prompt"]["currentSubmission"] = group_submissions[0].get('submission') if group_submissions else None
+                    
                     await student.send_message(prompt_message)
             
             # Send group info message if student has group assignment (for late-joining students)
@@ -1855,7 +1878,9 @@ class LivePresentationDeployment:
                 await self.handle_navigation_action(user_id, "navigate_to", message)
             
             elif message_type == "edit_submission":
-                await self.handle_submission_edit(user_id, message.get("editData", {}))
+                # Handle editing group submission responses
+                edit_data = message.get("editData", {})
+                await self.handle_group_submission_edit(user_id, edit_data)
             
             else:
                 print(f"🔍 Unknown message type from student {student.user_name}: {message_type}")
@@ -1864,6 +1889,305 @@ class LivePresentationDeployment:
             print(f"❌ Error handling student message from {user_id}: {e}")
             import traceback
             traceback.print_exc()
+    
+    async def handle_group_submission_edit(self, user_id: str, edit_data: Dict[str, Any]):
+        """
+        Handle editing of group submission responses.
+        Updates the submission in the database and broadcasts to group members and roomcast.
+        """
+        student = self.students.get(user_id)
+        if not student or not student.group_info:
+            print(f"❌ Student {user_id} not found or has no group")
+            return
+        
+        group_name = student.group_info.get('group_name')
+        prompt_id = edit_data.get('promptId')
+        student_email = edit_data.get('studentEmail')
+        updated_data = edit_data.get('updatedData')
+        
+        if not all([prompt_id, student_email, updated_data]):
+            print(f"❌ Missing required fields in edit data: {edit_data}")
+            return
+        
+        print(f"✏️ Student {student.user_name} editing submission for {student_email}, prompt {prompt_id}")
+        
+        # Update the submission in the database
+        try:
+            if self._db_session and self._parent_page_deployment:
+                # Find the student whose submission is being edited
+                from sqlmodel import select
+                from models.database.db_models import User
+                from models.database.prompt_models import PromptSession, PromptSubmission
+                
+                # Get the user being edited
+                user_result = self._db_session.exec(
+                    select(User).where(User.email == student_email)
+                ).first()
+                
+                if not user_result:
+                    print(f"❌ User not found: {student_email}")
+                    return
+                
+                # Get their prompt session
+                session_result = self._db_session.exec(
+                    select(PromptSession).where(
+                        PromptSession.user_id == user_result.id,
+                        PromptSession.deployment_id == self._parent_page_deployment.id,
+                        PromptSession.is_active == True
+                    )
+                ).first()
+                
+                if not session_result:
+                    print(f"❌ No active prompt session found for {student_email}")
+                    return
+                
+                # Find the submission matching the prompt_id
+                submission_result = self._db_session.exec(
+                    select(PromptSubmission).where(
+                        PromptSubmission.session_id == session_result.id,
+                        PromptSubmission.prompt_text.contains(prompt_id.split('_')[-1])  # Match by index
+                    )
+                ).first()
+                
+                if submission_result:
+                    # Update the submission with new data
+                    import json
+                    submission_result.user_response = json.dumps(updated_data)
+                    self._db_session.add(submission_result)
+                    self._db_session.commit()
+                    print(f"✅ Updated submission in database for {student_email}")
+                else:
+                    print(f"⚠️ Submission not found in database for {student_email}, prompt {prompt_id}")
+                    
+        except Exception as e:
+            print(f"❌ Error updating submission in database: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        # Broadcast the update to all students in the same group
+        update_message = {
+            'type': 'submission_updated',
+            'promptId': prompt_id,
+            'studentEmail': student_email,
+            'updatedData': updated_data
+        }
+        
+        for s in self.students.values():
+            if (s.status != "disconnected" and 
+                s.group_info and 
+                s.group_info.get('group_name') == group_name):
+                try:
+                    await s.send_message(update_message)
+                except Exception as e:
+                    print(f"❌ Failed to send update to {s.user_name}: {e}")
+        
+        # Also broadcast to roomcast for this group
+        for ws, ws_group_name in self._roomcast_ws_lookup.items():
+            if ws_group_name == group_name:
+                try:
+                    await ws.send_text(json.dumps(update_message))
+                except Exception as e:
+                    print(f"❌ Failed to send update to roomcast: {e}")
+        
+        print(f"✏️ Broadcast submission edit to group {group_name}")
+    
+    async def handle_summary_submission(self, group_name: str, summary_data: Dict[str, Any]):
+        """
+        Handle summary form submission from roomcast.
+        Finds the best matching submission from the group using AI analysis.
+        """
+        print(f"📊 Processing summary submission for group {group_name}")
+        
+        # Extract website submissions from the group's submission data
+        website_submissions = []
+        
+        # Check if we have submission data
+        if not self._submission_data:
+            print(f"❌ No submission data available")
+            error_message = {
+                'type': 'summary_match_error',
+                'group_name': group_name,
+                'error': 'No submission data available'
+            }
+            await self._broadcast_to_roomcast_group(group_name, error_message)
+            return
+        
+        # Get group members and their submissions
+        group_members = self._get_group_members(group_name)
+        if not group_members:
+            print(f"❌ No members found for group {group_name}")
+            error_message = {
+                'type': 'summary_match_error',
+                'group_name': group_name,
+                'error': f'No members found for group {group_name}'
+            }
+            await self._broadcast_to_roomcast_group(group_name, error_message)
+            return
+        
+        print(f"📋 Found {len(group_members)} members in group {group_name}: {group_members}")
+        
+        # Get submission responses for all group members
+        group_responses = self.get_submission_data_for_group(group_members)
+        
+        if not group_responses:
+            print(f"❌ No submission responses found for group {group_name}")
+            error_message = {
+                'type': 'summary_match_error',
+                'group_name': group_name,
+                'error': 'No submissions found for this group'
+            }
+            await self._broadcast_to_roomcast_group(group_name, error_message)
+            return
+        
+        print(f"📝 Retrieved submission responses for {len(group_responses)} members")
+        
+        # Extract all website submissions from group_submission_responses
+        for member_name, member_responses in group_responses.items():
+            # Extract the response data
+            for prompt_id, response_data in member_responses.items():
+                # Get the actual response content
+                response_content = ''
+                if isinstance(response_data, dict) and 'response' in response_data:
+                    response_content = response_data['response']
+                else:
+                    response_content = str(response_data)
+                
+                # Try to parse as website data
+                try:
+                    website_data = json.loads(response_content)
+                    if isinstance(website_data, dict) and ('url' in website_data or 'name' in website_data):
+                        website_submissions.append({
+                            'student_name': member_name,
+                            'url': website_data.get('url', ''),
+                            'name': website_data.get('name', ''),
+                            'purpose': website_data.get('purpose', ''),
+                            'platform': website_data.get('platform', '')
+                        })
+                        print(f"✅ Extracted submission from {member_name}: {website_data.get('name', 'unnamed')}")
+                except Exception as e:
+                    # Not valid JSON or website data, skip
+                    print(f"⚠️ Could not parse submission from {member_name}: {e}")
+                    continue
+        
+        if not website_submissions:
+            print(f"❌ No website submissions found in group {group_name}")
+            # Send error message to roomcast
+            error_message = {
+                'type': 'summary_match_error',
+                'group_name': group_name,
+                'error': 'No website submissions found to match against'
+            }
+            await self._broadcast_to_roomcast_group(group_name, error_message)
+            return
+        
+        print(f"📊 Found {len(website_submissions)} website submissions in group {group_name}")
+        
+        # Trigger the Celery task for AI matching
+        try:
+            from services.celery_tasks import match_submission_to_summary_task
+            
+            # Send "processing" message to roomcast
+            processing_message = {
+                'type': 'summary_match_processing',
+                'group_name': group_name,
+                'message': 'Analyzing submissions to find best match...'
+            }
+            await self._broadcast_to_roomcast_group(group_name, processing_message)
+            
+            # Start the Celery task (async)
+            task = match_submission_to_summary_task.delay(
+                summary_data=summary_data,
+                website_submissions=website_submissions,
+                matching_strategy="comprehensive",
+                model_name="gpt-4o"
+            )
+            
+            # Wait for the result (with timeout)
+            import asyncio
+            from celery.result import AsyncResult
+            
+            # Poll for task completion
+            max_wait = 30  # 30 seconds timeout
+            wait_interval = 0.5  # Check every 0.5 seconds
+            elapsed = 0
+            
+            while elapsed < max_wait:
+                task_result = AsyncResult(task.id)
+                if task_result.ready():
+                    if task_result.successful():
+                        result = task_result.get()
+                        match_data = result['result']
+                        
+                        # Send the best match to the roomcast
+                        match_message = {
+                            'type': 'summary_match_result',
+                            'group_name': group_name,
+                            'best_match': match_data['best_match_submission'],
+                            'similarity_score': match_data['similarity_score'],
+                            'reasoning': match_data['reasoning'],
+                            'all_scores': match_data['all_scores'],
+                            'summary_data': summary_data
+                        }
+                        await self._broadcast_to_roomcast_group(group_name, match_message)
+                        print(f"✅ Sent match result to roomcast for group {group_name}")
+                        
+                        # Store summary for rotation game
+                        self._submitted_summaries[group_name] = {
+                            'summary_data': summary_data,
+                            'submissions': website_submissions,
+                            'match_result': match_data
+                        }
+                        print(f"💾 Stored summary for {group_name} (total: {len(self._submitted_summaries)} groups)")
+                        
+                        # Also notify teachers about the summary submission
+                        await self._notify_teachers_summary_submitted(
+                            group_name=group_name,
+                            summary_data=summary_data,
+                            match_result=match_data
+                        )
+                        return
+                    else:
+                        # Task failed
+                        error_message = {
+                            'type': 'summary_match_error',
+                            'group_name': group_name,
+                            'error': 'Failed to analyze submissions'
+                        }
+                        await self._broadcast_to_roomcast_group(group_name, error_message)
+                        return
+                
+                await asyncio.sleep(wait_interval)
+                elapsed += wait_interval
+            
+            # Timeout
+            error_message = {
+                'type': 'summary_match_error',
+                'group_name': group_name,
+                'error': 'Analysis timed out'
+            }
+            await self._broadcast_to_roomcast_group(group_name, error_message)
+            
+        except Exception as e:
+            print(f"❌ Error processing summary submission: {e}")
+            import traceback
+            traceback.print_exc()
+            
+            error_message = {
+                'type': 'summary_match_error',
+                'group_name': group_name,
+                'error': f'Error: {str(e)}'
+            }
+            await self._broadcast_to_roomcast_group(group_name, error_message)
+    
+    async def _broadcast_to_roomcast_group(self, group_name: str, message: Dict[str, Any]):
+        """Helper to broadcast a message to a specific roomcast group"""
+        for ws in list(self.roomcast_websockets):
+            ws_group_name = self._roomcast_ws_lookup.get(ws)
+            if ws_group_name == group_name:
+                try:
+                    await ws.send_text(json.dumps(message))
+                except Exception as e:
+                    print(f"❌ Failed to send to roomcast {group_name}: {e}")
     
     async def handle_teacher_message(self, websocket: WebSocket, message: Dict[str, Any]):
         """Handle incoming message from teacher"""
@@ -2015,6 +2339,11 @@ class LivePresentationDeployment:
                     "message": "Configuration debug complete - check logs for details",
                     "debug_info": debug_info
                 }))
+            
+            elif message_type == "rotate_summaries":
+                # Handle rotation quiz game trigger from teacher
+                print(f"🔄 Teacher triggered summary rotation")
+                await self.rotate_summaries()
         
         except Exception as e:
             print(f"Error handling teacher message: {e}")
@@ -2119,7 +2448,7 @@ class LivePresentationDeployment:
             # Check if the prompt statement suggests it wants to review previous responses
             elif self._submission_data:
                 statement = self.current_prompt.get("statement", "").lower()
-                review_keywords = ["insights", "screen", "discuss", "review", "look at", "based on", "consider your", "reflect on"]
+                review_keywords = ["insights", "screen", "discuss", "review", "look at", "based on", "consider your", "reflect on", "responses", "navigate"]
                 should_include_responses = any(keyword in statement for keyword in review_keywords)
             
             print(f"🎤 Standard prompt processing: use_random_list_item={use_random_list_item}, should_include_responses={should_include_responses}")
@@ -2144,21 +2473,41 @@ class LivePresentationDeployment:
                     
                     # Add submission data ONLY if the prompt explicitly requests it
                     if should_include_responses and self._submission_data:
-                        submission_responses = self.get_submission_data_for_student(student.user_name)
-                        if submission_responses:
-                            # Filter to requested keys to prevent sending extra submissions
-                            filtered_responses = self._filter_submission_map_to_keys(submission_responses, requested_keys)
-                            if filtered_responses:
-                                # Embed inside prompt to match frontend expectations
-                                try:
-                                    if isinstance(message["prompt"], dict):
-                                        message["prompt"]["submission_responses"] = filtered_responses
-                                except Exception:
-                                    pass
-                                try:
-                                    print(f"📝 Added {len(filtered_responses)} filtered submission responses for {student.user_name} (requested_keys={sorted(list(requested_keys)) if requested_keys else 'deployment-level/default'})")
-                                except Exception:
-                                    pass
+                        # Check if student has a group - if so, get GROUP submissions
+                        if student.group_info and student.group_info.get('group_name'):
+                            group_name = student.group_info['group_name']
+                            group_members = self._get_group_members(group_name)
+                            
+                            if group_members:
+                                # Get submissions for all group members
+                                group_submission_responses = self.get_submission_data_for_group(group_members)
+                                if group_submission_responses:
+                                    # Filter to requested keys
+                                    filtered_group_responses = self._filter_submission_map_to_keys(group_submission_responses, requested_keys)
+                                    if filtered_group_responses:
+                                        try:
+                                            if isinstance(message["prompt"], dict):
+                                                message["prompt"]["group_submission_responses"] = filtered_group_responses
+                                            print(f"📝 Added group submissions for {student.user_name}'s group {group_name}: {len(filtered_group_responses)} members")
+                                        except Exception as e:
+                                            print(f"❌ Error adding group submissions: {e}")
+                        else:
+                            # No group - fall back to individual submissions
+                            submission_responses = self.get_submission_data_for_student(student.user_name)
+                            if submission_responses:
+                                # Filter to requested keys to prevent sending extra submissions
+                                filtered_responses = self._filter_submission_map_to_keys(submission_responses, requested_keys)
+                                if filtered_responses:
+                                    # Embed inside prompt to match frontend expectations
+                                    try:
+                                        if isinstance(message["prompt"], dict):
+                                            message["prompt"]["submission_responses"] = filtered_responses
+                                    except Exception:
+                                        pass
+                                    try:
+                                        print(f"📝 Added {len(filtered_responses)} filtered submission responses for {student.user_name} (requested_keys={sorted(list(requested_keys)) if requested_keys else 'deployment-level/default'})")
+                                    except Exception:
+                                        pass
 
                     success = await student.send_message(message)
                     if success:
@@ -2310,7 +2659,7 @@ class LivePresentationDeployment:
                         # Check if the prompt statement suggests it wants to review previous responses
                         elif self._submission_data:
                             statement = self.current_prompt.get("statement", "").lower()
-                            review_keywords = ["insights", "screen", "discuss", "review", "look at", "based on", "consider your", "reflect on"]
+                            review_keywords = ["insights", "screen", "discuss", "review", "look at", "based on", "consider your", "reflect on", "responses", "navigate"]
                             should_include_responses = any(keyword in statement for keyword in review_keywords)
                         
                         if should_include_responses and self._submission_data:
@@ -3835,6 +4184,157 @@ class LivePresentationDeployment:
         except Exception as e:
             print(f"❌ Error sending response progress to roomcast {group_name}: {e}")
     
+    async def _notify_teachers_summary_submitted(
+        self, 
+        group_name: str, 
+        summary_data: Dict[str, Any], 
+        match_result: Dict[str, Any]
+    ):
+        """Notify teachers when a roomcast group submits a summary with AI match result"""
+        message = {
+            "type": "summary_submitted",
+            "group_name": group_name,
+            "timestamp": datetime.now().isoformat(),
+            "summary_data": summary_data,
+            "match_result": {
+                "best_match": match_result.get('best_match_submission'),
+                "similarity_score": match_result.get('similarity_score'),
+                "reasoning": match_result.get('reasoning'),
+                "all_scores": match_result.get('all_scores')
+            }
+        }
+        
+        disconnected_teachers = set()
+        for teacher_ws in list(self.teacher_websockets):
+            try:
+                await teacher_ws.send_text(json.dumps(message))
+                print(f"✅ Sent summary submission to teacher for group {group_name}")
+            except Exception as e:
+                print(f"❌ Failed to send summary notification to teacher: {e}")
+                disconnected_teachers.add(teacher_ws)
+        
+        # Remove disconnected teachers
+        for teacher_ws in disconnected_teachers:
+            self.teacher_websockets.discard(teacher_ws)
+            print(f"🗑️ Removed disconnected teacher websocket")
+    
+    async def rotate_summaries(self):
+        """
+        Rotate summaries between groups for guessing game.
+        Each group gets a mystery submission from another group and must guess the category.
+        """
+        if not self._submitted_summaries:
+            print(f"❌ No summaries submitted yet")
+            return
+        
+        # Get list of groups that submitted summaries
+        submitted_groups = sorted(list(self._submitted_summaries.keys()))
+        num_groups = len(submitted_groups)
+        
+        if num_groups < 2:
+            print(f"❌ Need at least 2 groups with summaries (have {num_groups})")
+            return
+        
+        # Increment rotation count
+        self._summary_rotation_count += 1
+        print(f"🔄 Rotating summaries (rotation #{self._summary_rotation_count})")
+        
+        # Calculate rotation: each group gets the previous group's summary
+        # Rotation pattern: group at index i gets group at index (i - rotation_count) % num_groups
+        rotation_mapping = {}
+        for i, receiving_group in enumerate(submitted_groups):
+            source_index = (i - self._summary_rotation_count) % num_groups
+            source_group = submitted_groups[source_index]
+            rotation_mapping[receiving_group] = source_group
+        
+        self._current_rotation_mapping = rotation_mapping
+        print(f"📊 Rotation mapping: {rotation_mapping}")
+        
+        # Collect all unique categories from all groups
+        all_categories = list(set(
+            summary['summary_data']['category'] 
+            for summary in self._submitted_summaries.values()
+        ))
+        
+        # Send mystery submission to each group
+        for receiving_group, source_group in rotation_mapping.items():
+            source_data = self._submitted_summaries[source_group]
+            
+            # Pick a random submission from the source group
+            import random
+            random_submission = random.choice(source_data['submissions'])
+            
+            # Reset quiz state for this group
+            self._quiz_answers[receiving_group] = {
+                'selected_answer': None,
+                'is_correct': False,
+                'revealed': False
+            }
+            
+            # Send quiz to roomcast
+            quiz_message = {
+                'type': 'summary_quiz',
+                'mystery_submission': {
+                    'url': random_submission.get('url', ''),
+                    'name': random_submission.get('name', ''),
+                    'purpose': random_submission.get('purpose', ''),
+                    'platform': random_submission.get('platform', '')
+                },
+                'category_options': all_categories,
+                'correct_category': source_data['summary_data']['category'],
+                'source_group': source_group,  # Hidden from frontend initially
+                'rotation_number': self._summary_rotation_count
+            }
+            
+            await self._broadcast_to_roomcast_group(receiving_group, quiz_message)
+            print(f"📤 Sent quiz to {receiving_group} (from {source_group})")
+        
+        # Notify teachers
+        teacher_message = {
+            'type': 'summaries_rotated',
+            'rotation_count': self._summary_rotation_count,
+            'mapping': rotation_mapping,
+            'num_groups': num_groups
+        }
+        
+        for teacher_ws in list(self.teacher_websockets):
+            try:
+                await teacher_ws.send_text(json.dumps(teacher_message))
+            except:
+                pass
+    
+    async def handle_quiz_answer(self, group_name: str, selected_category: str):
+        """Handle quiz answer submission from a roomcast group"""
+        if group_name not in self._current_rotation_mapping:
+            print(f"❌ Group {group_name} not in current rotation")
+            return
+        
+        source_group = self._current_rotation_mapping[group_name]
+        source_data = self._submitted_summaries[source_group]
+        correct_category = source_data['summary_data']['category']
+        
+        is_correct = (selected_category == correct_category)
+        
+        # Store answer
+        self._quiz_answers[group_name] = {
+            'selected_answer': selected_category,
+            'is_correct': is_correct,
+            'revealed': True
+        }
+        
+        # Send result and reveal full summary
+        result_message = {
+            'type': 'quiz_result',
+            'selected_category': selected_category,
+            'correct_category': correct_category,
+            'is_correct': is_correct,
+            'source_group': source_group,
+            'full_summary': source_data['summary_data']
+        }
+        
+        await self._broadcast_to_roomcast_group(group_name, result_message)
+        print(f"✅ Sent quiz result to {group_name}: {'Correct' if is_correct else 'Incorrect'}")
+    
     def get_presentation_stats(self) -> Dict[str, Any]:
         """Get current presentation statistics"""
         total_students = len(self.students)
@@ -4144,15 +4644,28 @@ class LivePresentationDeployment:
         media_type = response.get('media_type', '')
         
         if media_type == 'websiteInfo':
-            # Parse JSON response for websiteInfo
+            # Parse JSON response for websiteInfo (array of website objects)
             try:
-                response_str = response.get('response', '{}')
-                if isinstance(response_str, str):
-                    parsed = json.loads(response_str)
-                    return {
-                        'type': 'websiteInfo',
-                        'data': parsed
-                    }
+                # Check if 'websites' array is already parsed in response
+                if 'websites' in response and isinstance(response['websites'], list):
+                    websites = response['websites']
+                else:
+                    # Parse from raw JSON string
+                    response_str = response.get('response', '[]')
+                    if isinstance(response_str, str):
+                        parsed = json.loads(response_str)
+                        # Ensure it's an array
+                        if isinstance(parsed, list):
+                            websites = parsed
+                        else:
+                            websites = [parsed] if parsed else []
+                    else:
+                        websites = []
+                
+                return {
+                    'type': 'websiteInfo',
+                    'data': websites  # Now always an array
+                }
             except json.JSONDecodeError:
                 print(f"❌ Failed to parse websiteInfo JSON")
                 return None
@@ -4328,11 +4841,19 @@ class LivePresentationDeployment:
                     raw_submission = current_submission['submission']
                     submission_type = raw_submission.get('type')
                     submission_data = raw_submission.get('data')
-                    if submission_type == 'websiteInfo' and isinstance(submission_data, dict):
-                        submission_payload = {
-                            'type': submission_type,
-                            'data': submission_data
-                        }
+                    if submission_type == 'websiteInfo':
+                        # websiteInfo data should be an array of website objects
+                        if isinstance(submission_data, list):
+                            submission_payload = {
+                                'type': submission_type,
+                                'data': submission_data
+                            }
+                        elif isinstance(submission_data, dict):
+                            # Fallback: wrap single object in array for backwards compatibility
+                            submission_payload = {
+                                'type': submission_type,
+                                'data': [submission_data]
+                            }
                     else:
                         submission_payload = raw_submission
                 else:
@@ -4374,11 +4895,19 @@ class LivePresentationDeployment:
                     raw_submission = current_submission['submission']
                     submission_type = raw_submission.get('type')
                     submission_data = raw_submission.get('data')
-                    if submission_type == 'websiteInfo' and isinstance(submission_data, dict):
-                        submission_payload = {
-                            'type': submission_type,
-                            'data': submission_data
-                        }
+                    if submission_type == 'websiteInfo':
+                        # websiteInfo data should be an array of website objects
+                        if isinstance(submission_data, list):
+                            submission_payload = {
+                                'type': submission_type,
+                                'data': submission_data
+                            }
+                        elif isinstance(submission_data, dict):
+                            # Fallback: wrap single object in array for backwards compatibility
+                            submission_payload = {
+                                'type': submission_type,
+                                'data': [submission_data]
+                            }
                     else:
                         submission_payload = raw_submission
                 else:
@@ -4700,12 +5229,42 @@ class LivePresentationDeployment:
                     await websocket.send_text(json.dumps({"type": "error", "message": "group_name required"}))
                     return
                 await self.register_roomcast_for_group(websocket, group_name)
+            elif msg_type == "submit_summary":
+                # Handle summary form submission from roomcast
+                group_name = self._roomcast_ws_lookup.get(websocket)
+                if not group_name:
+                    await websocket.send_text(json.dumps({"type": "error", "message": "roomcast not registered"}))
+                    return
+                
+                summary_data = message.get("summary_data")
+                if not summary_data:
+                    await websocket.send_text(json.dumps({"type": "error", "message": "summary_data required"}))
+                    return
+                
+                # Process the summary submission directly with group name
+                await self.handle_summary_submission(group_name, summary_data)
+            elif msg_type == "submit_quiz_answer":
+                # Handle quiz answer submission from roomcast
+                group_name = self._roomcast_ws_lookup.get(websocket)
+                if not group_name:
+                    await websocket.send_text(json.dumps({"type": "error", "message": "roomcast not registered"}))
+                    return
+                
+                selected_category = message.get("selected_category")
+                if not selected_category:
+                    await websocket.send_text(json.dumps({"type": "error", "message": "selected_category required"}))
+                    return
+                
+                # Process the quiz answer
+                await self.handle_quiz_answer(group_name, selected_category)
             elif msg_type == "ping":
                 await websocket.send_text(json.dumps({"type": "pong", "ts": datetime.now().isoformat()}))
             else:
                 await websocket.send_text(json.dumps({"type": "error", "message": "unknown_message_type"}))
         except Exception as e:
             print(f"❌ Error handling roomcast message: {e}")
+            import traceback
+            traceback.print_exc()
 
     async def _broadcast_prompt_to_roomcast(self, prompt: Dict[str, Any], group_item_map: Optional[Dict[str, Any]]):
         # Send full instructions to roomcast displays. If group_item_map provided, tailor per group
@@ -4728,7 +5287,7 @@ class LivePresentationDeployment:
             # Check if the prompt statement suggests it wants to review previous responses
             elif self._submission_data:
                 statement = prompt.get("statement", "").lower()
-                review_keywords = ["insights", "screen", "discuss", "review", "look at", "based on", "consider your", "reflect on"]
+                review_keywords = ["insights", "screen", "discuss", "review", "look at", "based on", "consider your", "reflect on", "responses", "navigate"]
                 should_include_responses = any(keyword in statement for keyword in review_keywords)
             
             print(f"📺 Roomcast broadcast: should_include_responses={should_include_responses} (system={prompt.get('isSystemPrompt', False)}, category={prompt.get('category', 'none')})")

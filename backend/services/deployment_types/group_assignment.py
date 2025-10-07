@@ -433,22 +433,31 @@ class GroupAssignmentBehavior:
                                                 print(f"      ✅ Added {media_type} items text: {list_text[:50]}...")
                                     elif media_type == 'websiteInfo':
                                         try:
-                                            # Parse websiteInfo JSON and extract text fields
-                                            website_data = json.loads(response.get('response', '{}'))
-                                            website_parts = []
+                                            # Parse websiteInfo JSON - it's now an array of website objects
+                                            websites_array = json.loads(response.get('response', '[]'))
                                             
-                                            # Extract and combine all text fields
-                                            if website_data.get('name'):
-                                                website_parts.append(f"Website: {website_data['name']}")
-                                            if website_data.get('purpose'):
-                                                website_parts.append(f"Purpose: {website_data['purpose']}")
-                                            if website_data.get('platform'):
-                                                website_parts.append(f"Platform: {website_data['platform']}")
+                                            # Handle both array format (new) and object format (legacy)
+                                            if isinstance(websites_array, dict):
+                                                # Legacy single object format
+                                                websites_array = [websites_array]
                                             
-                                            if website_parts:
-                                                website_text = ' | '.join(website_parts)
-                                                selected_texts.append(website_text)
-                                                print(f"      ✅ Added websiteInfo text: {website_text[:80]}...")
+                                            # Process each website in the array
+                                            for website_data in websites_array:
+                                                if isinstance(website_data, dict):
+                                                    website_parts = []
+                                                    
+                                                    # Extract and combine all text fields
+                                                    if website_data.get('name'):
+                                                        website_parts.append(f"Website: {website_data['name']}")
+                                                    if website_data.get('purpose'):
+                                                        website_parts.append(f"Purpose: {website_data['purpose']}")
+                                                    if website_data.get('platform'):
+                                                        website_parts.append(f"Platform: {website_data['platform']}")
+                                                    
+                                                    if website_parts:
+                                                        website_text = ' | '.join(website_parts)
+                                                        selected_texts.append(website_text)
+                                                        print(f"      ✅ Added websiteInfo text: {website_text[:80]}...")
                                         except (json.JSONDecodeError, TypeError) as e:
                                             print(f"      ❌ Error parsing websiteInfo JSON: {e}")
                                     elif media_type == 'pdf':
