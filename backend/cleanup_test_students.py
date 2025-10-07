@@ -48,7 +48,7 @@ class TestStudentCleanup:
     def identify_test_users(self, session: Session) -> List[User]:
         """Identify test users by email patterns"""
         test_patterns = [
-            "praman@torontomu.ca"
+            r".*@student\.edu$"
         ]
         
         test_users = []

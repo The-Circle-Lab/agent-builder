@@ -2052,10 +2052,24 @@ class LivePresentationDeployment:
                 else:
                     response_content = str(response_data)
                 
-                # Try to parse as website data
+                # Try to parse as website data (websiteInfo format is a JSON array)
                 try:
                     website_data = json.loads(response_content)
-                    if isinstance(website_data, dict) and ('url' in website_data or 'name' in website_data):
+                    
+                    # Handle websiteInfo format: JSON array of website objects
+                    if isinstance(website_data, list):
+                        for website_obj in website_data:
+                            if isinstance(website_obj, dict) and ('url' in website_obj or 'name' in website_obj):
+                                website_submissions.append({
+                                    'student_name': member_name,
+                                    'url': website_obj.get('url', ''),
+                                    'name': website_obj.get('name', ''),
+                                    'purpose': website_obj.get('purpose', ''),
+                                    'platform': website_obj.get('platform', '')
+                                })
+                                print(f"✅ Extracted submission from {member_name}: {website_obj.get('name', 'unnamed')}")
+                    # Handle legacy format: single website object
+                    elif isinstance(website_data, dict) and ('url' in website_data or 'name' in website_data):
                         website_submissions.append({
                             'student_name': member_name,
                             'url': website_data.get('url', ''),
