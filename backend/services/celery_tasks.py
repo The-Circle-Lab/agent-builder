@@ -647,3 +647,130 @@ def process_prompt_pdf_submission_task(self, *, deployment_id: str, submission_i
                 p.unlink()
         except Exception:
             pass
+
+
+@celery_app.task(name="match_submission_to_summary", bind=True)
+def match_submission_to_summary_task(
+    self,
+    summary_data: Dict[str, str],
+    website_submissions: list[Dict[str, Any]],
+    matching_strategy: str = "comprehensive",
+    model_name: str = "gpt-4o"
+):
+    """
+    Find the website submission that best matches a summary using AI analysis.
+    
+    Args:
+        summary_data: Dict with 'category', 'purpose', 'platform', 'strategy' keys
+        website_submissions: List of dicts with website submission data (student_name, url, name, purpose, platform)
+        matching_strategy: Strategy for matching ('comprehensive', 'purpose_focused', 'platform_focused')
+        model_name: LLM model to use for analysis
+    
+    Returns:
+        Dict with matching results including best match, score, reasoning, and all scores
+    """
+    task_id = self.request.id
+    print(f"🔍 [Celery] Starting submission matching task {task_id}")
+    print(f"   Summary category: {summary_data.get('category', 'N/A')}")
+    print(f"   Number of submissions: {len(website_submissions)}")
+    print(f"   Matching strategy: {matching_strategy}")
+    
+    try:
+        # Update task state to PROGRESS
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'status': 'Analyzing submissions...',
+                'progress': 20,
+                'stage': 'analysis'
+            }
+        )
+        
+        # Import the matcher
+        from services.deployment_types.submission_matcher import match_summary_to_submission
+        import asyncio
+        
+        # Update progress
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'status': 'Running AI matching analysis...',
+                'progress': 50,
+                'stage': 'matching'
+            }
+        )
+        
+        # Run the async matching function
+        loop = asyncio.get_event_loop()
+        result = loop.run_until_complete(
+            match_summary_to_submission(
+                summary_data=summary_data,
+                website_submissions=website_submissions,
+                matching_strategy=matching_strategy,
+                model_name=model_name
+            )
+        )
+        
+        # Update progress
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'status': 'Match found!',
+                'progress': 90,
+                'stage': 'finalizing'
+            }
+        )
+        
+        # Format the result for return
+        match_result = {
+            'best_match_student': result.best_match_student,
+            'best_match_submission': {
+                'student_name': result.best_match_submission.student_name,
+                'url': result.best_match_submission.url,
+                'name': result.best_match_submission.name,
+                'purpose': result.best_match_submission.purpose,
+                'platform': result.best_match_submission.platform,
+            },
+            'similarity_score': result.similarity_score,
+            'reasoning': result.reasoning,
+            'all_scores': result.all_scores,
+            'timestamp': result.timestamp.isoformat()
+        }
+        
+        # Final state update
+        self.update_state(
+            state='PROGRESS',
+            meta={
+                'status': 'Completed',
+                'progress': 100,
+                'stage': 'completed'
+            }
+        )
+        
+        print(f"✅ [Celery] Submission matching completed for task {task_id}")
+        print(f"   Best match: {result.best_match_student} (score: {result.similarity_score:.2f})")
+        
+        return {
+            'status': 'SUCCESS',
+            'result': match_result,
+            'progress': 100,
+            'stage': 'completed'
+        }
+        
+    except Exception as exc:
+        error_msg = str(exc)
+        error_traceback = traceback.format_exc()
+        print(f"❌ [Celery] Submission matching task {task_id} failed: {error_msg}")
+        print(f"Traceback:\n{error_traceback}")
+        
+        self.update_state(
+            state='FAILURE',
+            meta={
+                'status': f'Matching failed: {error_msg}',
+                'error': error_msg,
+                'traceback': error_traceback,
+                'progress': 0,
+                'stage': 'failed'
+            }
+        )
+        raise

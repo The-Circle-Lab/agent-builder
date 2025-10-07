@@ -25,7 +25,7 @@ from scripts.permission_helpers import (
 
 # Deployment models
 from models.object_types import (
-    DeploymentRequest, DeploymentRenameRequest, DeploymentResponse, ChatRequest, ChatResponse,
+    DeploymentRequest, DeploymentRenameRequest, DeploymentUpdateConfigRequest, DeploymentResponse, ChatRequest, ChatResponse,
     ConversationCreateRequest, ConversationResponse, MessageResponse
 )
 
@@ -60,7 +60,7 @@ __all__ = [
     "PromptSession", "PromptSubmission",
     
     # Request/Response models
-    "DeploymentRequest", "DeploymentRenameRequest", "DeploymentResponse", "ChatRequest", "ChatResponse",
+    "DeploymentRequest", "DeploymentRenameRequest", "DeploymentUpdateConfigRequest", "DeploymentResponse", "ChatRequest", "ChatResponse",
     "ConversationCreateRequest", "ConversationResponse", "MessageResponse",
     
     # Permission helpers

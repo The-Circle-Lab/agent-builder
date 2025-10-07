@@ -192,6 +192,25 @@ interface AddMemberModalState {
   error: string | null;
 }
 
+interface BehaviorConfigModalState {
+  isOpen: boolean;
+  behaviorNumber: string;
+  behaviorType: string;
+  config: {
+    group_size: number;
+    group_size_mode: 'students_per_group' | 'number_of_groups';
+    grouping_method: 'homogeneous' | 'diverse' | 'mixed';
+  };
+  loading: boolean;
+  error: string | null;
+}
+
+interface GroupBehaviorConfig {
+  group_size?: number;
+  group_size_mode?: 'students_per_group' | 'number_of_groups';
+  grouping_method?: 'homogeneous' | 'diverse' | 'mixed';
+}
+
 // =============================================================================
 // MAIN COMPONENT
 // =============================================================================
@@ -258,6 +277,12 @@ export default function PageDeploymentAdmin({
   const [renameValue, setRenameValue] = useState('');
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
+
+  // Config editing state
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
+  const [configInput, setConfigInput] = useState<string>('');
+  const [savingConfig, setSavingConfig] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   // Helper: format backend UTC ISO to datetime-local (local tz) string
   const formatDateTimeLocalInput = (isoString: string | null): string => {
@@ -434,6 +459,67 @@ export default function PageDeploymentAdmin({
       setIsRenaming(false);
     }
   };
+
+  // Config editing functions
+  const fetchConfig = async () => {
+    try {
+      const response = await fetch(`${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/config`, {
+        credentials: 'include'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setConfigInput(JSON.stringify(data.config, null, 2));
+      }
+    } catch (error) {
+      console.error('Error fetching config:', error);
+    }
+  };
+
+  const openConfigModal = () => {
+    fetchConfig();
+    setIsConfigModalOpen(true);
+    setConfigError(null);
+  };
+
+  const closeConfigModal = () => {
+    setIsConfigModalOpen(false);
+    setConfigInput('');
+    setConfigError(null);
+  };
+
+  const handleSaveConfig = async () => {
+    try {
+      // Validate JSON
+      const parsedConfig = JSON.parse(configInput);
+      
+      setSavingConfig(true);
+      setConfigError(null);
+
+      const response = await fetch(`${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/config`, {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ config: parsedConfig })
+      });
+
+      if (response.ok) {
+        closeConfigModal();
+        // Optionally refresh the page or update the local state
+        window.location.reload();
+      } else {
+        const errorData = await response.json();
+        setConfigError(errorData.detail || 'Failed to update configuration');
+      }
+    } catch (error) {
+      if (error instanceof SyntaxError) {
+        setConfigError('Invalid JSON format. Please check your syntax.');
+      } else {
+        setConfigError(error instanceof Error ? error.message : 'Failed to update configuration');
+      }
+    } finally {
+      setSavingConfig(false);
+    }
+  };
   
   // Page detail states
   const [selectedPageStats, setSelectedPageStats] = useState<{
@@ -462,6 +548,20 @@ export default function PageDeploymentAdmin({
     groupName: '',
     availableStudents: [],
     selectedStudent: '',
+    loading: false,
+    error: null
+  });
+
+  // Behavior config modal state
+  const [behaviorConfigModal, setBehaviorConfigModal] = useState<BehaviorConfigModalState>({
+    isOpen: false,
+    behaviorNumber: '',
+    behaviorType: '',
+    config: {
+      group_size: 4,
+      group_size_mode: 'students_per_group',
+      grouping_method: 'mixed'
+    },
     loading: false,
     error: null
   });
@@ -643,15 +743,90 @@ export default function PageDeploymentAdmin({
         setAddMemberModal(prev => ({
           ...prev,
           loading: false,
-          error: 'Failed to add member to group'
+          error: 'Failed to add member'
         }));
       }
     } catch (error) {
-      console.error('Error adding member to group:', error);
+      console.error('Error adding member:', error);
       setAddMemberModal(prev => ({
         ...prev,
         loading: false,
-        error: 'Error adding member to group'
+        error: 'Error adding member'
+      }));
+    }
+  };
+
+  // Behavior config modal functions
+  const openBehaviorConfigModal = (behavior: BehaviorInfo) => {
+    // Only open for group behaviors
+    if (behavior.behavior_type !== 'group') {
+      alert('Configuration is only available for group assignment behaviors');
+      return;
+    }
+
+    const config = behavior.config as GroupBehaviorConfig;
+    setBehaviorConfigModal({
+      isOpen: true,
+      behaviorNumber: behavior.behavior_number,
+      behaviorType: behavior.behavior_type,
+      config: {
+        group_size: config?.group_size || 4,
+        group_size_mode: config?.group_size_mode || 'students_per_group',
+        grouping_method: config?.grouping_method || 'mixed'
+      },
+      loading: false,
+      error: null
+    });
+  };
+
+  const closeBehaviorConfigModal = () => {
+    setBehaviorConfigModal({
+      isOpen: false,
+      behaviorNumber: '',
+      behaviorType: '',
+      config: {
+        group_size: 4,
+        group_size_mode: 'students_per_group',
+        grouping_method: 'mixed'
+      },
+      loading: false,
+      error: null
+    });
+  };
+
+  const handleUpdateBehaviorConfig = async () => {
+    setBehaviorConfigModal(prev => ({ ...prev, loading: true, error: null }));
+
+    try {
+      const response = await fetch(
+        `${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/behaviors/${behaviorConfigModal.behaviorNumber}/config`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            group_size: behaviorConfigModal.config.group_size,
+            group_size_mode: behaviorConfigModal.config.group_size_mode,
+            grouping_method: behaviorConfigModal.config.grouping_method
+          })
+        }
+      );
+
+      if (response.ok) {
+        await response.json();
+        closeBehaviorConfigModal();
+        // Refresh behaviors to show updated config
+        await fetchBehaviors();
+        alert('Behavior configuration updated successfully');
+      } else {
+        const errorText = await response.text();
+        setBehaviorConfigModal(prev => ({ ...prev, error: errorText, loading: false }));
+      }
+    } catch {
+      setBehaviorConfigModal(prev => ({ 
+        ...prev, 
+        error: 'Failed to update behavior configuration', 
+        loading: false 
       }));
     }
   };
@@ -1025,6 +1200,13 @@ export default function PageDeploymentAdmin({
                   >
                     <PencilSquareIcon className="h-4 w-4" />
                   </button>
+                  <button
+                    onClick={openConfigModal}
+                    className="p-1 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded"
+                    title="Edit configuration"
+                  >
+                    <CogIcon className="h-4 w-4" />
+                  </button>
                 </div>
                 <p className="text-sm text-gray-500">Instructor Admin Dashboard</p>
               </div>
@@ -1297,6 +1479,18 @@ export default function PageDeploymentAdmin({
                           </div>
                         </div>
                         <div className="flex items-center space-x-2">
+                          {/* Config button for group behaviors */}
+                          {behavior.behavior_type === 'group' && (
+                            <button
+                              onClick={() => openBehaviorConfigModal(behavior)}
+                              className="inline-flex items-center px-3 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50"
+                              title="Configure behavior"
+                            >
+                              <CogIcon className="h-4 w-4 mr-1" />
+                              Config
+                            </button>
+                          )}
+                          
                           <button
                             onClick={() => executeBehavior(behavior.behavior_number)}
                             disabled={!behavior.can_execute || executingBehavior === behavior.behavior_number}
@@ -2383,6 +2577,75 @@ export default function PageDeploymentAdmin({
         </div>
       )}
 
+      {/* Edit Configuration Modal */}
+      {isConfigModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-4xl w-full max-h-[90vh] flex flex-col">
+            <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+              <h3 className="text-lg font-medium text-gray-900">Edit Deployment Configuration</h3>
+              <button
+                onClick={closeConfigModal}
+                className="text-gray-400 hover:text-gray-600"
+                disabled={savingConfig}
+              >
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6">
+              <div className="mb-4">
+                <p className="text-sm text-gray-600 mb-2">
+                  Edit the deployment configuration JSON below. Be careful when making changes as invalid configurations may break the deployment.
+                </p>
+                <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-4">
+                  <p className="text-sm text-yellow-800">
+                    <ExclamationTriangleIcon className="h-4 w-4 inline mr-1" />
+                    Warning: Changing the configuration will reload the deployment. Make sure no students are actively using it.
+                  </p>
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="config-editor" className="block text-sm font-medium text-gray-700 mb-2">
+                  Configuration JSON
+                </label>
+                <textarea
+                  id="config-editor"
+                  value={configInput}
+                  onChange={(e) => setConfigInput(e.target.value)}
+                  className="w-full h-96 px-3 py-2 text-sm font-mono border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
+                  placeholder="Enter configuration JSON..."
+                  disabled={savingConfig}
+                />
+              </div>
+
+              {configError && (
+                <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
+                  <p className="text-sm text-red-800">{configError}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3">
+              <button
+                onClick={closeConfigModal}
+                disabled={savingConfig}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveConfig}
+                disabled={savingConfig || !configInput.trim()}
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {savingConfig ? 'Saving...' : 'Save Configuration'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add Member Modal */}
       {addMemberModal.isOpen && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
@@ -2450,6 +2713,132 @@ export default function PageDeploymentAdmin({
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Behavior Config Modal */}
+      {behaviorConfigModal.isOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-md w-full p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-medium text-gray-900">
+                Configure Behavior {behaviorConfigModal.behaviorNumber}
+              </h3>
+              <button
+                onClick={closeBehaviorConfigModal}
+                className="text-gray-400 hover:text-gray-600"
+                disabled={behaviorConfigModal.loading}
+              >
+                <XMarkIcon className="h-6 w-6" />
+              </button>
+            </div>
+            
+            <div className="space-y-4">
+              {/* Group Size Mode */}
+              <div>
+                <label htmlFor="group-size-mode" className="block text-sm font-medium text-gray-700 mb-2">
+                  Group Size Mode
+                </label>
+                <select
+                  id="group-size-mode"
+                  value={behaviorConfigModal.config.group_size_mode}
+                  onChange={(e) => setBehaviorConfigModal(prev => ({
+                    ...prev,
+                    config: {
+                      ...prev.config,
+                      group_size_mode: e.target.value as 'students_per_group' | 'number_of_groups'
+                    }
+                  }))}
+                  className="text-black w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  disabled={behaviorConfigModal.loading}
+                >
+                  <option value="students_per_group">Students Per Group</option>
+                  <option value="number_of_groups">Number of Groups</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  {behaviorConfigModal.config.group_size_mode === 'students_per_group' 
+                    ? 'Specify how many students should be in each group' 
+                    : 'Specify how many groups to create in total'}
+                </p>
+              </div>
+
+              {/* Group Size */}
+              <div>
+                <label htmlFor="group-size" className="block text-sm font-medium text-gray-700 mb-2">
+                  {behaviorConfigModal.config.group_size_mode === 'students_per_group' 
+                    ? 'Students Per Group' 
+                    : 'Number of Groups'}
+                </label>
+                <input
+                  id="group-size"
+                  type="number"
+                  min="1"
+                  value={behaviorConfigModal.config.group_size}
+                  onChange={(e) => setBehaviorConfigModal(prev => ({
+                    ...prev,
+                    config: {
+                      ...prev.config,
+                      group_size: parseInt(e.target.value) || 1
+                    }
+                  }))}
+                  className="text-black w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  disabled={behaviorConfigModal.loading}
+                />
+              </div>
+
+              {/* Grouping Method */}
+              <div>
+                <label htmlFor="grouping-method" className="block text-sm font-medium text-gray-700 mb-2">
+                  Grouping Method
+                </label>
+                <select
+                  id="grouping-method"
+                  value={behaviorConfigModal.config.grouping_method}
+                  onChange={(e) => setBehaviorConfigModal(prev => ({
+                    ...prev,
+                    config: {
+                      ...prev.config,
+                      grouping_method: e.target.value as 'homogeneous' | 'diverse' | 'mixed'
+                    }
+                  }))}
+                  className="text-black w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  disabled={behaviorConfigModal.loading}
+                >
+                  <option value="homogeneous">Homogeneous (Similar students together)</option>
+                  <option value="diverse">Diverse (Different students together)</option>
+                  <option value="mixed">Mixed (Balanced approach)</option>
+                </select>
+                <p className="mt-1 text-xs text-gray-500">
+                  {behaviorConfigModal.config.grouping_method === 'homogeneous' && 'Groups students with similar responses together'}
+                  {behaviorConfigModal.config.grouping_method === 'diverse' && 'Groups students with different responses together'}
+                  {behaviorConfigModal.config.grouping_method === 'mixed' && 'Balances similarity and diversity in groups'}
+                </p>
+              </div>
+
+              {behaviorConfigModal.error && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-md">
+                  <p className="text-sm text-red-600">{behaviorConfigModal.error}</p>
+                </div>
+              )}
+            </div>
+
+            <div className="flex justify-end space-x-3 mt-6">
+              <button
+                onClick={closeBehaviorConfigModal}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md"
+                disabled={behaviorConfigModal.loading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleUpdateBehaviorConfig}
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-md disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={behaviorConfigModal.loading}
+              >
+                {behaviorConfigModal.loading ? 'Saving...' : 'Save Configuration'}
+              </button>
+            </div>
           </div>
         </div>
       )}

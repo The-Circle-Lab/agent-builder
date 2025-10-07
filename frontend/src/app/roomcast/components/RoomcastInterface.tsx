@@ -63,6 +63,45 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
   const lastTimerSyncRef = useRef<number | null>(null);
   const lastServerRemainingRef = useRef<number>(0);
   const [wsRef, setWsRef] = useState<WebSocket | null>(null);
+  // Navigation state for cycling through group submissions
+  const [currentSubmissionIndex, setCurrentSubmissionIndex] = useState(0);
+  // Summary form state
+  const [showSummaryForm, setShowSummaryForm] = useState(false);
+  const [summaryCategory, setSummaryCategory] = useState('');
+  const [summaryPurpose, setSummaryPurpose] = useState('');
+  const [summaryPlatform, setSummaryPlatform] = useState('');
+  const [summaryStrategy, setSummaryStrategy] = useState('');
+  // Matching result state
+  const [matchingInProgress, setMatchingInProgress] = useState(false);
+  const [matchResult, setMatchResult] = useState<{
+    best_match: {
+      student_name: string;
+      url: string;
+      name: string;
+      purpose: string;
+      platform: string;
+    };
+    similarity_score: number;
+    reasoning: string;
+    all_scores: Record<string, number>;
+  } | null>(null);
+  
+  // Quiz state
+  const [quizData, setQuizData] = useState<{
+    mystery_submission: { url: string; name: string; purpose: string; platform: string };
+    category_options: string[];
+    correct_category: string;
+    source_group: string;
+  } | null>(null);
+  const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+  const [quizResult, setQuizResult] = useState<{
+    is_correct: boolean;
+    correct_category: string;
+    full_summary: { category: string; purpose: string; platform: string; strategy: string };
+    source_group: string;
+  } | null>(null);
+  const [submittingAnswer, setSubmittingAnswer] = useState(false);
+  
   const debug = (...args: unknown[]) => console.log('[Roomcast]', ...args);
 
   const normalizeNavigationSubmission = (
@@ -292,6 +331,9 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
             setCurrentPromptWithResponses(promptMsg.prompt);
           }
           
+          // Reset submission navigation to first item
+          setCurrentSubmissionIndex(0);
+          
           // Clear previous group info when new prompt arrives
           setGroupMembers([]);
           // Clear summary state for new prompt
@@ -413,6 +455,73 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           setCurrentPrompt(readyCheckPrompt);
         }
         break;
+      case 'summary_match_processing':
+        {
+          debug('summary_match_processing', msg);
+          setMatchingInProgress(true);
+          setMatchResult(null);
+        }
+        break;
+      case 'summary_match_result':
+        {
+          const matchMsg = msg as unknown as {
+            best_match: {
+              student_name: string;
+              url: string;
+              name: string;
+              purpose: string;
+              platform: string;
+            };
+            similarity_score: number;
+            reasoning: string;
+            all_scores: Record<string, number>;
+          };
+          debug('summary_match_result', matchMsg);
+          setMatchingInProgress(false);
+          setMatchResult({
+            best_match: matchMsg.best_match,
+            similarity_score: matchMsg.similarity_score,
+            reasoning: matchMsg.reasoning,
+            all_scores: matchMsg.all_scores
+          });
+        }
+        break;
+      case 'summary_quiz':
+        {
+          const quizMsg = msg as unknown as {
+            mystery_submission: { url: string; name: string; purpose: string; platform: string };
+            category_options: string[];
+            correct_category: string;
+            source_group: string;
+          };
+          debug('summary_quiz', quizMsg);
+          setQuizData(quizMsg);
+          setSelectedAnswer(null);
+          setQuizResult(null);
+          setSubmittingAnswer(false);
+        }
+        break;
+      case 'quiz_result':
+        {
+          const resultMsg = msg as unknown as {
+            is_correct: boolean;
+            correct_category: string;
+            full_summary: { category: string; purpose: string; platform: string; strategy: string };
+            source_group: string;
+          };
+          debug('quiz_result', resultMsg);
+          setQuizResult(resultMsg);
+          setSubmittingAnswer(false);
+        }
+        break;
+      case 'summary_match_error':
+        {
+          const errorMsg = msg as unknown as { error: string };
+          debug('summary_match_error', errorMsg);
+          setMatchingInProgress(false);
+          alert(`Error finding match: ${errorMsg.error}`);
+        }
+        break;
       case 'error':
         debug('roomcast_error', msg);
         setConnectionState({ status: 'error', error: (msg as { message?: string }).message || 'Unknown error' });
@@ -502,6 +611,54 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
     }
     setWsRef(null);
     setTimeout(() => connectWebSocket(), 200);
+  };
+
+  const handleSummarySubmit = () => {
+    if (!wsRef || wsRef.readyState !== WebSocket.OPEN) {
+      alert('Not connected to server');
+      return;
+    }
+
+    const summaryData = {
+      category: summaryCategory,
+      purpose: summaryPurpose,
+      platform: summaryPlatform,
+      strategy: summaryStrategy
+    };
+
+    debug('Submitting summary', summaryData);
+
+    // Send summary to backend for matching
+    wsRef.send(JSON.stringify({
+      type: 'submit_summary',
+      summary_data: summaryData
+    }));
+
+    // Reset to show loading state
+    setMatchingInProgress(true);
+    setMatchResult(null);
+  };
+
+  const handleQuizAnswer = (category: string) => {
+    if (!wsRef || wsRef.readyState !== WebSocket.OPEN) {
+      alert('Not connected to server');
+      return;
+    }
+
+    if (!category) {
+      return;
+    }
+
+    setSelectedAnswer(category);
+    setSubmittingAnswer(true);
+
+    debug('Submitting quiz answer', category);
+
+    // Send answer to backend
+    wsRef.send(JSON.stringify({
+      type: 'submit_quiz_answer',
+      selected_category: category
+    }));
   };
 
   // Compute the display prompt - show base prompt with responses only if we have matching responses
@@ -788,6 +945,126 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
           </div>
         )}
 
+        {/* Quiz Interface */}
+        {quizData && !quizResult && (
+          <div className="bg-white rounded-lg p-8 shadow-lg border-2 border-purple-300 mb-8">
+            <div className="text-center mb-8">
+              <h2 className="text-4xl font-bold text-purple-900 mb-2">
+                🎯 Category Quiz
+              </h2>
+              <p className="text-xl text-gray-700">
+                Which category does this submission belong to?
+              </p>
+            </div>
+
+            {/* Mystery Submission */}
+            <div className="bg-gradient-to-r from-purple-50 to-indigo-50 rounded-lg p-6 mb-8 border-2 border-purple-200">
+              <h3 className="text-2xl font-bold text-purple-900 mb-4">Mystery Submission</h3>
+              <div className="space-y-4">
+                {quizData.mystery_submission.name && (
+                  <div>
+                    <span className="text-sm font-semibold text-gray-600 uppercase">Website Name:</span>
+                    <p className="text-xl text-gray-900 mt-1">{quizData.mystery_submission.name}</p>
+                  </div>
+                )}
+                {quizData.mystery_submission.url && (
+                  <div>
+                    <span className="text-sm font-semibold text-gray-600 uppercase">URL:</span>
+                    <p className="text-lg text-indigo-600 mt-1 break-all">{quizData.mystery_submission.url}</p>
+                  </div>
+                )}
+                {quizData.mystery_submission.purpose && (
+                  <div>
+                    <span className="text-sm font-semibold text-gray-600 uppercase">Purpose:</span>
+                    <p className="text-xl text-gray-900 mt-1">{quizData.mystery_submission.purpose}</p>
+                  </div>
+                )}
+                {quizData.mystery_submission.platform && (
+                  <div>
+                    <span className="text-sm font-semibold text-gray-600 uppercase">Platform:</span>
+                    <p className="text-xl text-gray-900 mt-1">{quizData.mystery_submission.platform}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Category Options */}
+            <div className="grid grid-cols-1 gap-4">
+              <p className="text-xl font-semibold text-gray-900 mb-2">Select the category:</p>
+              {quizData.category_options.map((category) => (
+                <button
+                  key={category}
+                  onClick={() => handleQuizAnswer(category)}
+                  disabled={submittingAnswer}
+                  className={`p-6 rounded-lg text-xl font-semibold transition-all transform hover:scale-105 ${
+                    selectedAnswer === category
+                      ? 'bg-purple-600 text-white ring-4 ring-purple-300'
+                      : 'bg-white text-purple-900 border-2 border-purple-300 hover:bg-purple-100'
+                  } ${submittingAnswer ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                >
+                  {category}
+                </button>
+              ))}
+            </div>
+
+            {submittingAnswer && (
+              <div className="mt-6 text-center">
+                <div className="inline-flex items-center text-lg text-purple-900">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-600 mr-3"></div>
+                  Checking answer...
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Quiz Result */}
+        {quizResult && (
+          <div className="bg-white rounded-lg p-8 shadow-lg border-2 border-purple-300 mb-8">
+            <div className="text-center mb-8">
+              {quizResult.is_correct ? (
+                <>
+                  <div className="text-8xl mb-4">✅</div>
+                  <h2 className="text-5xl font-bold text-green-600 mb-2">Correct!</h2>
+                </>
+              ) : (
+                <>
+                  <div className="text-8xl mb-4">❌</div>
+                  <h2 className="text-5xl font-bold text-red-600 mb-2">Incorrect</h2>
+                  <p className="text-2xl text-gray-700">
+                    The correct category was: <span className="font-bold text-purple-900">{quizResult.correct_category}</span>
+                  </p>
+                </>
+              )}
+            </div>
+
+            {/* Full Summary Reveal */}
+            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-6 border-2 border-purple-200">
+              <h3 className="text-3xl font-bold text-purple-900 mb-4">
+                Full Summary from {quizResult.source_group}
+              </h3>
+              <div className="space-y-4">
+                <div className="bg-white rounded-lg p-4 border border-purple-200">
+                  <span className="text-sm font-semibold text-gray-600 uppercase">Category:</span>
+                  <p className="text-2xl font-bold text-gray-900 mt-1">{quizResult.full_summary.category}</p>
+                </div>
+                <div className="bg-white rounded-lg p-4 border border-purple-200">
+                  <span className="text-sm font-semibold text-gray-600 uppercase">Purpose:</span>
+                  <p className="text-xl text-gray-900 mt-1">{quizResult.full_summary.purpose}</p>
+                </div>
+                <div className="bg-white rounded-lg p-4 border border-purple-200">
+                  <span className="text-sm font-semibold text-gray-600 uppercase">Platform:</span>
+                  <p className="text-xl text-gray-900 mt-1">{quizResult.full_summary.platform}</p>
+                </div>
+                <div className="bg-white rounded-lg p-4 border border-purple-200">
+                  <span className="text-sm font-semibold text-gray-600 uppercase">Strategy:</span>
+                  <p className="text-xl text-gray-900 mt-1">{quizResult.full_summary.strategy}</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {displayPrompt ? (
           <div className="bg-white rounded-lg p-8 shadow-sm border border-gray-200">
             <div className="prose max-w-none">
@@ -799,12 +1076,93 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
               {displayPrompt.enableGroupSubmissionNavigation && displayPrompt.currentSubmission && (
                 (() => {
                   const currentSubmission = displayPrompt.currentSubmission;
+                  
+                  // Check if this is websiteInfo type with array data
+                  if (
+                    currentSubmission.type === 'websiteInfo' &&
+                    currentSubmission.data &&
+                    Array.isArray(currentSubmission.data)
+                  ) {
+                    const websites = currentSubmission.data as Array<{
+                      url?: string;
+                      name?: string;
+                      purpose?: string;
+                      platform?: string;
+                    }>;
+
+                    return (
+                      <div className="mt-6 p-6 bg-indigo-50 border-2 border-indigo-200 rounded-lg">
+                        <div className="flex justify-between items-center mb-4">
+                          <h3 className="text-xl font-semibold text-indigo-900">
+                            {displayPrompt.currentStudentName}&apos;s Submission
+                          </h3>
+                          <span className="text-sm text-indigo-600 font-medium">
+                            {(displayPrompt.currentSubmissionIndex ?? 0) + 1} of {displayPrompt.totalSubmissions ?? 0}
+                          </span>
+                        </div>
+
+                        {websites.length > 0 ? (
+                          <div className="space-y-6">
+                            {websites.map((website, idx) => (
+                              <div key={idx} className="bg-white p-4 rounded-lg border border-indigo-200">
+                                {websites.length > 1 && (
+                                  <div className="text-xs font-semibold text-indigo-500 mb-2">
+                                    Website {idx + 1} of {websites.length}
+                                  </div>
+                                )}
+                                <div className="space-y-3">
+                                  {website.name && (
+                                    <div>
+                                      <span className="text-sm font-medium text-gray-600">Website Name:</span>
+                                      <p className="text-2xl font-bold text-gray-900 mt-1">{website.name}</p>
+                                    </div>
+                                  )}
+                                  {website.url && (
+                                    <div>
+                                      <span className="text-sm font-medium text-gray-600">URL:</span>
+                                      <a
+                                        href={website.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-xl text-blue-600 hover:underline block mt-1 break-all"
+                                      >
+                                        {website.url}
+                                      </a>
+                                    </div>
+                                  )}
+                                  {website.purpose && (
+                                    <div>
+                                      <span className="text-sm font-medium text-gray-600">Purpose:</span>
+                                      <p className="text-lg text-gray-800 mt-1">{website.purpose}</p>
+                                    </div>
+                                  )}
+                                  {website.platform && (
+                                    <div>
+                                      <span className="text-sm font-medium text-gray-600">Platform:</span>
+                                      <p className="text-gray-700 mt-1">{website.platform}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="text-center text-gray-600">
+                            <p>No website submissions available.</p>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+
+                  // Handle other submission types (backwards compatibility for single object)
                   const submissionData = (() => {
                     if (!currentSubmission) return undefined;
                     if (
                       currentSubmission.type === 'websiteInfo' &&
                       currentSubmission.data &&
-                      typeof currentSubmission.data === 'object'
+                      typeof currentSubmission.data === 'object' &&
+                      !Array.isArray(currentSubmission.data)
                     ) {
                       return currentSubmission.data as Record<string, unknown>;
                     }
@@ -883,63 +1241,425 @@ export default function RoomcastInterface({ code, onDisconnect }: RoomcastInterf
                 </div>
               )}
 
-              {/* Group Submission Responses */}
-              {!displayPrompt.enableGroupSubmissionNavigation && displayPrompt?.group_submission_responses && Object.keys(displayPrompt.group_submission_responses).length > 0 && (
-                <div className="mt-6 px-4 py-2 bg-amber-50 rounded-lg border border-amber-200">
-                  <h3 className="font-semibold text-amber-900 mb-4 text-center">Your Group&apos;s Responses</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {displayPrompt.group_submission_responses && Object.entries(displayPrompt.group_submission_responses).map(([memberName, responses]) => (
-                      <div key={memberName} className="bg-white rounded-lg px-4 py-2 border border-amber-200 shadow-sm">
-                        <h4 className="font-semibold text-amber-800 mb-3 text-center border-b border-amber-200 pb-2">
-                          {memberName.split('@')[0]}
-                        </h4>
-                        <div className="space-y-3 mb-1">
-                          {Object.entries(responses).map(([promptId, responseData]) => {
-                            // Extract the actual response content
-                            let responseContent = '';
-                            if (typeof responseData === 'object' && responseData?.response) {
-                              responseContent = responseData.response;
-                            } else {
-                              responseContent = String(responseData);
-                            }
-
-                            // Check if it's a JSON array string and parse it
-                            let responseItems: string[] = [];
-                            try {
-                              const parsed = JSON.parse(responseContent);
-                              if (Array.isArray(parsed)) {
-                                responseItems = parsed.map(item => String(item));
+              {/* Group Submission Responses - Show one at a time with navigation */}
+              {!displayPrompt.enableGroupSubmissionNavigation && displayPrompt?.group_submission_responses && Object.keys(displayPrompt.group_submission_responses).length > 0 && (() => {
+                const submissionEntries = Object.entries(displayPrompt.group_submission_responses);
+                const totalSubmissions = submissionEntries.length;
+                const currentEntry = submissionEntries[currentSubmissionIndex];
+                const isAtEnd = currentSubmissionIndex === totalSubmissions - 1;
+                
+                if (!currentEntry) return null;
+                
+                const [memberName, responses] = currentEntry;
+                
+                return (
+                  <div className="mt-6 px-4 py-2 bg-amber-50 rounded-lg border border-amber-200">
+                    {!showSummaryForm ? (
+                      <>
+                        <div className="flex items-center justify-between mb-4">
+                          <button
+                            onClick={() => setCurrentSubmissionIndex(prev => Math.max(0, prev - 1))}
+                            disabled={currentSubmissionIndex === 0}
+                            className="p-2 rounded-lg border border-amber-300 bg-white hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <svg className="w-6 h-6 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+                            </svg>
+                          </button>
+                          
+                          <div className="text-center flex-1">
+                            <h3 className="font-semibold text-amber-900 mb-1">Your Group&apos;s Responses</h3>
+                            <p className="text-sm text-amber-700">{currentSubmissionIndex + 1} of {totalSubmissions}</p>
+                          </div>
+                          
+                          <button
+                            onClick={() => setCurrentSubmissionIndex(prev => Math.min(totalSubmissions - 1, prev + 1))}
+                            disabled={currentSubmissionIndex === totalSubmissions - 1}
+                            className="p-2 rounded-lg border border-amber-300 bg-white hover:bg-amber-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <svg className="w-6 h-6 text-amber-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                            </svg>
+                          </button>
+                        </div>
+                        
+                        <div className="bg-white rounded-lg px-6 py-4 border border-amber-200 shadow-sm">
+                          <h4 className="font-semibold text-amber-800 mb-4 text-center text-xl border-b border-amber-200 pb-3">
+                            {memberName.split('@')[0]}
+                          </h4>
+                          <div className="space-y-4">
+                            {Object.entries(responses).map(([promptId, responseData]) => {
+                              // Extract the actual response content
+                              let responseContent = '';
+                              if (typeof responseData === 'object' && responseData?.response) {
+                                responseContent = responseData.response;
                               } else {
-                                responseItems = [responseContent];
+                                responseContent = String(responseData);
                               }
-                            } catch {
-                              // Not JSON, treat as single text response
-                              responseItems = [responseContent];
-                            }
 
-                            return (
-                              <div key={promptId} className="text-sm">
-                                {responseItems.length > 1 ? (
-                                  <div className="space-y-2">
-                                    {responseItems.map((item, index) => (
-                                      <div key={index} className="flex items-start group">
-                                        <div className="w-2 h-2 bg-gradient-to-r from-amber-500 to-amber-600 rounded-full mt-2 mr-3 flex-shrink-0 group-hover:scale-110 transition-transform"></div>
-                                        <span className="flex-1 text-gray-700 font-medium leading-relaxed">{item}</span>
+                              // Try to parse as website info first
+                              let websiteData = null;
+                              let websiteArray: Array<{ url?: string; name?: string; purpose?: string; platform?: string }> = [];
+                              
+                              try {
+                                const parsed = JSON.parse(responseContent);
+                                
+                                // Check if it's an array of website objects
+                                if (Array.isArray(parsed)) {
+                                  const hasWebsiteFields = parsed.some(item => 
+                                    item && typeof item === 'object' && 
+                                    ('url' in item || 'name' in item || 'purpose' in item || 'platform' in item)
+                                  );
+                                  
+                                  if (hasWebsiteFields) {
+                                    websiteArray = parsed;
+                                  }
+                                } 
+                                // Check if it's a single website object
+                                else if (parsed && typeof parsed === 'object' && ('url' in parsed || 'name' in parsed)) {
+                                  websiteData = parsed;
+                                }
+                              } catch {
+                                // Not website JSON, continue with other parsing
+                              }
+
+                              // If it's an array of website data, display each website
+                              if (websiteArray.length > 0) {
+                                return (
+                                  <div key={promptId} className="space-y-4">
+                                    {websiteArray.map((website, idx) => (
+                                      <div key={idx} className="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                                        {websiteArray.length > 1 && (
+                                          <div className="text-xs font-semibold text-gray-500 mb-2">
+                                            Website {idx + 1} of {websiteArray.length}
+                                          </div>
+                                        )}
+                                        <div className="space-y-3">
+                                          {website.name && (
+                                            <div>
+                                              <span className="text-sm font-medium text-gray-600">Website Name:</span>
+                                              <p className="text-xl font-bold text-gray-900 mt-1">{website.name}</p>
+                                            </div>
+                                          )}
+                                          {website.url && (
+                                            <div>
+                                              <span className="text-sm font-medium text-gray-600">URL:</span>
+                                              <a
+                                                href={website.url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="text-lg text-blue-600 hover:underline block mt-1 break-all"
+                                              >
+                                                {website.url}
+                                              </a>
+                                            </div>
+                                          )}
+                                          {website.purpose && (
+                                            <div>
+                                              <span className="text-sm font-medium text-gray-600">Purpose:</span>
+                                              <p className="text-lg text-gray-800 mt-1">{website.purpose}</p>
+                                            </div>
+                                          )}
+                                          {website.platform && (
+                                            <div>
+                                              <span className="text-sm font-medium text-gray-600">Platform:</span>
+                                              <p className="text-gray-700 mt-1">{website.platform}</p>
+                                            </div>
+                                          )}
+                                        </div>
                                       </div>
                                     ))}
                                   </div>
-                                ) : (
-                                  <div className="text-gray-700 font-medium leading-relaxed">{responseItems[0]}</div>
-                                )}
+                                );
+                              }
+
+                              // If it's a single website data object, display it
+                              if (websiteData) {
+                                return (
+                                  <div key={promptId} className="space-y-3">
+                                    {websiteData.name && (
+                                      <div>
+                                        <span className="text-sm font-medium text-gray-600">Website Name:</span>
+                                        <p className="text-xl font-bold text-gray-900 mt-1">{websiteData.name}</p>
+                                      </div>
+                                    )}
+                                    {websiteData.url && (
+                                      <div>
+                                        <span className="text-sm font-medium text-gray-600">URL:</span>
+                                        <a
+                                          href={websiteData.url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="text-lg text-blue-600 hover:underline block mt-1 break-all"
+                                        >
+                                          {websiteData.url}
+                                        </a>
+                                      </div>
+                                    )}
+                                    {websiteData.purpose && (
+                                      <div>
+                                        <span className="text-sm font-medium text-gray-600">Purpose:</span>
+                                        <p className="text-lg text-gray-800 mt-1">{websiteData.purpose}</p>
+                                      </div>
+                                    )}
+                                    {websiteData.platform && (
+                                      <div>
+                                        <span className="text-sm font-medium text-gray-600">Platform:</span>
+                                        <p className="text-gray-700 mt-1">{websiteData.platform}</p>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              }
+
+                              // Check if it's a JSON array of plain strings
+                              let responseItems: string[] = [];
+                              try {
+                                const parsed = JSON.parse(responseContent);
+                                if (Array.isArray(parsed)) {
+                                  // Make sure they're simple strings/numbers, not objects
+                                  if (parsed.every(item => typeof item === 'string' || typeof item === 'number')) {
+                                    responseItems = parsed.map(item => String(item));
+                                  } else {
+                                    // Array of objects we couldn't parse, just show the raw content
+                                    responseItems = [responseContent];
+                                  }
+                                } else {
+                                  responseItems = [responseContent];
+                                }
+                              } catch {
+                                // Not JSON, treat as single text response
+                                responseItems = [responseContent];
+                              }
+
+                              return (
+                                <div key={promptId} className="text-sm">
+                                  {responseItems.length > 1 ? (
+                                    <div className="space-y-2">
+                                      {responseItems.map((item, index) => (
+                                        <div key={index} className="flex items-start group">
+                                          <div className="w-2 h-2 bg-gradient-to-r from-amber-500 to-amber-600 rounded-full mt-2 mr-3 flex-shrink-0 group-hover:scale-110 transition-transform"></div>
+                                          <span className="flex-1 text-gray-700 font-medium leading-relaxed text-lg">{item}</span>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className="text-gray-700 font-medium leading-relaxed text-lg">{responseItems[0]}</div>
+                                  )}
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                        
+                        {/* Finish button when at the end */}
+                        {isAtEnd && (
+                          <div className="mt-4 flex justify-center">
+                            <button
+                              onClick={() => setShowSummaryForm(true)}
+                              className="px-8 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 text-lg font-semibold shadow-md"
+                            >
+                              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                              Finish
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      /* Summary Form */
+                      <div className="bg-white rounded-lg p-6 border border-amber-200 shadow-sm">
+                        <h3 className="text-2xl font-bold text-amber-900 mb-4 text-center">
+                          Summarize Your Group&apos;s Submissions
+                        </h3>
+                        <p className="text-amber-700 mb-6 text-center">
+                          Based on all the submissions you just saw, provide a comprehensive summary
+                        </p>
+                        
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              General Category
+                            </label>
+                            <input
+                              type="text"
+                              value={summaryCategory}
+                              onChange={(e) => setSummaryCategory(e.target.value)}
+                              placeholder="What general category do these submissions fall under?"
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-gray-800"
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Purpose Summary
+                            </label>
+                            <textarea
+                              value={summaryPurpose}
+                              onChange={(e) => setSummaryPurpose(e.target.value)}
+                              placeholder="Describe the common purpose across all submissions..."
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-gray-800"
+                              rows={4}
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Platform Summary
+                            </label>
+                            <input
+                              type="text"
+                              value={summaryPlatform}
+                              onChange={(e) => setSummaryPlatform(e.target.value)}
+                              placeholder="What platform(s) were commonly used?"
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-gray-800"
+                            />
+                          </div>
+                          
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                              Strategy
+                            </label>
+                            <textarea
+                              value={summaryStrategy}
+                              onChange={(e) => setSummaryStrategy(e.target.value)}
+                              placeholder="How could we help people detect or avoid these items?"
+                              className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-amber-500 text-gray-800"
+                              rows={4}
+                            />
+                          </div>
+                          
+                          <div className="flex gap-3 pt-4">
+                            <button
+                              onClick={() => {
+                                setShowSummaryForm(false);
+                                setSummaryCategory('');
+                                setSummaryPurpose('');
+                                setSummaryPlatform('');
+                                setSummaryStrategy('');
+                                setMatchResult(null);
+                                setMatchingInProgress(false);
+                              }}
+                              className="flex-1 px-6 py-3 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400 transition-colors font-semibold"
+                              disabled={matchingInProgress}
+                            >
+                              Back
+                            </button>
+                            <button
+                              onClick={handleSummarySubmit}
+                              disabled={!summaryCategory.trim() || !summaryPurpose.trim() || !summaryPlatform.trim() || !summaryStrategy.trim() || matchingInProgress}
+                              className="flex-1 px-6 py-3 bg-amber-600 text-white rounded-lg hover:bg-amber-700 transition-colors font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                            >
+                              {matchingInProgress ? (
+                                <>
+                                  <svg className="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                  </svg>
+                                  Finding Match...
+                                </>
+                              ) : matchResult ? (
+                                'Match Found!'
+                              ) : (
+                                'Submit & Find Match'
+                              )}
+                            </button>
+                          </div>
+                          
+                          {/* Display matching result */}
+                          {matchResult && (
+                            <div className="mt-6 p-6 bg-green-50 border-2 border-green-500 rounded-lg">
+                              <div className="flex items-center gap-2 mb-4">
+                                <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                <h3 className="text-2xl font-bold text-green-900">Best Match Found!</h3>
                               </div>
-                            );
-                          })}
+                              
+                              <div className="bg-white rounded-lg p-4 mb-4">
+                                <div className="flex items-center justify-between mb-3">
+                                  <h4 className="text-lg font-semibold text-gray-900">
+                                    {matchResult.best_match.student_name}&apos;s Submission
+                                  </h4>
+                                  <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-semibold">
+                                    {(matchResult.similarity_score * 100).toFixed(0)}% Match
+                                  </span>
+                                </div>
+                                
+                                <div className="space-y-3">
+                                  {matchResult.best_match.name && (
+                                    <div>
+                                      <span className="text-sm font-medium text-gray-600">Website Name:</span>
+                                      <p className="text-xl font-bold text-gray-900 mt-1">{matchResult.best_match.name}</p>
+                                    </div>
+                                  )}
+                                  {matchResult.best_match.url && (
+                                    <div>
+                                      <span className="text-sm font-medium text-gray-600">URL:</span>
+                                      <a
+                                        href={matchResult.best_match.url}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="text-lg text-blue-600 hover:underline block mt-1 break-all"
+                                      >
+                                        {matchResult.best_match.url}
+                                      </a>
+                                    </div>
+                                  )}
+                                  {matchResult.best_match.purpose && (
+                                    <div>
+                                      <span className="text-sm font-medium text-gray-600">Purpose:</span>
+                                      <p className="text-lg text-gray-800 mt-1">{matchResult.best_match.purpose}</p>
+                                    </div>
+                                  )}
+                                  {matchResult.best_match.platform && (
+                                    <div>
+                                      <span className="text-sm font-medium text-gray-600">Platform:</span>
+                                      <p className="text-gray-700 mt-1">{matchResult.best_match.platform}</p>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              
+                              <div className="bg-blue-50 rounded-lg p-4 mb-4">
+                                <h5 className="text-sm font-semibold text-blue-900 mb-2">Why This Match?</h5>
+                                <p className="text-blue-800 text-sm leading-relaxed">{matchResult.reasoning}</p>
+                              </div>
+                              
+                              {matchResult.all_scores && Object.keys(matchResult.all_scores).length > 1 && (
+                                <div className="bg-gray-50 rounded-lg p-4">
+                                  <h5 className="text-sm font-semibold text-gray-900 mb-3">All Scores:</h5>
+                                  <div className="space-y-2">
+                                    {Object.entries(matchResult.all_scores)
+                                      .sort(([, a], [, b]) => b - a)
+                                      .map(([name, score]) => (
+                                        <div key={name} className="flex items-center justify-between">
+                                          <span className="text-sm text-gray-700">{name}</span>
+                                          <div className="flex items-center gap-2">
+                                            <div className="w-32 bg-gray-200 rounded-full h-2">
+                                              <div
+                                                className="bg-amber-600 h-2 rounded-full transition-all"
+                                                style={{ width: `${score * 100}%` }}
+                                              ></div>
+                                            </div>
+                                            <span className="text-sm font-semibold text-gray-900 w-12 text-right">
+                                              {(score * 100).toFixed(0)}%
+                                            </span>
+                                          </div>
+                                        </div>
+                                      ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
-                    ))}
+                    )}
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {/* Submission Progress */}
               {groupMembers.length > 0 && (

@@ -613,6 +613,188 @@ async def get_deployment_behaviors(
     
     return behaviors
 
+
+class UpdateBehaviorConfigRequest(BaseModel):
+    group_size: Optional[int] = Field(None, ge=1, description="Number of students per group or number of groups")
+    group_size_mode: Optional[str] = Field(None, description="Either 'students_per_group' or 'number_of_groups'")
+    grouping_method: Optional[str] = Field(None, description="Either 'homogeneous', 'diverse', or 'mixed'")
+
+
+@router.post("/{deployment_id}/behaviors/{behavior_number}/config", response_model=Dict[str, Any])
+async def update_behavior_config(
+    deployment_id: str,
+    behavior_number: str,
+    request: UpdateBehaviorConfigRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """Update behavior configuration (instructor only)"""
+    
+    # Validate deployment access and require instructor role
+    db_deployment = await get_deployment_and_check_access(
+        deployment_id, current_user, db, require_instructor=True
+    )
+    
+    if not db_deployment.is_page_based:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This deployment is not page-based"
+        )
+    
+    # Get the page deployment from memory
+    deployment_info = get_active_page_deployment(deployment_id)
+    if not deployment_info:
+        if not await load_page_deployment_on_demand(deployment_id, current_user.id, db):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Deployment not found or failed to load"
+            )
+        deployment_info = get_active_page_deployment(deployment_id)
+    
+    page_deployment = deployment_info["page_deployment"]
+    
+    # Get the behavior
+    behavior = page_deployment.get_behavior_by_number(behavior_number)
+    if not behavior:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Behavior {behavior_number} not found"
+        )
+    
+    # Validate group_size_mode if provided
+    if request.group_size_mode and request.group_size_mode not in ['students_per_group', 'number_of_groups']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="group_size_mode must be either 'students_per_group' or 'number_of_groups'"
+        )
+    
+    # Validate grouping_method if provided
+    if request.grouping_method and request.grouping_method not in ['homogeneous', 'diverse', 'mixed']:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="grouping_method must be either 'homogeneous', 'diverse', or 'mixed'"
+        )
+    
+    # Build update config from non-None values
+    update_config = {}
+    if request.group_size is not None:
+        update_config['group_size'] = request.group_size
+    if request.group_size_mode is not None:
+        update_config['group_size_mode'] = request.group_size_mode
+    if request.grouping_method is not None:
+        update_config['grouping_method'] = request.grouping_method
+    
+    if not update_config:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No configuration values provided to update"
+        )
+    
+    # Update the behavior configuration
+    try:
+        # First, update database configuration
+        # Get the full config from database and update the behavior section
+        import copy
+        full_config = copy.deepcopy(db_deployment.config)
+        
+        # Navigate to the behavior config in the workflow nodes structure
+        workflow_nodes = full_config.get('__workflow_nodes__', {})
+        behaviours = workflow_nodes.get('behaviours', {})
+        
+        print(f"🔍 DEBUG: Looking for behavior {behavior_number} (type: {type(behavior_number)})")
+        print(f"🔍 DEBUG: Available behaviours keys: {list(behaviours.keys())} (types: {[type(k) for k in behaviours.keys()]})")
+        
+        # Convert behavior_number to string to match dictionary keys
+        behavior_key = str(behavior_number)
+        
+        if behavior_key in behaviours:
+            behavior_config = behaviours[behavior_key]
+            # The actual config is in nodes -> 1 -> config
+            if 'nodes' in behavior_config and '1' in behavior_config['nodes']:
+                node_config = behavior_config['nodes']['1'].get('config', {})
+                
+                print(f"🔍 DEBUG: BEFORE update - node_config: {node_config}")
+                
+                # Update the specific fields
+                for key, value in update_config.items():
+                    node_config[key] = value
+                    
+                print(f"🔍 DEBUG: AFTER update - node_config: {node_config}")
+                
+                behavior_config['nodes']['1']['config'] = node_config
+                behaviours[behavior_key] = behavior_config
+                workflow_nodes['behaviours'] = behaviours
+                full_config['__workflow_nodes__'] = workflow_nodes
+                
+                # Save to database
+                db_deployment.config = full_config
+                db_deployment.updated_at = datetime.now(timezone.utc)
+                db.add(db_deployment)
+                db.commit()
+                
+                # Verify the update was saved
+                db.refresh(db_deployment)
+                saved_config = db_deployment.config.get('__workflow_nodes__', {}).get('behaviours', {}).get(behavior_key, {}).get('nodes', {}).get('1', {}).get('config', {})
+                print(f"✅ Updated behavior {behavior_number} config in database: {update_config}")
+                print(f"✅ Verified saved config: {saved_config}")
+                
+                # ✅ CRITICAL FIX: Reload the page deployment from database to get updated config
+                # Remove from memory and reload with fresh config
+                from services.pages_manager import remove_active_page_deployment
+                remove_active_page_deployment(deployment_id)
+                
+                # Reload with updated config
+                if not await load_page_deployment_on_demand(deployment_id, current_user.id, db):
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Failed to reload deployment with updated configuration"
+                    )
+                
+                # Get the freshly loaded deployment and behavior
+                deployment_info = get_active_page_deployment(deployment_id)
+                if not deployment_info:
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Deployment not found after reload"
+                    )
+                
+                page_deployment = deployment_info["page_deployment"]
+                behavior = page_deployment.get_behavior_by_number(behavior_number)
+                
+                if not behavior:
+                    raise HTTPException(
+                        status_code=status.HTTP_404_NOT_FOUND,
+                        detail=f"Behavior {behavior_number} not found after reload"
+                    )
+                
+                print(f"✅ Reloaded page deployment with updated config")
+        else:
+            print(f"❌ Behavior {behavior_number} not found in behaviours dictionary!")
+            print(f"   Available keys: {list(behaviours.keys())}")
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Behavior {behavior_number} not found in deployment configuration"
+            )
+        
+        # Get the updated config to return from the freshly loaded behavior
+        updated_config = behavior.get_behavior_deployment().get_config()
+        
+        return {
+            "success": True,
+            "message": "Behavior configuration updated successfully",
+            "behavior_number": behavior_number,
+            "updated_config": updated_config.get('handler_config', {})
+        }
+    except Exception as e:
+        print(f"❌ Error updating behavior config: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update behavior configuration: {str(e)}"
+        )
+
+
 @router.get("/{deployment_id}/variables", response_model=Dict[str, Any])
 async def get_deployment_variables(
     deployment_id: str,

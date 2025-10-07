@@ -803,3 +803,71 @@ async def rename_deployment(
         "new_name": new_name,
         "message": "Deployment renamed successfully"
     } 
+
+# Update deployment configuration
+@router.put("/{deployment_id}/config")
+async def update_deployment_config(
+    deployment_id: str,
+    request: DeploymentUpdateConfigRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    """Update deployment configuration (instructors only)"""
+    # Check if deployment exists and user can modify it (instructors only)
+    db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db, require_instructor=True)
+
+    # Validate that config is a valid dictionary
+    if not isinstance(request.config, dict):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Config must be a valid JSON object"
+        )
+
+    # Update the deployment config in database
+    old_config = db_deployment.config
+    db_deployment.config = request.config
+    db_deployment.updated_at = datetime.now(timezone.utc)
+    
+    db.add(db_deployment)
+    
+    # If this is a page-based deployment (main deployment), also update workflow data
+    if db_deployment.is_page_based and db_deployment.parent_deployment_id is None:
+        # Update the main deployment config
+        db.commit()
+        
+        # Reload the deployment in memory if it's active
+        if is_deployment_active(deployment_id):
+            from services.pages_manager import remove_active_page_deployment, load_page_deployment_on_demand
+            # Remove from memory and reload with new config
+            remove_active_page_deployment(deployment_id)
+            await load_page_deployment_on_demand(deployment_id, current_user.id, db)
+    else:
+        db.commit()
+        
+        # Reload regular deployment in memory if active
+        if is_deployment_active(deployment_id):
+            remove_active_deployment(deployment_id)
+            await load_deployment_on_demand(deployment_id, current_user.id, db)
+    
+    return {
+        "message": "Deployment configuration updated successfully",
+        "deployment_id": deployment_id,
+    }
+
+# Get deployment configuration
+@router.get("/{deployment_id}/config")
+async def get_deployment_config(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    """Get deployment configuration (instructors only)"""
+    db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db, require_instructor=True)
+
+    return {
+        "deployment_id": deployment_id,
+        "config": db_deployment.config,
+        "workflow_id": db_deployment.workflow_id,
+        "type": db_deployment.type,
+        "is_page_based": db_deployment.is_page_based,
+    }

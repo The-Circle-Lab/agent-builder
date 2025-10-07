@@ -14,7 +14,7 @@ Usage:
 Notes:
   - The script assumes the prompt page has 1 submission requirement:
     - submission_index 0: Website info (mediaType: 'websiteInfo')
-  - Each student submits JSON with: url, name, purpose, platform
+  - Each student submits a JSON array containing one website object with: url, name, purpose, platform
   - Websites cover various misinformation topics and fact-checking platforms
   - You can override defaults via CLI flags.
 """
@@ -520,8 +520,9 @@ class MisinformationWebsitesTestData:
     def submit_website_info(self, student: Dict, submission_index: int = 0) -> bool:
         """Submit websiteInfo JSON for mediaType 'websiteInfo'"""
         try:
-            # Format website info as JSON string
-            website_json = json.dumps(student["website"])
+            # Format website info as JSON array (websiteInfo expects an array)
+            website_array = [student["website"]]
+            website_json = json.dumps(website_array)
             
             resp = self.session.post(f"{self.base_url}/api/deploy/{self.page_deployment_id}/prompt/submit", json={
                 "submission_index": submission_index,
@@ -606,7 +607,7 @@ def main():
 
     print(f"\n🎯 Processing {len(students)} students with misinformation website data...")
     print(f"📊 Each student will submit:")
-    print(f"  - 1 websiteInfo JSON (url, name, purpose, platform)")
+    print(f"  - 1 websiteInfo JSON array containing 1 website object (url, name, purpose, platform)")
     print(f"📝 Sample website from first student:")
     print(f"  - Name: {students[0]['website']['name']}")
     print(f"  - URL: {students[0]['website']['url']}")

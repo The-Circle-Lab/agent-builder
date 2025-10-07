@@ -32,8 +32,22 @@ export interface LivePresentationPrompt {
     name?: string;
     purpose?: string;
     platform?: string;
+    studentName?: string;
+    submission?: Record<string, unknown>;
     [key: string]: unknown;
   }; // The actual submission data being displayed
+  groupSubmissions?: Array<{
+    studentName: string;
+    submission: {
+      type?: string;
+      data?: Record<string, unknown>;
+      url?: string;
+      name?: string;
+      purpose?: string;
+      platform?: string;
+      [key: string]: unknown;
+    };
+  }>; // All submissions for the group (for student navigation)
 }
 
 export interface GroupInfo {
@@ -142,6 +156,7 @@ export type MessageType =
   | 'group_summary'
   | 'group_summary_generated'
   | 'summary_generation_started'
+  | 'summary_submitted'
   | 'ready_check'
   | 'teacher_connected'
   | 'connection_update'
@@ -302,6 +317,33 @@ export interface TimerExpiredMessage {
   duration_seconds: number;
 }
 
+export interface SummarySubmittedMessage {
+  type: 'summary_submitted';
+  group_name: string;
+  timestamp: string;
+  summary_data: {
+    category: string;
+    purpose: string;
+    platform: string;
+    strategy: string;
+  };
+  match_result: {
+    best_match: {
+      student_name: string;
+      url: string;
+      name: string;
+      purpose: string;
+      platform: string;
+    };
+    similarity_score: number;
+    reasoning: string;
+    all_scores: Array<{
+      student_name: string;
+      score: number;
+    }>;
+  };
+}
+
 export type TypedWebSocketMessage = 
   | WelcomeMessage
   | WaitingForTeacherMessage
@@ -325,6 +367,7 @@ export type TypedWebSocketMessage =
   | SummaryGenerationStartedMessage
   | GroupInfoSentMessage
   | GroupSummaryGeneratedMessage
+  | SummarySubmittedMessage
   | TimerStartedMessage
   | TimerStoppedMessage
   | TimerUpdateMessage
@@ -401,6 +444,10 @@ export interface StopTimerMessage {
   type: 'stop_timer';
 }
 
+export interface RotateSummariesMessage {
+  type: 'rotate_summaries';
+}
+
 export type TeacherMessage = 
   | SendPromptMessage 
   | SendGroupInfoMessage 
@@ -411,7 +458,8 @@ export type TeacherMessage =
   | EndPresentationMessage
   | TestConnectionsMessage
   | StartTimerMessage
-  | StopTimerMessage;
+  | StopTimerMessage
+  | RotateSummariesMessage;
 
 // Roomcast message types
 export interface RoomcastStatusMessage {
