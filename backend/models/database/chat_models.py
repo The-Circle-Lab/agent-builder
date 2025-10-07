@@ -3,7 +3,7 @@ from sqlmodel import SQLModel, Field, Relationship, JSON, Column
 from typing import List, Optional
 
 
-class ChatConversation(SQLModel, table=True):
+class ChatConversation(SQLModel, table=True): 
     id: int | None = Field(default=None, primary_key=True)
     deployment_id: str = Field(index=True)  # Reference to the deployment UUID
     user_id: int = Field(foreign_key="user.id")
