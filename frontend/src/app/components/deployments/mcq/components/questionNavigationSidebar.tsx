@@ -8,6 +8,8 @@ interface QuestionNavigationSidebarProps {
   submittedAnswers: Record<number, MCQAnswer>;
   totalQuestions: number;
   onQuestionSelect: (index: number) => void;
+  oneQuestionAtATime: boolean;
+  answeredCount: number;
 }
 
 export default function QuestionNavigationSidebar({
@@ -15,7 +17,9 @@ export default function QuestionNavigationSidebar({
   currentQuestionIndex,
   submittedAnswers,
   totalQuestions,
-  onQuestionSelect
+  onQuestionSelect,
+  oneQuestionAtATime,
+  answeredCount
 }: QuestionNavigationSidebarProps) {
   const allQuestionsSubmitted = Object.keys(submittedAnswers).length === totalQuestions;
 
@@ -26,11 +30,13 @@ export default function QuestionNavigationSidebar({
         {questions.map((question, index) => {
           const isSubmitted = submittedAnswers[question.index];
           const isCurrent = index === currentQuestionIndex;
+          const canSelect = !oneQuestionAtATime || index <= answeredCount;
           
           return (
             <button
               key={question.index}
-              onClick={() => onQuestionSelect(index)}
+              onClick={() => canSelect && onQuestionSelect(index)}
+              disabled={!canSelect}
               className={`p-2 text-sm rounded-md border transition-colors ${
                 isCurrent
                   ? 'bg-blue-50 border-blue-200 text-blue-700'
@@ -38,7 +44,7 @@ export default function QuestionNavigationSidebar({
                   ? isSubmitted.is_correct
                     ? 'bg-green-50 border-green-200 text-green-700'
                     : 'bg-red-50 border-red-200 text-red-700'
-                  : 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100'
+                  : `bg-gray-50 border-gray-200 text-gray-700 ${canSelect ? 'hover:bg-gray-100' : 'opacity-50 cursor-not-allowed'}`
               }`}
             >
               <div className="flex items-center justify-center space-x-1">

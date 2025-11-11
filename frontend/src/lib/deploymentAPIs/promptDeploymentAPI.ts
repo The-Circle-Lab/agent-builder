@@ -1,9 +1,19 @@
 // Prompt deployment specific interfaces and functionality
+export type PromptMediaType =
+  | 'textarea'
+  | 'hyperlink'
+  | 'pdf'
+  | 'list'
+  | 'dynamic_list'
+  | 'websiteInfo'
+  | 'multiple_choice';
+
 export interface PromptSubmissionRequirement {
   prompt: string;
-  mediaType: 'textarea' | 'hyperlink' | 'pdf' | 'list' | 'dynamic_list' | 'websiteInfo';
+  mediaType: PromptMediaType;
   items?: number; // Number of items required for list type (not applicable to dynamic_list)
   max?: number; // Maximum number of entries for websiteInfo type
+  options?: string[]; // Available options for multiple choice prompts
 }
 
 export interface GroupInfo {
@@ -24,7 +34,7 @@ export interface PromptInfo {
 export interface PromptSubmissionResponse {
   submission_index: number;
   prompt_text: string;
-  media_type: 'textarea' | 'hyperlink' | 'pdf' | 'list' | 'dynamic_list' | 'websiteInfo';
+  media_type: PromptMediaType;
   user_response: string;
   submitted_at: string;
 }
@@ -55,7 +65,7 @@ export interface PromptEditSubmissionRequest {
 export interface PromptSubmissionResult {
   submission_index: number;
   prompt_text: string;
-  media_type: string;
+  media_type: PromptMediaType;
   user_response: string;
   submitted_at: string;
   is_valid: boolean;

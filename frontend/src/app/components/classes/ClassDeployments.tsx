@@ -185,6 +185,16 @@ interface IndividualGradesData {
   };
 }
 
+type PageProgressStatus = 'not_started' | 'in_progress' | 'completed';
+
+interface PageProgressData {
+  deployment_id: string;
+  status: PageProgressStatus;
+  required_pages: number;
+  completed_pages: number;
+  in_progress_pages: number;
+}
+
 interface ClassDeploymentsProps {
   deployments: Deployment[];
   isInstructor: boolean;
@@ -305,6 +315,25 @@ export default function ClassDeployments({
   const [loadingGrades, setLoadingGrades] = useState<Record<string, boolean>>({});
   const [buttonCustomizations, setButtonCustomizations] = useState<Record<string, {button_text: string; button_color: string}>>({});
   const [dueDates, setDueDates] = useState<Record<string, { due_date: string | null; is_overdue: boolean; days_until_due: number | null }>>({});
+  const [pageProgress, setPageProgress] = useState<Record<string, PageProgressData>>({});
+
+  const PAGE_PROGRESS_STYLES: Record<PageProgressStatus, { label: string; dot: string; text: string }> = {
+    not_started: {
+      label: 'Not started',
+      dot: 'bg-blue-500',
+      text: 'text-blue-700',
+    },
+    in_progress: {
+      label: 'In progress',
+      dot: 'bg-yellow-500',
+      text: 'text-yellow-700',
+    },
+    completed: {
+      label: 'Completed',
+      dot: 'bg-green-500',
+      text: 'text-green-700',
+    },
+  };
 
   // Sort deployments by most recent first
   const sortedDeployments = [...deployments].sort((a, b) => 
@@ -478,6 +507,58 @@ export default function ClassDeployments({
     }
   }, [deployments, deploymentTypes, buttonCustomizations, isInstructor]);
 
+  // Fetch page progress for students
+  useEffect(() => {
+    if (isInstructor) return;
+
+    const fetchPageProgress = async () => {
+      const updates: Record<string, PageProgressData> = {};
+
+      await Promise.all(
+        deployments.map(async (deployment) => {
+          const type = deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat';
+          if (!(type === 'page' || isPageBasedDeployment(deployment, type))) {
+            return;
+          }
+
+          if (pageProgress[deployment.deployment_id]) {
+            return;
+          }
+
+          try {
+            const response = await fetch(
+              `${API_CONFIG.BASE_URL}/api/deploy/${deployment.deployment_id}/pages/progress`,
+              { credentials: 'include' }
+            );
+
+            if (!response.ok) {
+              return;
+            }
+
+            const data = await response.json();
+            updates[deployment.deployment_id] = {
+              deployment_id: data.deployment_id,
+              status: data.status as PageProgressStatus,
+              required_pages: typeof data.required_pages === 'number' ? data.required_pages : 0,
+              completed_pages: typeof data.completed_pages === 'number' ? data.completed_pages : 0,
+              in_progress_pages: typeof data.in_progress_pages === 'number' ? data.in_progress_pages : 0,
+            };
+          } catch (err) {
+            console.warn(`Failed to fetch page progress for deployment ${deployment.deployment_id}:`, err);
+          }
+        })
+      );
+
+      if (Object.keys(updates).length > 0) {
+        setPageProgress((prev) => ({ ...prev, ...updates }));
+      }
+    };
+
+    if (Object.keys(deploymentTypes).length > 0) {
+      fetchPageProgress();
+    }
+  }, [deployments, deploymentTypes, isInstructor, pageProgress]);
+
   const handleDelete = async (deploymentId: string) => {
     if (!confirm('Are you sure you want to delete this deployment? This action cannot be undone.')) {
       return;
@@ -571,6 +652,44 @@ export default function ClassDeployments({
         </div>
       );
     }
+  };
+
+  const renderPageProgress = (deployment: Deployment) => {
+    if (isInstructor) return null;
+
+    const deploymentType = deploymentTypes[deployment.deployment_id] ?? deployment.type ?? 'chat';
+    if (!(deploymentType === 'page' || isPageBasedDeployment(deployment, deploymentType))) {
+      return null;
+    }
+
+    const progress = pageProgress[deployment.deployment_id];
+
+    if (!progress) {
+      return (
+        <div className="flex items-center space-x-1 text-xs text-gray-400">
+          <span className="inline-flex h-2 w-2 rounded-full bg-gray-300" />
+          <span>Checking progress...</span>
+        </div>
+      );
+    }
+
+    const style = PAGE_PROGRESS_STYLES[progress.status] ?? PAGE_PROGRESS_STYLES.not_started;
+    const hasRequirements = progress.required_pages > 0;
+
+    return (
+      <div className="flex items-center space-x-2">
+        <span className={`inline-flex h-2.5 w-2.5 rounded-full ${style.dot}`} />
+        <span className={`text-xs font-medium ${style.text}`}>{style.label}</span>
+        {hasRequirements && (
+          <span className="text-xs text-gray-500">
+            {progress.completed_pages}/{progress.required_pages} required steps
+          </span>
+        )}
+        {!hasRequirements && (
+          <span className="text-xs text-gray-500">No required steps</span>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -668,6 +787,7 @@ export default function ClassDeployments({
                           </p>
                         )}
                         <p>Deployed: {new Date(deployment.created_at).toLocaleDateString()}</p>
+                        {renderPageProgress(deployment)}
                       </div>
                       {renderGradeDisplay(deployment)}
                     </div>

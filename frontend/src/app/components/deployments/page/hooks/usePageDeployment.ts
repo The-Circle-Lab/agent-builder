@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { PageListResponse, PageInfo } from '../types';
 import { API_CONFIG } from '@/lib/constants';
 
@@ -18,13 +18,24 @@ export interface UsePageDeploymentReturn {
 export function usePageDeployment(deploymentId: string): UsePageDeploymentReturn {
   const [pages, setPages] = useState<PageInfo[]>([]);
   const [pagesAccessible, setPagesAccessible] = useState<number>(1);
-  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [currentPage, setCurrentPageState] = useState<number>(1);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const currentPageRef = useRef<number>(1);
 
-  const fetchPages = useCallback(async () => {
+  const updateCurrentPage = useCallback((pageNumber: number) => {
+    currentPageRef.current = pageNumber;
+    setCurrentPageState(pageNumber);
+  }, []);
+
+  const fetchPages = useCallback(async (options?: { preserveCurrent?: boolean; silent?: boolean }) => {
+    const preserveCurrent = options?.preserveCurrent ?? false;
+    const silent = options?.silent ?? false;
+
     try {
-      setLoading(true);
+      if (!silent) {
+        setLoading(true);
+      }
       setError(null);
 
       const response = await fetch(
@@ -45,17 +56,39 @@ export function usePageDeployment(deploymentId: string): UsePageDeploymentReturn
       const data: PageListResponse = await response.json();
       setPages(data.pages);
       setPagesAccessible(data.pages_accessible);
-      
-      // Choose first unlocked & accessible page
-      const firstUnlocked = data.pages.find(p => p.is_accessible);
-      if (firstUnlocked) {
-        setCurrentPage(firstUnlocked.page_number);
-      } else if (data.pages.length > 0) {
-        // If none are accessible, keep page at 1 and set error
-        setCurrentPage(data.pages[0].page_number);
+
+      const firstAccessible = data.pages.find(p => p.is_accessible);
+      if (!firstAccessible) {
         setError('No pages are accessible yet. Please wait until your instructor unlocks a page.');
       }
-      
+
+      let nextPageNumber: number;
+      if (preserveCurrent) {
+        const current = currentPageRef.current;
+        const currentStillAccessible = data.pages.find(
+          (p) => p.page_number === current && p.is_accessible
+        );
+
+        if (currentStillAccessible) {
+          nextPageNumber = current;
+        } else if (firstAccessible) {
+          nextPageNumber = firstAccessible.page_number;
+        } else if (data.pages.length > 0) {
+          nextPageNumber = data.pages[0].page_number;
+        } else {
+          nextPageNumber = current;
+        }
+      } else {
+        if (firstAccessible) {
+          nextPageNumber = firstAccessible.page_number;
+        } else if (data.pages.length > 0) {
+          nextPageNumber = data.pages[0].page_number;
+        } else {
+          nextPageNumber = currentPageRef.current;
+        }
+      }
+
+      updateCurrentPage(nextPageNumber);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to fetch pages';
       setError(errorMessage);
@@ -63,10 +96,10 @@ export function usePageDeployment(deploymentId: string): UsePageDeploymentReturn
     } finally {
       setLoading(false);
     }
-  }, [deploymentId]);
+  }, [deploymentId, updateCurrentPage]);
 
   const refreshPages = useCallback(async () => {
-    await fetchPages();
+    await fetchPages({ preserveCurrent: true, silent: true });
   }, [fetchPages]);
 
   const isPageAccessible = useCallback((pageNumber: number): boolean => {
@@ -88,8 +121,8 @@ export function usePageDeployment(deploymentId: string): UsePageDeploymentReturn
     }
     
     setError(null);
-    setCurrentPage(pageNumber);
-  }, [pages]);
+    updateCurrentPage(pageNumber);
+  }, [pages, updateCurrentPage]);
 
   useEffect(() => {
     fetchPages();

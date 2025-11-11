@@ -17,7 +17,8 @@ import {
   PencilSquareIcon,
   LinkIcon,
   CogIcon,
-  XMarkIcon
+  XMarkIcon,
+  ArrowDownTrayIcon
 } from '@heroicons/react/24/outline';
 import { API_CONFIG } from '@/lib/constants';
 import { LivePresentationAdmin } from '../livePresentation/components/livePresentationAdmin';
@@ -295,6 +296,240 @@ export default function PageDeploymentAdmin({
     const hours = pad(d.getHours());
     const minutes = pad(d.getMinutes());
     return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
+  // CSV Export Helper Functions
+  const escapeCSVField = (field: string): string => {
+    if (field.includes(',') || field.includes('"') || field.includes('\n')) {
+      return `"${field.replace(/"/g, '""')}"`;
+    }
+    return field;
+  };
+
+  const exportToCSV = async (pageDeploymentId: string, pageNumber: number) => {
+    try {
+      // Fetch all sessions for this page
+      const response = await fetch(
+        `${API_CONFIG.BASE_URL}/api/deploy/${pageDeploymentId}/prompt/instructor/sessions`,
+        { credentials: 'include' }
+      );
+      
+      if (!response.ok) {
+        alert('Failed to fetch session data for export');
+        return;
+      }
+
+      const sessions: PageSessionView[] = await response.json();
+      const completedSessions = sessions.filter(s => s.is_completed);
+
+      if (completedSessions.length === 0) {
+        alert('No completed sessions to export');
+        return;
+      }
+
+      // Fetch submissions for all completed sessions
+      const allSubmissions: Array<{
+        userEmail: string;
+        submissions: PageSubmissionView['submissions'];
+      }> = [];
+
+      for (const session of completedSessions) {
+        if (session.session_id > 0) {
+          const submissionsResponse = await fetch(
+            `${API_CONFIG.BASE_URL}/api/deploy/${pageDeploymentId}/prompt/instructor/submissions/${session.session_id}`,
+            { credentials: 'include' }
+          );
+          
+          if (submissionsResponse.ok) {
+            const submissionData: PageSubmissionView = await submissionsResponse.json();
+            allSubmissions.push({
+              userEmail: session.user_email,
+              submissions: submissionData.submissions
+            });
+          }
+        }
+      }
+
+      if (allSubmissions.length === 0) {
+        alert('No submission data available to export');
+        return;
+      }
+
+      // Determine the prompt type from the first submission
+      const firstSubmission = allSubmissions[0]?.submissions[0];
+      if (!firstSubmission) {
+        alert('No submissions found to export');
+        return;
+      }
+
+      const mediaType = firstSubmission.media_type;
+      let csvContent = '';
+
+      // Generate CSV based on media type
+      if (mediaType === 'websiteInfo') {
+        // CSV for website info: Student Email, Requirement #, Website #, Name, URL, Purpose, Platform, Submitted At
+        csvContent = 'Student Email,Requirement #,Website #,Name,URL,Purpose,Platform,Submitted At\n';
+        
+        allSubmissions.forEach(({ userEmail, submissions }) => {
+          submissions.forEach((submission) => {
+            try {
+              const parsed = JSON.parse(submission.user_response);
+              let websiteDataList: Array<{ url?: string; name?: string; purpose?: string; platform?: string }> = [];
+              
+              if (Array.isArray(parsed)) {
+                websiteDataList = parsed;
+              } else if (typeof parsed === 'object' && parsed !== null) {
+                websiteDataList = [parsed];
+              }
+
+              websiteDataList.forEach((info, idx) => {
+                const row = [
+                  escapeCSVField(userEmail),
+                  String(submission.submission_index + 1),
+                  String(idx + 1),
+                  escapeCSVField(info.name || ''),
+                  escapeCSVField(info.url || ''),
+                  escapeCSVField(info.purpose || ''),
+                  escapeCSVField(info.platform || ''),
+                  escapeCSVField(formatDate(submission.submitted_at))
+                ];
+                csvContent += row.join(',') + '\n';
+              });
+            } catch {
+              // If parsing fails, add a row with the raw response
+              const row = [
+                escapeCSVField(userEmail),
+                String(submission.submission_index + 1),
+                '1',
+                '',
+                '',
+                escapeCSVField(submission.user_response),
+                '',
+                escapeCSVField(formatDate(submission.submitted_at))
+              ];
+              csvContent += row.join(',') + '\n';
+            }
+          });
+        });
+      } else if (mediaType === 'list' || mediaType === 'dynamic_list') {
+        // CSV for list: Student Email, Requirement #, Item #, Item Text, Submitted At
+        csvContent = 'Student Email,Requirement #,Item #,Item Text,Submitted At\n';
+        
+        allSubmissions.forEach(({ userEmail, submissions }) => {
+          submissions.forEach((submission) => {
+            const raw = submission.user_response ?? '';
+            let items: string[] = [];
+            
+            try {
+              const first = JSON.parse(raw);
+              if (Array.isArray(first)) {
+                items = first as string[];
+              } else if (typeof first === 'string') {
+                try {
+                  const second = JSON.parse(first);
+                  if (Array.isArray(second)) {
+                    items = second as string[];
+                  }
+                } catch {
+                  items = raw.split('\n').map(s => s.trim()).filter(Boolean);
+                }
+              }
+            } catch {
+              items = raw.split('\n').map(s => s.trim()).filter(Boolean);
+            }
+
+            if (items.length > 0) {
+              items.forEach((item, idx) => {
+                const row = [
+                  escapeCSVField(userEmail),
+                  String(submission.submission_index + 1),
+                  String(idx + 1),
+                  escapeCSVField(item),
+                  escapeCSVField(formatDate(submission.submitted_at))
+                ];
+                csvContent += row.join(',') + '\n';
+              });
+            } else {
+              // Empty list
+              const row = [
+                escapeCSVField(userEmail),
+                String(submission.submission_index + 1),
+                '0',
+                '',
+                escapeCSVField(formatDate(submission.submitted_at))
+              ];
+              csvContent += row.join(',') + '\n';
+            }
+          });
+        });
+      } else if (mediaType === 'hyperlink') {
+        // CSV for hyperlinks: Student Email, Requirement #, Prompt, URL, Submitted At
+        csvContent = 'Student Email,Requirement #,Prompt,URL,Submitted At\n';
+        
+        allSubmissions.forEach(({ userEmail, submissions }) => {
+          submissions.forEach((submission) => {
+            const row = [
+              escapeCSVField(userEmail),
+              String(submission.submission_index + 1),
+              escapeCSVField(submission.prompt_text),
+              escapeCSVField(submission.user_response),
+              escapeCSVField(formatDate(submission.submitted_at))
+            ];
+            csvContent += row.join(',') + '\n';
+          });
+        });
+      } else if (mediaType === 'pdf') {
+        // CSV for PDFs: Student Email, Requirement #, Prompt, Document ID, Document Filename, Submitted At
+        csvContent = 'Student Email,Requirement #,Prompt,Document ID,Document Filename,Submitted At\n';
+        
+        allSubmissions.forEach(({ userEmail, submissions }) => {
+          submissions.forEach((submission) => {
+            const row = [
+              escapeCSVField(userEmail),
+              String(submission.submission_index + 1),
+              escapeCSVField(submission.prompt_text),
+              escapeCSVField(String(submission.document_id || submission.user_response)),
+              escapeCSVField(submission.document_filename || ''),
+              escapeCSVField(formatDate(submission.submitted_at))
+            ];
+            csvContent += row.join(',') + '\n';
+          });
+        });
+      } else {
+        // Default CSV for text responses: Student Email, Requirement #, Prompt, Response, Submitted At
+        csvContent = 'Student Email,Requirement #,Prompt,Response,Submitted At\n';
+        
+        allSubmissions.forEach(({ userEmail, submissions }) => {
+          submissions.forEach((submission) => {
+            const row = [
+              escapeCSVField(userEmail),
+              String(submission.submission_index + 1),
+              escapeCSVField(submission.prompt_text),
+              escapeCSVField(submission.user_response),
+              escapeCSVField(formatDate(submission.submitted_at))
+            ];
+            csvContent += row.join(',') + '\n';
+          });
+        });
+      }
+
+      // Download CSV file
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', `page_${pageNumber}_submissions_${new Date().toISOString().split('T')[0]}.csv`);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      alert('CSV exported successfully!');
+    } catch (error) {
+      console.error('Error exporting CSV:', error);
+      alert('Failed to export CSV. Please try again.');
+    }
   };
   
   const fetchPages = async () => {
@@ -1761,12 +1996,24 @@ export default function PageDeploymentAdmin({
                   </p>
                 </div>
               </div>
-              <button
-                onClick={() => setSelectedPageStats(null)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                <XCircleIcon className="h-6 w-6" />
-              </button>
+              <div className="flex items-center space-x-3">
+                {selectedPageStats.deploymentType === 'prompt' && (
+                  <button
+                    onClick={() => exportToCSV(selectedPageStats.deploymentId, selectedPageStats.pageNumber)}
+                    className="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                    title="Export all submissions to CSV"
+                  >
+                    <ArrowDownTrayIcon className="h-5 w-5 mr-2" />
+                    Export CSV
+                  </button>
+                )}
+                <button
+                  onClick={() => setSelectedPageStats(null)}
+                  className="text-gray-400 hover:text-gray-600"
+                >
+                  <XCircleIcon className="h-6 w-6" />
+                </button>
+              </div>
             </div>
 
             {selectedPageStats.deploymentType !== 'prompt' ? (

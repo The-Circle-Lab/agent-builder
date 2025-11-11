@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircleIcon, PencilIcon, LinkIcon, PaperClipIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, PencilIcon, LinkIcon, PaperClipIcon, ListBulletIcon } from '@heroicons/react/24/outline';
 import { PromptSubmissionRequirement } from '@/lib/deploymentAPIs/promptDeploymentAPI';
 
 interface SubmissionNavigationSidebarProps {
@@ -18,7 +18,13 @@ export default function SubmissionNavigationSidebar({
   const getStatusIcon = (index: number) => {
     const status = getSubmissionStatus(index);
     const type = submissionRequirements[index].mediaType;
-    const IconComponent = type === 'hyperlink' ? LinkIcon : type === 'pdf' ? PaperClipIcon : PencilIcon;
+    const IconComponent = type === 'hyperlink'
+      ? LinkIcon
+      : type === 'pdf'
+        ? PaperClipIcon
+        : type === 'multiple_choice'
+          ? ListBulletIcon
+          : PencilIcon;
     
     switch (status) {
       case 'completed':
@@ -88,7 +94,11 @@ export default function SubmissionNavigationSidebar({
                             ? 'List'
                             : requirement.mediaType === 'dynamic_list'
                               ? 'Dynamic List'
-                              : 'Text'}
+                              : requirement.mediaType === 'multiple_choice'
+                                ? 'Multiple Choice'
+                                : requirement.mediaType === 'websiteInfo'
+                                  ? 'Website Info'
+                                  : 'Text'}
                     </span>
                   </div>
                   

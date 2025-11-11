@@ -20,6 +20,7 @@ type PropertyTypeMap = {
   livePresentationPrompts: import("../types").LivePresentationPrompt[];
   variablesList: import("../types").Variable[];
   submissionPromptSelector: string[];
+  videoUpload: import("../types").VideoAsset[];
 };
 
 // Handle configuration interface
@@ -135,7 +136,7 @@ export abstract class BaseNode<
       (
         defaultData as unknown as Record<
           string,
-          string | number | boolean | string[] | import("../types").TestCase[] | import("../types").MultipleChoiceQuestion[] | import("../types").SubmissionPrompt[] | import("../types").LivePresentationPrompt[] | import("../types").Variable[]
+          string | number | boolean | string[] | import("../types").TestCase[] | import("../types").MultipleChoiceQuestion[] | import("../types").SubmissionPrompt[] | import("../types").LivePresentationPrompt[] | import("../types").Variable[] | import("../types").VideoAsset[] | null
         >
       )[property.key] = property.defaultValue;
     });

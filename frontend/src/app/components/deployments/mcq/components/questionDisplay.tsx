@@ -15,6 +15,12 @@ interface QuestionDisplayProps {
   onSubmitAnswer: () => void;
   onNavigate: (direction: 'prev' | 'next') => void;
   onClose: () => void;
+  revealCorrectAnswer: boolean;
+  feedbackMessage?: string | null;
+  showChatPrompt?: boolean;
+  onRequestChat?: () => void;
+  disablePrev?: boolean;
+  disableNext?: boolean;
 }
 
 export default function QuestionDisplay({
@@ -29,9 +35,16 @@ export default function QuestionDisplay({
   onAnswerSelect,
   onSubmitAnswer,
   onNavigate,
-  onClose
+  onClose,
+  revealCorrectAnswer,
+  feedbackMessage,
+  showChatPrompt,
+  onRequestChat,
+  disablePrev,
+  disableNext,
 }: QuestionDisplayProps) {
   const isSubmitted = !!submittedAnswer;
+  const isCorrect = submittedAnswer?.is_correct ?? false;
 
   return (
     <div className="bg-white rounded-lg shadow-sm border p-6">
@@ -48,13 +61,13 @@ export default function QuestionDisplay({
         {question.answers.map((answer, answerIndex) => {
           const optionLetter = String.fromCharCode(65 + answerIndex); // A, B, C, D...
           const isSelected = selectedAnswer === answer;
-          const isCorrect = submittedAnswer?.correct_answer === answer;
+          const isCorrectAnswer = revealCorrectAnswer && submittedAnswer?.correct_answer === answer;
           const isStudentAnswer = submittedAnswer?.selected_answer === answer;
 
           let optionClass = 'bg-gray-50 border-gray-200 text-gray-700';
           
           if (isSubmitted) {
-            if (isCorrect) {
+            if (isCorrectAnswer) {
               optionClass = 'bg-green-50 border-green-300 text-green-800';
             } else if (isStudentAnswer && !isCorrect) {
               optionClass = 'bg-red-50 border-red-300 text-red-800';
@@ -83,7 +96,7 @@ export default function QuestionDisplay({
               <div className="flex items-start space-x-3">
                 <span className="font-medium">{optionLetter}.</span>
                 <span className="flex-1">{answer}</span>
-                {isSubmitted && isCorrect && (
+                {isSubmitted && isCorrectAnswer && (
                   <CheckCircleIcon className="h-5 w-5 text-green-600" />
                 )}
                 {isSubmitted && isStudentAnswer && !isCorrect && (
@@ -99,6 +112,35 @@ export default function QuestionDisplay({
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md">
           <p className="text-sm text-red-600">{error}</p>
+        </div>
+      )}
+
+      {isSubmitted && !error && (
+        <div className="mb-4 space-y-2">
+          {submittedAnswer?.is_correct ? (
+            <div className="p-3 bg-green-50 border border-green-200 rounded-md text-sm text-green-800">
+              Great job! You selected the correct answer.
+            </div>
+          ) : (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-700">
+              That answer was not correct. {revealCorrectAnswer ? 'Review the highlighted option to see the correct response.' : 'Try reviewing the material before moving on.'}
+            </div>
+          )}
+
+          {feedbackMessage && !submittedAnswer?.is_correct && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-800">
+              {feedbackMessage}
+            </div>
+          )}
+
+          {showChatPrompt && !submittedAnswer?.is_correct && onRequestChat && (
+            <button
+              onClick={onRequestChat}
+              className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+            >
+              Ask the AI tutor for help
+            </button>
+          )}
         </div>
       )}
 
@@ -131,7 +173,7 @@ export default function QuestionDisplay({
         <div className="flex justify-between items-center">
           <button
             onClick={() => onNavigate('prev')}
-            disabled={questionIndex === 0}
+            disabled={disablePrev || questionIndex === 0}
             className="inline-flex items-center px-3 py-1 border border-gray-300 text-sm font-medium rounded text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Previous
@@ -147,7 +189,7 @@ export default function QuestionDisplay({
           ) : (
             <button
               onClick={() => onNavigate('next')}
-              disabled={questionIndex === totalQuestions - 1}
+              disabled={disableNext || questionIndex === totalQuestions - 1}
               className="inline-flex items-center px-3 py-1 border border-gray-300 text-sm font-medium rounded text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Next

@@ -1,0 +1,250 @@
+"use client";
+
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  VideoDeploymentAPI,
+  VideoAssetDetails,
+} from "@/lib/deploymentAPIs/videoDeploymentAPI";
+import { VideoAPI } from "@/lib/videoAPI";
+import { getApiConfig } from "@/lib/config";
+
+interface VideoInterfaceProps {
+  deploymentId: string;
+  deploymentName: string;
+}
+
+const useApiBaseUrl = (): string => {
+  return useMemo(() => {
+    const base = getApiConfig().base_url;
+    return base.endsWith("/") ? base.slice(0, -1) : base;
+  }, []);
+};
+
+const ensureAbsoluteUrl = (baseUrl: string, url?: string | null): string | null => {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) {
+    return url;
+  }
+  const normalizedPath = url.startsWith("/") ? url : `/${url}`;
+  return `${baseUrl}${normalizedPath}`;
+};
+
+const formatDateTime = (value?: string | null): string | null => {
+  if (!value) return null;
+  try {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return null;
+    }
+    return date.toLocaleString();
+  } catch {
+    return null;
+  }
+};
+
+export default function VideoInterface({
+  deploymentId,
+  deploymentName,
+}: VideoInterfaceProps) {
+  const [video, setVideo] = useState<VideoAssetDetails | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const baseUrl = useApiBaseUrl();
+
+  const loadVideo = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      const response = await VideoDeploymentAPI.getVideoDetails(deploymentId);
+      setVideo(response.video ?? null);
+      setMessage(response.message ?? null);
+
+      if (!response.video && !response.message) {
+        setMessage("No video has been configured for this deployment yet.");
+      }
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : "Failed to load video.";
+      setError(errorMessage);
+      setVideo(null);
+      setMessage(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [deploymentId]);
+
+  useEffect(() => {
+    loadVideo();
+  }, [loadVideo]);
+
+  const resolvedStreamUrl = useMemo(() => {
+    if (!video) return null;
+    return (
+      ensureAbsoluteUrl(baseUrl, video.stream_url) ??
+      (video.id ? VideoAPI.buildStreamUrl(video.id) : null)
+    );
+  }, [baseUrl, video]);
+
+  const resolvedDownloadUrl = useMemo(() => {
+    if (!video) return null;
+    return (
+      ensureAbsoluteUrl(baseUrl, video.download_url) ??
+      (video.id ? VideoAPI.buildDownloadUrl(video.id) : null)
+    );
+  }, [baseUrl, video]);
+
+  if (loading) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-gray-50">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
+          <p className="mt-4 text-gray-600">Loading video...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-gray-50">
+        <div className="max-w-md text-center">
+          <div className="bg-red-100 rounded-full h-12 w-12 flex items-center justify-center mx-auto">
+            <svg
+              className="h-6 w-6 text-red-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.96-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+              />
+            </svg>
+          </div>
+          <h3 className="mt-4 text-lg font-medium text-gray-900">Unable to load video</h3>
+          <p className="mt-2 text-sm text-gray-600">{error}</p>
+          <button
+            onClick={loadVideo}
+            className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!video) {
+    return (
+      <div className="flex-1 flex items-center justify-center bg-gray-50">
+        <div className="max-w-md text-center">
+          <div className="bg-yellow-100 rounded-full h-12 w-12 flex items-center justify-center mx-auto">
+            <svg
+              className="h-6 w-6 text-yellow-600"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 9v2m0 4h.01M5.455 19h13.09c1.54 0 2.5-1.67 1.73-2.5L13.73 5c-.77-.83-1.96-.83-2.73 0l-6.545 11.5c-.77.83.19 2.5 1.73 2.5z"
+              />
+            </svg>
+          </div>
+          <h3 className="mt-4 text-lg font-medium text-gray-900">No video available</h3>
+          <p className="mt-2 text-sm text-gray-600">
+            {message ?? "Your instructor has not selected a video for this deployment yet."}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  const fileSizeText = video.file_size
+    ? VideoAPI.formatFileSize(video.file_size)
+    : video.file_size === 0
+    ? VideoAPI.formatFileSize(0)
+    : null;
+
+  const durationText = video.duration_seconds
+    ? VideoAPI.formatDuration(video.duration_seconds)
+    : null;
+
+  const uploadedAtText = formatDateTime(video.uploaded_at);
+
+  return (
+    <div className="flex-1 overflow-auto bg-gray-50">
+      <div className="max-w-4xl w-full mx-auto py-10 px-4 sm:px-6 lg:px-8">
+        <div className="mb-6">
+          <h2 className="text-2xl font-semibold text-gray-900">{deploymentName}</h2>
+          <p className="mt-1 text-sm text-gray-600">
+            Watch the selected video for this page. Your instructor curates the content shown here.
+          </p>
+        </div>
+
+        <div className="bg-white shadow-sm rounded-lg overflow-hidden border border-gray-200">
+          <div className="bg-gray-900">
+            {resolvedStreamUrl ? (
+              <video
+                key={resolvedStreamUrl}
+                controls
+                playsInline
+                className="w-full h-auto max-h-[70vh] bg-black"
+                src={resolvedStreamUrl}
+              >
+                Your browser does not support the video tag.
+              </video>
+            ) : (
+              <div className="flex items-center justify-center h-64 text-white">
+                <p>Video preview unavailable.</p>
+              </div>
+            )}
+          </div>
+
+          <div className="p-5 space-y-4">
+            <div>
+              <h3 className="text-lg font-medium text-gray-900">{video.filename ?? "Video"}</h3>
+              <div className="mt-1 text-sm text-gray-600 space-x-2">
+                {fileSizeText && <span>{fileSizeText}</span>}
+                {durationText && <span>• {durationText}</span>}
+                {video.status && <span>• Status: {video.status}</span>}
+              </div>
+              {uploadedAtText && (
+                <p className="mt-1 text-xs text-gray-500">Uploaded {uploadedAtText}</p>
+              )}
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              {resolvedDownloadUrl && (
+                <a
+                  href={resolvedDownloadUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center px-3 py-2 text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+                >
+                  Download Video
+                </a>
+              )}
+              {video.source && (
+                <span className="text-xs uppercase tracking-wide text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                  Source: {video.source}
+                </span>
+              )}
+            </div>
+
+            {message && (
+              <div className="mt-2 text-sm text-gray-500 bg-gray-100 rounded-md px-3 py-2">
+                {message}
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
