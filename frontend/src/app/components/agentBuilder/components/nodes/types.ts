@@ -23,11 +23,23 @@ export interface Variable {
 }
 
 // Property definition system for generic settings forms
+export interface VideoAsset {
+  id: number | string;
+  filename: string;
+  fileSize?: number;
+  fileType?: string;
+  url?: string | null;
+  thumbnailUrl?: string | null;
+  durationSeconds?: number | null;
+  uploadedAt?: string;
+  status?: "pending" | "processing" | "ready" | "failed";
+}
+
 export interface PropertyDefinition {
   key: string;
   label: string;
-  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions" | "submissionPrompts" | "livePresentationPrompts" | "variablesList" | "submissionPromptSelector" | "listVariableSelector" | "radio";
-  defaultValue: string | number | boolean | string[] | TestCase[] | MultipleChoiceQuestion[] | SubmissionPrompt[] | LivePresentationPrompt[] | Variable[] | string[];
+  type: "text" | "textarea" | "number" | "checkbox" | "select" | "range" | "upload" | "dynamicTextList" | "testCases" | "multipleChoiceQuestions" | "submissionPrompts" | "livePresentationPrompts" | "variablesList" | "submissionPromptSelector" | "listVariableSelector" | "radio" | "videoUpload" | "hidden";
+  defaultValue: string | number | boolean | string[] | TestCase[] | MultipleChoiceQuestion[] | SubmissionPrompt[] | LivePresentationPrompt[] | Variable[] | VideoAsset[] | null;
   placeholder?: string;
   options?: string[]; // For select and radio types
   min?: number; // For number and range types
@@ -35,6 +47,7 @@ export interface PropertyDefinition {
   step?: number; // For range type
   rows?: number; // For textarea type
   countKey?: string; // For dynamicTextList and testCases: key of the numeric property controlling the count
+  selectionKey?: string; // For videoUpload: key of hidden property storing selected video id
 }
 
 // Component prop interfaces

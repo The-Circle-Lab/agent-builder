@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircleIcon, XMarkIcon, LinkIcon, PencilIcon, PaperClipIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XMarkIcon, LinkIcon, PencilIcon, PaperClipIcon, ListBulletIcon } from '@heroicons/react/24/outline';
 import { PromptSession, PromptSubmissionResponse } from '@/lib/deploymentAPIs/promptDeploymentAPI';
 import { API_CONFIG } from '@/lib/constants';
 
@@ -92,6 +92,7 @@ export default function CompletionView({
               const isListType = requirement.mediaType === 'list';
               const isDynamicListType = requirement.mediaType === 'dynamic_list';
               const isWebsiteInfoType = requirement.mediaType === 'websiteInfo';
+              const isMultipleChoiceType = requirement.mediaType === 'multiple_choice';
               
               if (!submittedResponse) return null;
               
@@ -107,6 +108,8 @@ export default function CompletionView({
                         <PencilIcon className="h-5 w-5 text-orange-600" />
                       ) : isWebsiteInfoType ? (
                         <LinkIcon className="h-5 w-5 text-indigo-600" />
+                      ) : isMultipleChoiceType ? (
+                        <ListBulletIcon className="h-5 w-5 text-yellow-600" />
                       ) : (
                         <PencilIcon className="h-5 w-5 text-blue-600" />
                       )}
@@ -128,7 +131,19 @@ export default function CompletionView({
                                   ? 'bg-indigo-100 text-indigo-800'
                                   : 'bg-blue-100 text-blue-800'
                         }`}>
-                          {isPdfType ? 'PDF' : isLinkType ? 'Link' : (isListType ? 'List' : isDynamicListType ? 'Dynamic List' : isWebsiteInfoType ? 'Website Info' : 'Text')}
+                          {isPdfType
+                            ? 'PDF'
+                            : isLinkType
+                              ? 'Link'
+                              : isListType
+                                ? 'List'
+                                : isDynamicListType
+                                  ? 'Dynamic List'
+                                  : isMultipleChoiceType
+                                    ? 'Multiple Choice'
+                                    : isWebsiteInfoType
+                                      ? 'Website Info'
+                                      : 'Text'}
                         </span>
                       </div>
                       
@@ -161,6 +176,11 @@ export default function CompletionView({
                           >
                             {submittedResponse.user_response}
                           </a>
+                        ) : isMultipleChoiceType ? (
+                          <div className="bg-white p-3 rounded border">
+                            <p className="text-sm text-gray-600">Selected option:</p>
+                            <p className="mt-1 text-gray-900 font-semibold">{submittedResponse.user_response}</p>
+                          </div>
                         ) : isWebsiteInfoType ? (
                           (() => {
                             const raw = submittedResponse.user_response ?? '';

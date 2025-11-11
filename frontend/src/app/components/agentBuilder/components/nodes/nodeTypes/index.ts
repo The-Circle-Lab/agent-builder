@@ -18,6 +18,7 @@ import * as submissionNode from "./contentNodes/submissionNode"
 import * as pageNode from "./pageNodes/pageNode"
 import * as behaviourNode from "./pageNodes/behaviourNode"
 import * as globalVariablesNode from "./pageNodes/globalVariablesNode"
+import * as videoNode from "./pageNodes/videoNode"
 import * as groupNode from "./behaviourNodes/groupNode"
 import * as themeCreatorNode from "./behaviourNodes/themeCreatorNode"
 import * as livePresentationNode from "./deploymentTypeNodes/livePresentationNode"
@@ -66,6 +67,7 @@ const NODE_MODULES = {
   page: pageNode,
   behaviour: behaviourNode,
   globalVariables: globalVariablesNode,
+  video: videoNode,
   group: groupNode,
   themeCreator: themeCreatorNode,
   livePresentation: livePresentationNode,

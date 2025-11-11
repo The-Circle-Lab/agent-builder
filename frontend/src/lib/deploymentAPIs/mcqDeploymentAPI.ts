@@ -9,8 +9,15 @@ export interface MCQAnswer {
   question_index: number;
   selected_answer: string;
   is_correct: boolean;
-  correct_answer: string;
+  correct_answer: string | null;
   answered_at: string;
+  feedback_message?: string | null;
+  chat_available?: boolean;
+  next_question_index?: number | null;
+  answered_count?: number;
+  is_session_completed?: boolean;
+  total_questions?: number;
+  answers_revealed?: boolean;
 }
 
 export interface MCQSession {
@@ -23,11 +30,29 @@ export interface MCQSession {
   score?: number;
   is_completed: boolean;
   submitted_answers?: MCQAnswer[];
+  one_question_at_a_time: boolean;
+  tell_answer_after_each_question: boolean;
+  add_message_after_wrong_answer: boolean;
+  wrong_answer_message?: string | null;
+  add_chatbot_after_wrong_answer: boolean;
+  answered_count: number;
+  next_question_index: number | null;
+  answers_revealed: boolean;
 }
 
 export interface MCQAnswerSubmission {
   question_index: number;
   selected_answer: string;
+}
+
+export interface MCQChatRequest {
+  message: string;
+  history?: string[][];
+}
+
+export interface MCQChatResponse {
+  response: string;
+  sources?: string[];
 }
 
 import { API_CONFIG } from '@/lib/constants';
@@ -127,5 +152,33 @@ export class MCQDeploymentAPI {
   static async initializeSession(deploymentId: string): Promise<MCQSession> {
     // The backend POST endpoint handles both getting existing and creating new sessions
     return await this.getOrCreateSession(deploymentId);
+  }
+
+  static async requestRemediationChat(
+    deploymentId: string,
+    payload: MCQChatRequest
+  ): Promise<MCQChatResponse> {
+    if (!deploymentId?.trim()) {
+      throw new Error('Deployment ID is required');
+    }
+
+    const response = await fetch(`${API_CONFIG.BASE_URL}/api/deploy/${deploymentId}/mcq/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+      body: JSON.stringify({
+        message: payload.message,
+        history: payload.history ?? [],
+      }),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || 'Failed to generate remediation response');
+    }
+
+    return await response.json();
   }
 } 

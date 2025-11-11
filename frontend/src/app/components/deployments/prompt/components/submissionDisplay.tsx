@@ -1,5 +1,5 @@
 import React from 'react';
-import { CheckCircleIcon, XCircleIcon, ArrowRightIcon, ArrowLeftIcon, LinkIcon, PencilIcon, PaperClipIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XCircleIcon, ArrowRightIcon, ArrowLeftIcon, LinkIcon, PencilIcon, PaperClipIcon, XMarkIcon, ListBulletIcon } from '@heroicons/react/24/outline';
 import { PromptSession, PromptSubmissionResponse } from '@/lib/deploymentAPIs/promptDeploymentAPI';
 import { API_CONFIG } from '@/lib/constants';
 
@@ -48,12 +48,14 @@ export default function SubmissionDisplay({
   const isListType = currentRequirement.mediaType === 'list';
   const isDynamicListType = currentRequirement.mediaType === 'dynamic_list';
   const isWebsiteInfoType = currentRequirement.mediaType === 'websiteInfo';
+  const isMultipleChoiceType = currentRequirement.mediaType === 'multiple_choice';
 
   // For submitted responses, also check the actual media type of the response
   const submittedIsListType = isSubmitted && (submittedResponse.media_type === 'list' || submittedResponse.media_type === 'dynamic_list');
   const submittedIsPdfType = isSubmitted && submittedResponse.media_type === 'pdf';
   const submittedIsLinkType = isSubmitted && submittedResponse.media_type === 'hyperlink';
   const submittedIsWebsiteInfoType = isSubmitted && submittedResponse.media_type === 'websiteInfo';
+  const submittedIsMultipleChoiceType = isSubmitted && submittedResponse.media_type === 'multiple_choice';
 
   const handleInputChange = (value: string) => {
     onResponseChange(submissionIndex, value);
@@ -181,6 +183,19 @@ export default function SubmissionDisplay({
     }
   };
 
+  // Helper functions for multiple choice handling
+  const getMultipleChoiceOptions = (): string[] => {
+    const options = currentRequirement.options;
+    if (!Array.isArray(options)) {
+      return [];
+    }
+    return options.filter((option): option is string => typeof option === 'string' && option.trim().length > 0);
+  };
+
+  const isOptionSelected = (option: string): boolean => {
+    return submissionResponse.trim() === option.trim();
+  };
+
   // Helper function to check if submission is valid
   const isSubmissionValid = (): boolean => {
     if (isPdfType) {
@@ -188,6 +203,10 @@ export default function SubmissionDisplay({
     } else if (isDynamicListType) {
       const items = getListItems();
       return items.length > 0 && items.some(item => item.trim() !== '');
+    } else if (isMultipleChoiceType) {
+      const options = getMultipleChoiceOptions();
+      const normalizedOptions = options.map(option => option.trim());
+      return normalizedOptions.includes(submissionResponse.trim());
     } else if (isWebsiteInfoType) {
       const websites = getWebsiteInfoList();
       if (websites.length === 0) return false;
@@ -243,7 +262,11 @@ export default function SubmissionDisplay({
                     ? 'bg-orange-100 text-orange-800'
                     : isDynamicListType
                       ? 'bg-green-100 text-green-800'
-                      : 'bg-blue-100 text-blue-800'
+                      : isMultipleChoiceType
+                        ? 'bg-yellow-100 text-yellow-800'
+                        : isWebsiteInfoType
+                          ? 'bg-indigo-100 text-indigo-800'
+                          : 'bg-blue-100 text-blue-800'
             }`}>
               {isPdfType ? (
                 <>
@@ -264,6 +287,11 @@ export default function SubmissionDisplay({
                 <>
                   <PencilIcon className="w-3 h-3 mr-1" />
                   Dynamic List
+                </>
+              ) : isMultipleChoiceType ? (
+                <>
+                  <ListBulletIcon className="w-3 h-3 mr-1" />
+                  Multiple Choice
                 </>
               ) : isWebsiteInfoType ? (
                 <>
@@ -373,6 +401,11 @@ export default function SubmissionDisplay({
                       </p>
                     );
                   })()
+                ) : submittedIsMultipleChoiceType ? (
+                  <div className="bg-white p-3 rounded border">
+                    <p className="text-sm text-gray-600">Selected option:</p>
+                    <p className="mt-1 text-gray-900 font-semibold">{submittedResponse.user_response}</p>
+                  </div>
                 ) : submittedIsWebsiteInfoType ? (
                   (() => {
                     try {
@@ -610,6 +643,36 @@ export default function SubmissionDisplay({
                   );
                 })()}
               </div>
+            ) : isMultipleChoiceType ? (
+              <div className="space-y-2">
+                {(() => {
+                  const options = getMultipleChoiceOptions();
+                  if (options.length === 0) {
+                    return (
+                      <p className="text-sm text-red-600">
+                        No options are configured for this question. Please contact your instructor.
+                      </p>
+                    );
+                  }
+                  return options.map((option, optionIndex) => (
+                    <label
+                      key={optionIndex}
+                      className={`flex items-center space-x-3 p-3 rounded border ${isOptionSelected(option) ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-white'}`}
+                    >
+                      <input
+                        type="radio"
+                        name={`edit-mc-${submissionIndex}`}
+                        value={option}
+                        checked={isOptionSelected(option)}
+                        onChange={() => handleInputChange(option)}
+                        disabled={submitting}
+                        className="text-blue-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-800">{option}</span>
+                    </label>
+                  ));
+                })()}
+              </div>
             ) : (
               <textarea
                 id={`edit-response-${submissionIndex}`}
@@ -628,7 +691,7 @@ export default function SubmissionDisplay({
         /* Input Form */
         <div className="mb-6">
           <label htmlFor={`response-${submissionIndex}`} className="block text-sm font-medium text-gray-700 mb-2">
-            Your Response {(isLinkType || isListType || isDynamicListType || isWebsiteInfoType) && <span className="text-red-500">*</span>}
+            Your Response {(isLinkType || isListType || isDynamicListType || isWebsiteInfoType || isMultipleChoiceType) && <span className="text-red-500">*</span>}
           </label>
           
           {isPdfType ? (
@@ -728,6 +791,36 @@ export default function SubmissionDisplay({
               >
                 + Add another item
               </button>
+            </div>
+          ) : isMultipleChoiceType ? (
+            <div className="space-y-2">
+              {(() => {
+                const options = getMultipleChoiceOptions();
+                if (options.length === 0) {
+                  return (
+                    <p className="text-sm text-red-600">
+                      No options are configured for this question. Please contact your instructor.
+                    </p>
+                  );
+                }
+                return options.map((option, optionIndex) => (
+                  <label
+                    key={optionIndex}
+                    className={`flex items-center space-x-3 p-3 rounded border ${isOptionSelected(option) ? 'border-blue-500 bg-blue-50' : 'border-gray-300 bg-white'}`}
+                  >
+                    <input
+                      type="radio"
+                      name={`response-${submissionIndex}`}
+                      value={option}
+                      checked={isOptionSelected(option)}
+                      onChange={() => handleInputChange(option)}
+                      disabled={submitting}
+                      className="text-blue-600 focus:ring-blue-500"
+                    />
+                    <span className="text-sm text-gray-800">{option}</span>
+                  </label>
+                ));
+              })()}
             </div>
           ) : isWebsiteInfoType ? (
             <div className="space-y-4">

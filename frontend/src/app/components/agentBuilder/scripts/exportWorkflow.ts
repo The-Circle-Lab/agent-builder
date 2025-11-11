@@ -58,20 +58,61 @@ function extractAllVariables(nodes: Node[], edges: Edge[]): Var[] {
   return variables;
 }
 
+function checkPageOrBehaviourWorkflowValidity(
+  nodes: Node[],
+  pageRelationships: Record<string, string[]>
+): boolean {
+  const containers = nodes.filter(
+    (node) => node.type === "page" || node.type === "behaviour"
+  );
+
+  if (containers.length === 0) {
+    return false;
+  }
+
+  let hasContent = false;
+
+  for (const container of containers) {
+    const childIds = pageRelationships[container.id] ?? [];
+    const hasRenderableChild = childIds.some((childId) => {
+      const childNode = nodes.find((node) => node.id === childId);
+      if (!childNode) {
+        return false;
+      }
+
+      const childType = childNode.type ?? "";
+      return childType !== "page" && childType !== "behaviour" && childType !== "globalVariables";
+    });
+
+    if (!hasRenderableChild) {
+      return false;
+    }
+
+    hasContent = true;
+  }
+
+  return hasContent;
+}
+
 // Creates a JSON representation of the workflow for export to backend
 export function createWorkflowJSON(nodes: Node[], edges: Edge[], pageRelationships?: Record<string, string[]>) {
-  // Check if the workflow is valid for deployment
-  if (!checkWorkflowValidity(nodes, edges)) {
+  const pagesExist = nodes.some(node => node.type === "page");
+  const behavioursExist = nodes.some(node => node.type === "behaviour");
+  const usingPageOrBehaviourFlow = (pagesExist || behavioursExist) && !!pageRelationships;
+
+  if (usingPageOrBehaviourFlow) {
+    if (!checkPageOrBehaviourWorkflowValidity(nodes, pageRelationships!)) {
+      throw new Error(
+        "Invalid workflow: Add at least one supported component (chat, prompt, video, etc.) to every page or behaviour before exporting."
+      );
+    }
+  } else if (!checkWorkflowValidity(nodes, edges)) {
     throw new Error(
       "Invalid workflow: Make sure your workflow has a chat node connected to other nodes and ends with an output node."
     );
   }
 
-  // Check if pages or behaviours exist in the workflow
-  const pagesExist = nodes.some(node => node.type === 'page');
-  const behavioursExist = nodes.some(node => node.type === 'behaviour');
-
-  if ((pagesExist || behavioursExist) && pageRelationships) {
+  if (usingPageOrBehaviourFlow && pageRelationships) {
     // Organize workflow by pages and behaviours
     const workflow: {
       pagesExist: boolean;

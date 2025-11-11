@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { PromptDeploymentAPI, PromptSession, PromptSubmissionResponse, GroupInfo } from '@/lib/deploymentAPIs/promptDeploymentAPI';
 import { 
   PromptHeader, 
@@ -15,6 +15,7 @@ interface PromptInterfaceProps {
   deploymentId: string;
   deploymentName: string;
   onClose: () => void;
+  onSessionCompleted?: () => void;
 }
 
 // Group Info Display Component
@@ -66,7 +67,7 @@ function GroupInfoDisplay({ groupInfo }: GroupInfoDisplayProps) {
   );
 }
 
-export default function PromptInterface({ deploymentId, deploymentName, onClose }: PromptInterfaceProps) {
+export default function PromptInterface({ deploymentId, deploymentName, onClose, onSessionCompleted }: PromptInterfaceProps) {
   const [session, setSession] = useState<PromptSession | null>(null);
   const [currentSubmissionIndex, setCurrentSubmissionIndex] = useState(0);
   const [submissionResponses, setSubmissionResponses] = useState<Record<number, string>>({});
@@ -77,6 +78,7 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
   const [sessionError, setSessionError] = useState<string | null>(null);
   const [pdfFiles, setPdfFiles] = useState<Record<number, File | null>>({});
   const [pdfProgress, setPdfProgress] = useState<{ [index: number]: { progress: number; stage?: string; state?: string } }>({});
+  const completionNotifiedRef = useRef(false);
   
   // Edit mode state
   const [editingSubmissionIndex, setEditingSubmissionIndex] = useState<number | null>(null);
@@ -112,6 +114,24 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
     initializeSession();
   }, [deploymentId]);
 
+  useEffect(() => {
+    completionNotifiedRef.current = false;
+  }, [deploymentId]);
+
+  useEffect(() => {
+    if (!session || session.total_submissions === 0) {
+      return;
+    }
+
+    const submittedCount = Object.keys(submittedResponses).length;
+    const isCompleted = session.is_completed || submittedCount === session.total_submissions;
+
+    if (isCompleted && !completionNotifiedRef.current) {
+      completionNotifiedRef.current = true;
+      onSessionCompleted?.();
+    }
+  }, [session, submittedResponses, onSessionCompleted]);
+
   const submitResponse = async (submissionIndex: number, response: string) => {
     if (!session) return;
 
@@ -130,7 +150,7 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
         [submissionIndex]: {
           submission_index: responseData.submission_index,
           prompt_text: responseData.prompt_text,
-          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf' | 'list' | 'dynamic_list' | 'websiteInfo',
+          media_type: responseData.media_type,
           user_response: responseData.user_response,
           submitted_at: responseData.submitted_at,
         },
@@ -180,7 +200,7 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
         [submissionIndex]: {
           submission_index: responseData.submission_index,
           prompt_text: responseData.prompt_text,
-          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf' | 'list' | 'dynamic_list' | 'websiteInfo',
+          media_type: responseData.media_type,
           user_response: responseData.user_response,
           submitted_at: responseData.submitted_at,
         },
@@ -323,6 +343,18 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
       }
     }
 
+    if (currentRequirement.mediaType === 'multiple_choice') {
+      const options = Array.isArray(currentRequirement.options) ? currentRequirement.options : [];
+      const normalizedOptions = options
+        .filter((option): option is string => typeof option === 'string')
+        .map((option) => option.trim());
+
+      if (normalizedOptions.length === 0 || !normalizedOptions.includes(response.trim())) {
+        setError('Please select a valid option');
+        return;
+      }
+    }
+
     if (currentRequirement.mediaType === 'pdf') {
       const file = pdfFiles[currentSubmissionIndex];
       if (!file) {
@@ -371,7 +403,7 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose 
         [submissionIndex]: {
           submission_index: responseData.submission_index,
           prompt_text: responseData.prompt_text,
-          media_type: responseData.media_type as 'textarea' | 'hyperlink' | 'pdf' | 'list' | 'dynamic_list' | 'websiteInfo',
+          media_type: responseData.media_type,
           user_response: responseData.user_response,
           submitted_at: responseData.submitted_at,
         },

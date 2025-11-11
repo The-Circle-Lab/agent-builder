@@ -7,6 +7,7 @@ import { CodeInterface } from '../../code';
 import { MCQInterface } from '../../mcq';
 import { PromptInterface } from '../../prompt';
 import { LivePresentationInterface } from '../../livePresentation';
+import { VideoInterface } from '../../video';
 import { AuthAPI, User } from '@/lib/authAPI';
 
 interface PageContentProps {
@@ -15,9 +16,10 @@ interface PageContentProps {
   loading: boolean;
   error: string | null;
   onPageComplete?: () => void; // Add callback for when a page is completed
+  onRefreshPages?: () => Promise<void>;
 }
 
-export default function PageContent({ pageInfo, deploymentName, loading, error, onPageComplete }: PageContentProps) {
+export default function PageContent({ pageInfo, deploymentName, loading, error, onPageComplete, onRefreshPages }: PageContentProps) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userLoading, setUserLoading] = useState(true);
 
@@ -142,6 +144,7 @@ export default function PageContent({ pageInfo, deploymentName, loading, error, 
             deploymentId={pageInfo.deployment_id}
             deploymentName={pageDeploymentName}
             onClose={onPageComplete || (() => {})} // Use onPageComplete for navigation
+            onSessionCompleted={onRefreshPages}
           />
         );
       
@@ -151,8 +154,18 @@ export default function PageContent({ pageInfo, deploymentName, loading, error, 
             deploymentId={pageInfo.deployment_id}
             deploymentName={pageDeploymentName}
             onClose={onPageComplete || (() => {})} // Use onPageComplete for navigation
+            onSessionCompleted={onRefreshPages}
           />
         );
+
+      case 'video': {
+        return (
+          <VideoInterface
+            deploymentId={pageInfo.deployment_id}
+            deploymentName={pageDeploymentName}
+          />
+        );
+      }
       
       case 'livePresentation':
         // Show loading if user data is not yet available

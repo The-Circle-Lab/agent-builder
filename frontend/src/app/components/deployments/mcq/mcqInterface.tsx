@@ -1,21 +1,69 @@
 "use client";
 
 import React, { useState, useEffect } from 'react';
-import { MCQDeploymentAPI, MCQSession, MCQAnswer } from '@/lib/deploymentAPIs/mcqDeploymentAPI';
-import { 
-  MCQHeader, 
-  QuestionNavigationSidebar, 
-  QuestionDisplay, 
-  LoadingState 
+import {
+  MCQDeploymentAPI,
+  MCQSession,
+  MCQAnswer,
+} from '@/lib/deploymentAPIs/mcqDeploymentAPI';
+import {
+  MCQHeader,
+  QuestionNavigationSidebar,
+  QuestionDisplay,
+  LoadingState,
+  WrongAnswerChatPanel,
+  MCQChatMessage,
 } from './components';
 
 interface MCQInterfaceProps {
   deploymentId: string;
   deploymentName: string;
   onClose: () => void;
+  onSessionCompleted?: () => void | Promise<void>;
 }
 
-export default function MCQInterface({ deploymentId, deploymentName, onClose }: MCQInterfaceProps) {
+const buildSubmittedAnswerMap = (answers?: MCQAnswer[]) => {
+  const map: Record<number, MCQAnswer> = {};
+  if (answers) {
+    answers.forEach((answer) => {
+      map[answer.question_index] = answer;
+    });
+  }
+  return map;
+};
+
+const buildChatHistory = (messages: MCQChatMessage[]): string[][] => {
+  const pairs: string[][] = [];
+  for (let i = 0; i < messages.length; i += 2) {
+    const userMessage = messages[i];
+    const assistantMessage = messages[i + 1];
+    if (
+      userMessage &&
+      userMessage.role === 'user' &&
+      assistantMessage &&
+      assistantMessage.role === 'assistant'
+    ) {
+      pairs.push([userMessage.content, assistantMessage.content]);
+    } else if (userMessage && userMessage.role === 'user' && !assistantMessage) {
+      pairs.push([userMessage.content, '']);
+    }
+  }
+  return pairs;
+};
+
+const deriveInitialQuestionIndex = (sessionData: MCQSession) => {
+  if (!sessionData.one_question_at_a_time) {
+    return 0;
+  }
+
+  if (sessionData.answered_count >= sessionData.total_questions) {
+    return Math.max(sessionData.total_questions - 1, 0);
+  }
+
+  return Math.max(Math.min(sessionData.answered_count, sessionData.questions.length - 1), 0);
+};
+
+export default function MCQInterface({ deploymentId, deploymentName, onClose, onSessionCompleted }: MCQInterfaceProps) {
   const [session, setSession] = useState<MCQSession | null>(null);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, string>>({});
@@ -24,6 +72,11 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose }: 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatQuestionIndex, setChatQuestionIndex] = useState<number | null>(null);
+  const [chatMessages, setChatMessages] = useState<MCQChatMessage[]>([]);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
 
   // Load or create MCQ session
   useEffect(() => {
@@ -35,15 +88,19 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose }: 
       try {
         const sessionData = await MCQDeploymentAPI.initializeSession(deploymentId);
         setSession(sessionData);
-        
-        // Process previously submitted answers if they exist
-        if (sessionData.submitted_answers) {
-          const submittedAnswersMap: Record<number, MCQAnswer> = {};
-          sessionData.submitted_answers.forEach((answer) => {
-            submittedAnswersMap[answer.question_index] = answer;
-          });
-          setSubmittedAnswers(submittedAnswersMap);
-        }
+
+        const submittedMap = buildSubmittedAnswerMap(sessionData.submitted_answers);
+        setSubmittedAnswers(submittedMap);
+
+        const initialIndex = deriveInitialQuestionIndex(sessionData);
+        setCurrentQuestionIndex(initialIndex);
+
+        // Seed selected answers with submissions so previously answered questions remain highlighted
+        const seededSelections: Record<number, string> = {};
+        Object.values(submittedMap).forEach((answer) => {
+          seededSelections[answer.question_index] = answer.selected_answer;
+        });
+        setSelectedAnswers(seededSelections);
       } catch (err) {
         console.error('Failed to initialize MCQ session:', err);
         setSessionError(err instanceof Error ? err.message : 'Failed to load quiz');
@@ -66,23 +123,64 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose }: 
         question_index: questionIndex,
         selected_answer: selectedAnswer,
       });
-      
-      // Update submitted answers
-      setSubmittedAnswers(prev => ({
-        ...prev,
+
+      const updatedSubmittedAnswers: Record<number, MCQAnswer> = {
+        ...submittedAnswers,
         [questionIndex]: answerData,
-      }));
+      };
+      setSubmittedAnswers(updatedSubmittedAnswers);
 
-      // If this was the last question, mark session as completed
-      if (Object.keys(submittedAnswers).length + 1 === session.total_questions) {
-        setSession(prev => prev ? { ...prev, is_completed: true } : null);
+      if (answerData.is_session_completed) {
+        const refreshedSession = await MCQDeploymentAPI.getSession(deploymentId);
+        setSession(refreshedSession);
+        const refreshedSubmitted = buildSubmittedAnswerMap(refreshedSession.submitted_answers);
+        setSubmittedAnswers(refreshedSubmitted);
+        const refreshedSelections: Record<number, string> = {};
+        Object.values(refreshedSubmitted).forEach((submission) => {
+          refreshedSelections[submission.question_index] = submission.selected_answer;
+        });
+        setSelectedAnswers(refreshedSelections);
+        const endIndex = deriveInitialQuestionIndex(refreshedSession);
+        setCurrentQuestionIndex(endIndex);
+
+        if (onSessionCompleted) {
+          try {
+            await onSessionCompleted();
+          } catch (refreshErr) {
+            console.error('Failed to refresh page list after MCQ completion:', refreshErr);
+          }
+        }
+      } else {
+        setSession((prev) => {
+          if (!prev) return prev;
+          const submittedList = Object.values(updatedSubmittedAnswers);
+          return {
+            ...prev,
+            answered_count: answerData.answered_count ?? prev.answered_count,
+            next_question_index: answerData.next_question_index ?? null,
+            answers_revealed: answerData.answers_revealed ?? prev.answers_revealed,
+            submitted_answers: submittedList,
+            is_completed: answerData.is_session_completed || prev.is_completed,
+          };
+        });
+
+        // Auto-advance ONLY if we are not in reveal-after-each-question mode
+        const shouldAutoAdvance = !session.tell_answer_after_each_question;
+        if (shouldAutoAdvance) {
+          if (session.one_question_at_a_time) {
+            if (answerData.next_question_index !== null && answerData.next_question_index !== undefined) {
+              const nextIdx = session.questions.findIndex(
+                (question) => question.index === answerData.next_question_index
+              );
+              if (nextIdx >= 0) {
+                setCurrentQuestionIndex(nextIdx);
+              }
+            }
+          } else if (currentQuestionIndex < session.questions.length - 1) {
+            setCurrentQuestionIndex((prev) => prev + 1);
+          }
+        }
       }
-
-      // Move to next question if not the last one
-      if (currentQuestionIndex < session.questions.length - 1) {
-        setCurrentQuestionIndex(currentQuestionIndex + 1);
-      }
-
     } catch (err) {
       console.error('Failed to submit answer:', err);
       setError(err instanceof Error ? err.message : 'Failed to submit answer');
@@ -117,6 +215,13 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose }: 
   };
 
   const handleQuestionNavigation = (index: number) => {
+    if (!session) return;
+    if (session.one_question_at_a_time && index > session.answered_count) {
+      return;
+    }
+    if (index !== currentQuestionIndex && chatOpen) {
+      closeChat();
+    }
     setCurrentQuestionIndex(index);
     setError(null);
   };
@@ -125,9 +230,67 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose }: 
     if (!session) return;
     
     if (direction === 'prev' && currentQuestionIndex > 0) {
+      if (chatOpen) {
+        closeChat();
+      }
       setCurrentQuestionIndex(currentQuestionIndex - 1);
     } else if (direction === 'next' && currentQuestionIndex < session.questions.length - 1) {
-      setCurrentQuestionIndex(currentQuestionIndex + 1);
+      if (session.one_question_at_a_time) {
+        if (session.next_question_index !== null && session.next_question_index !== undefined) {
+          const nextIdx = session.questions.findIndex(
+            (question) => question.index === session.next_question_index
+          );
+          if (nextIdx >= 0) {
+            if (chatOpen) {
+              closeChat();
+            }
+            setCurrentQuestionIndex(nextIdx);
+          }
+        }
+      } else {
+        if (chatOpen) {
+          closeChat();
+        }
+        setCurrentQuestionIndex(currentQuestionIndex + 1);
+      }
+    }
+  };
+
+  const openChatForQuestion = (questionIndex: number) => {
+    setChatQuestionIndex(questionIndex);
+    setChatMessages([]);
+    setChatError(null);
+    setChatLoading(false);
+    setChatOpen(true);
+  };
+
+  const closeChat = () => {
+    setChatOpen(false);
+    setChatQuestionIndex(null);
+    setChatMessages([]);
+    setChatError(null);
+    setChatLoading(false);
+  };
+
+  const sendChatMessage = async (message: string) => {
+    if (!session) return;
+
+    const history = buildChatHistory(chatMessages);
+    setChatMessages((prev) => [...prev, { role: 'user', content: message }]);
+    setChatLoading(true);
+    setChatError(null);
+
+    try {
+      const response = await MCQDeploymentAPI.requestRemediationChat(deploymentId, {
+        message,
+        history,
+      });
+      setChatMessages((prev) => [...prev, { role: 'assistant', content: response.response }]);
+    } catch (err) {
+      console.error('Failed to fetch remediation chat response:', err);
+      setChatError(err instanceof Error ? err.message : 'Failed to fetch tutor response');
+    } finally {
+      setChatLoading(false);
     }
   };
 
@@ -139,7 +302,18 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose }: 
   if (!session) return null;
 
   const currentQuestion = session.questions[currentQuestionIndex];
-  const allQuestionsSubmitted = Object.keys(submittedAnswers).length === session.total_questions;
+  const allQuestionsSubmitted = session.is_completed || Object.keys(submittedAnswers).length === session.total_questions;
+  const submittedAnswerForQuestion = submittedAnswers[currentQuestion.index];
+  const feedbackMessage = submittedAnswerForQuestion?.feedback_message ?? (session.add_message_after_wrong_answer ? session.wrong_answer_message ?? null : null);
+  const showChatPrompt = Boolean(
+    session.add_chatbot_after_wrong_answer &&
+    submittedAnswerForQuestion &&
+    !submittedAnswerForQuestion.is_correct
+  );
+  const chatQuestion =
+    chatQuestionIndex !== null
+      ? session.questions.find((question) => question.index === chatQuestionIndex) ?? null
+      : null;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -160,6 +334,8 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose }: 
               submittedAnswers={submittedAnswers}
               totalQuestions={session.total_questions}
               onQuestionSelect={handleQuestionNavigation}
+              oneQuestionAtATime={session.one_question_at_a_time}
+              answeredCount={session.answered_count}
             />
           </div>
 
@@ -178,10 +354,26 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose }: 
               onSubmitAnswer={handleAnswerSubmit}
               onNavigate={handleNavigate}
               onClose={onClose}
+              revealCorrectAnswer={session.answers_revealed}
+              feedbackMessage={feedbackMessage}
+              showChatPrompt={showChatPrompt}
+              onRequestChat={() => openChatForQuestion(currentQuestion.index)}
+              disablePrev={false}
+              disableNext={session.one_question_at_a_time && (session.next_question_index === null || session.next_question_index === undefined)}
             />
           </div>
         </div>
       </div>
+
+      <WrongAnswerChatPanel
+        open={chatOpen}
+        onClose={closeChat}
+        question={chatQuestion}
+        messages={chatMessages}
+        loading={chatLoading}
+        error={chatError}
+        onSend={sendChatMessage}
+      />
     </div>
   );
 } 

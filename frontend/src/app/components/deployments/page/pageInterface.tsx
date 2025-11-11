@@ -14,6 +14,7 @@ export default function PageInterface({ deploymentId, deploymentName, onBack }: 
     loading,
     error,
     setCurrentPage,
+    refreshPages,
   } = usePageDeployment(deploymentId);
 
   const handlePageComplete = () => {
@@ -42,6 +43,7 @@ export default function PageInterface({ deploymentId, deploymentName, onBack }: 
         loading={loading}
         error={error}
         onPageComplete={handlePageComplete}
+        onRefreshPages={refreshPages}
       />
     </div>
   );

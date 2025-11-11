@@ -18,6 +18,47 @@ export class MultipleChoiceNodeConfig extends BaseNodeConfig {
       label: "Randomize questions?",
       type: "checkbox",
       defaultValue: true,
+    },
+    // New adaptive flow properties
+    {
+      key: "one_question_at_a_time",
+      label: "One question at a time",
+      type: "checkbox",
+      defaultValue: false,
+    },
+    {
+      key: "tell_answer_after_each_question",
+      label: "Tell user answer after each question",
+      type: "checkbox",
+      defaultValue: false,
+    },
+    {
+      key: "add_chatbot_after_wrong_answer",
+      label: "Add a chatbot after a wrong answer",
+      type: "checkbox",
+      defaultValue: false,
+    },
+    {
+      key: "chatbot_system_prompt",
+      label: "Chatbot System Prompt",
+      type: "textarea",
+      defaultValue: "",
+      placeholder: "Enter system prompt for chatbot after wrong answers",
+      rows: 3,
+    },
+    {
+      key: "add_message_after_wrong_answer",
+      label: "Add a message after a wrong answer",
+      type: "checkbox",
+      defaultValue: false,
+    },
+    {
+      key: "wrong_answer_message",
+      label: "Message shown after wrong answer",
+      type: "textarea",
+      defaultValue: "",
+      placeholder: "Enter the message to display after a wrong answer",
+      rows: 3,
     }
   ] as const satisfies readonly PropertyDefinition[];
 }

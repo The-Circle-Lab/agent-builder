@@ -5,6 +5,7 @@ import { NodeData, Variable } from "../types";
 import { getNodeConfig } from "../nodeRegistry";
 import { PropertyDefinition } from "../types";
 import DocumentManager from "./DocumentManager";
+import VideoUploadManager from "./VideoUploadManager";
 import { Node, Edge } from "@xyflow/react";
 import { getAvailableSubmissionPrompts, getListVariablesFromBehaviors } from "../../../scripts/nodeHelpers";
 
@@ -45,6 +46,10 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
     });
     return initialData as NodeData;
   });
+
+  // Drag state for reordering questions (used in multipleChoiceQuestions field)
+  const [draggedQuestionIndex, setDraggedQuestionIndex] = useState<number | null>(null);
+  const [dragOverQuestionIndex, setDragOverQuestionIndex] = useState<number | null>(null);
 
   // Function to detect connected list variables for Live Presentation nodes
   const getConnectedListVariables = useMemo(() => {
@@ -239,6 +244,30 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
 
   // Renders a single field based on the property type
   const renderField = (property: PropertyDefinition) => {
+    // Conditional rendering for MCQ dependent fields
+    const shouldRenderProperty = () => {
+      if (nodeType !== 'mcq') return true;
+      const fd = formData as Record<string, unknown>;
+      switch (property.key) {
+        case 'tell_answer_after_each_question':
+          return Boolean(fd['one_question_at_a_time']);
+        case 'add_chatbot_after_wrong_answer':
+          return Boolean(fd['one_question_at_a_time']) && Boolean(fd['tell_answer_after_each_question']);
+        case 'chatbot_system_prompt':
+          return Boolean(fd['one_question_at_a_time']) && Boolean(fd['tell_answer_after_each_question']) && Boolean(fd['add_chatbot_after_wrong_answer']);
+        case 'add_message_after_wrong_answer':
+          return Boolean(fd['one_question_at_a_time']) && Boolean(fd['tell_answer_after_each_question']);
+        case 'wrong_answer_message':
+          return Boolean(fd['one_question_at_a_time']) && Boolean(fd['tell_answer_after_each_question']) && Boolean(fd['add_message_after_wrong_answer']);
+        default:
+          return true;
+      }
+    };
+
+    if (!shouldRenderProperty()) {
+      return null;
+    }
+
     const { key, label, type, placeholder, options, min, max, step, rows } =
       property;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -395,6 +424,32 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
             />
           </div>
         );
+
+      case "videoUpload": {
+        const videos = Array.isArray(value) ? value : [];
+        const selectionKey = (property as { selectionKey?: string }).selectionKey;
+        const selectedId = selectionKey ? (formData as Record<string, unknown>)[selectionKey] as string | number | null : null;
+        return (
+          <div key={key}>
+            <VideoUploadManager
+              workflowId={workflowId}
+              value={videos}
+              onChange={(items) => handleInputChange(key, items)}
+              label={label}
+              selectedVideoId={selectedId ?? undefined}
+              onSelect={(id: string | number | null) => {
+                if (selectionKey) {
+                  handleInputChange(selectionKey, id);
+                }
+              }}
+            />
+          </div>
+        );
+      }
+      case "hidden": {
+        // Do not render anything; keep value in formData for saving
+        return null;
+      }
 
       case "dynamicTextList": {
         const countKey = property.countKey;
@@ -583,7 +638,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
               : [""];
             return { ...q, answers: newAnswers };
           });
-          handleInputChange(key, newQuestions);
+            handleInputChange(key, newQuestions);
         };
 
         const removeAnswer = (questionIdx: number, answerIdx: number) => {
@@ -619,6 +674,37 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
           handleInputChange(key, newQuestions);
         };
 
+        // Drag handlers for question reordering
+        const handleQuestionDragStart = (e: React.DragEvent, index: number) => {
+          setDraggedQuestionIndex(index);
+          e.dataTransfer.effectAllowed = 'move';
+        };
+        const handleQuestionDragOver = (e: React.DragEvent, index: number) => {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'move';
+          setDragOverQuestionIndex(index);
+        };
+        const handleQuestionDragLeave = () => setDragOverQuestionIndex(null);
+        const handleQuestionDrop = (e: React.DragEvent, dropIndex: number) => {
+          e.preventDefault();
+          if (draggedQuestionIndex === null || draggedQuestionIndex === dropIndex) {
+            setDraggedQuestionIndex(null);
+            setDragOverQuestionIndex(null);
+            return;
+          }
+          const newOrder = [...questions];
+          const dragged = newOrder[draggedQuestionIndex];
+          newOrder.splice(draggedQuestionIndex, 1);
+          newOrder.splice(dropIndex, 0, dragged);
+          handleInputChange(key, newOrder);
+          setDraggedQuestionIndex(null);
+          setDragOverQuestionIndex(null);
+        };
+        const handleQuestionDragEnd = () => {
+          setDraggedQuestionIndex(null);
+          setDragOverQuestionIndex(null);
+        };
+
         return (
           <div key={key} className="space-y-4">
             <label className="block text-sm font-medium text-gray-200 mb-2">
@@ -627,19 +713,29 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
             {questions.map((question, qIdx) => (
               <div
                 key={`${key}-question-${qIdx}`}
-                className="space-y-3 border border-gray-600 p-4 rounded-md"
+                draggable
+                onDragStart={(e) => handleQuestionDragStart(e, qIdx)}
+                onDragOver={(e) => handleQuestionDragOver(e, qIdx)}
+                onDragLeave={handleQuestionDragLeave}
+                onDrop={(e) => handleQuestionDrop(e, qIdx)}
+                onDragEnd={handleQuestionDragEnd}
+                className={`space-y-3 border border-gray-600 p-4 rounded-md cursor-move transition-colors duration-150 ${draggedQuestionIndex === qIdx ? 'opacity-50' : ''} ${dragOverQuestionIndex === qIdx ? 'bg-gray-700/60' : 'bg-gray-800/30 hover:bg-gray-700/40'}`}
               >
                 <div className="flex justify-between items-center">
-                  <span className="text-gray-300 text-sm">
-                    Question #{qIdx + 1}
+                  <span className="text-gray-300 text-sm flex items-center space-x-2">
+                    <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" /></svg>
+                    <span>Question #{qIdx + 1}</span>
                   </span>
-                  <button
-                    type="button"
-                    onClick={() => deleteQuestion(qIdx)}
-                    className="text-red-400 hover:text-red-500"
-                  >
-                    ×
-                  </button>
+                  <div className="flex items-center space-x-2">
+                    <span className="text-xs text-gray-400">Drag to reorder</span>
+                    <button
+                      type="button"
+                      onClick={() => deleteQuestion(qIdx)}
+                      className="text-red-400 hover:text-red-500"
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
 
                 {/* Question Text */}
@@ -813,6 +909,12 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                 // Initialize max to 5 when switching to websiteInfo type
                 updatedPrompt.max = 5;
               }
+              if (val === "multiple_choice") {
+                const existingOptions = Array.isArray(updatedPrompt.options) ? updatedPrompt.options.filter((option: unknown) => typeof option === "string" && option.trim()) : [];
+                updatedPrompt.options = existingOptions.length >= 2 ? existingOptions : ["Option 1", "Option 2"];
+              } else if ("options" in updatedPrompt) {
+                delete updatedPrompt.options;
+              }
               return updatedPrompt;
             } else if (field === "items") {
               return { ...p, items: val };
@@ -820,6 +922,42 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
               return { ...p, max: val };
             }
             return p;
+          });
+          handleInputChange(key, newPrompts);
+        };
+
+        const updateMultipleChoiceOption = (promptIndex: number, optionIndex: number, optionValue: string) => {
+          const newPrompts = prompts.map((p, i) => {
+            if (i !== promptIndex) return p;
+            const options = Array.isArray(p.options) ? [...p.options] : [];
+            while (options.length <= optionIndex) {
+              options.push("");
+            }
+            options[optionIndex] = optionValue;
+            return { ...p, options };
+          });
+          handleInputChange(key, newPrompts);
+        };
+
+        const addMultipleChoiceOption = (promptIndex: number) => {
+          const newPrompts = prompts.map((p, i) => {
+            if (i !== promptIndex) return p;
+            const options = Array.isArray(p.options) ? [...p.options] : [];
+            options.push("");
+            return { ...p, options };
+          });
+          handleInputChange(key, newPrompts);
+        };
+
+        const removeMultipleChoiceOption = (promptIndex: number, optionIndex: number) => {
+          const newPrompts = prompts.map((p, i) => {
+            if (i !== promptIndex) return p;
+            const options = Array.isArray(p.options) ? [...p.options] : [];
+            if (options.length <= 2) {
+              return p;
+            }
+            options.splice(optionIndex, 1);
+            return { ...p, options };
           });
           handleInputChange(key, newPrompts);
         };
@@ -947,6 +1085,19 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                       />
                       <span className="text-sm text-gray-300">Website Info</span>
                     </label>
+                    <label className="flex items-center space-x-2">
+                      <input
+                        type="radio"
+                        name={`mediaType-${pIdx}`}
+                        value="multiple_choice"
+                        checked={prompt.mediaType === "multiple_choice"}
+                        onChange={(e) =>
+                          updatePrompt(pIdx, "mediaType", e.target.value)
+                        }
+                        className="text-blue-600 bg-gray-700 border-gray-600 focus:ring-blue-500"
+                      />
+                      <span className="text-sm text-gray-300">Multiple Choice</span>
+                    </label>
                   </div>
                   {prompt.mediaType === "list" && 
                     <div className="mt-2">
@@ -968,6 +1119,46 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                         Students can add or remove items from their list dynamically. No fixed number of items required.
                       </p>
                     </div>}
+                  {prompt.mediaType === "multiple_choice" && (
+                    <div className="mt-2 space-y-3">
+                      <p className="text-sm text-gray-300">
+                        Students select one of the provided options.
+                      </p>
+                      {(Array.isArray(prompt.options) ? prompt.options : ["Option 1", "Option 2"]).map((option: string, optionIdx: number) => (
+                        <div key={`${key}-prompt-${pIdx}-option-${optionIdx}`} className="flex items-center space-x-3">
+                          <span className="text-sm text-gray-400 w-6">{optionIdx + 1}.</span>
+                          <input
+                            type="text"
+                            value={option}
+                            onChange={(e) => updateMultipleChoiceOption(pIdx, optionIdx, e.target.value)}
+                            placeholder={`Option ${optionIdx + 1}`}
+                            className="flex-1 px-3 py-2 bg-gray-700 border border-gray-600 rounded text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => removeMultipleChoiceOption(pIdx, optionIdx)}
+                            className="text-red-400 hover:text-red-500 disabled:opacity-50"
+                            disabled={(prompt.options?.length ?? 0) <= 2}
+                            title="Remove option"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => addMultipleChoiceOption(pIdx)}
+                        className="px-3 py-1.5 bg-gray-700 text-sm font-medium text-blue-300 rounded hover:bg-gray-600"
+                      >
+                        + Add Option
+                      </button>
+                      {Array.isArray(prompt.options) && prompt.options.filter((option: string) => option && option.trim()).length < 2 && (
+                        <p className="text-xs text-red-400">
+                          At least two non-empty options are required.
+                        </p>
+                      )}
+                    </div>
+                  )}
                   {prompt.mediaType === "websiteInfo" && 
                     <div className="mt-2 space-y-2">
                       <div className="p-3 bg-gray-600 rounded-md">
