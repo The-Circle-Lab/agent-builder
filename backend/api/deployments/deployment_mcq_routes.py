@@ -1,3 +1,4 @@
+import logging
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
@@ -6,6 +7,7 @@ from .deployment_shared import *
 from services.deployment_types.mcq import MCQDeployment
 
 router = APIRouter()
+logger = logging.getLogger(__name__)
 
 class MCQSubmittedAnswer(BaseModel):
     question_index: int
@@ -34,6 +36,7 @@ class MCQSessionResponse(BaseModel):
     answered_count: int
     next_question_index: Optional[int] = None
     answers_revealed: bool
+    allow_retry_wrong_answer: bool
 
 class MCQAnswerRequest(BaseModel):
     question_index: int
@@ -52,6 +55,7 @@ class MCQAnswerResponse(BaseModel):
     is_session_completed: bool
     total_questions: int
     answers_revealed: bool
+    allow_retry_wrong_answer: bool
 
 class MCQInstructorSessionView(BaseModel):
     session_id: int
@@ -89,12 +93,10 @@ def _serialize_submitted_answer(
     reveal_answers: bool,
 ) -> MCQSubmittedAnswer:
     correct_answer = mcq_service.get_question_correct_answer(answer.question_index) if reveal_answers else None
-    feedback_message = None
-    if not answer.is_correct:
-        feedback_message = mcq_service.get_feedback_message_for_answer(
-            answer.question_index,
-            answer.selected_answer,
-        )
+    feedback_message = mcq_service.get_feedback_message_for_answer(
+        answer.question_index,
+        answer.selected_answer,
+    )
     return MCQSubmittedAnswer(
         question_index=answer.question_index,
         selected_answer=answer.selected_answer,
@@ -103,6 +105,36 @@ def _serialize_submitted_answer(
         answered_at=answer.answered_at,
         feedback_message=feedback_message,
     )
+
+
+def _session_indices_valid(
+    *,
+    session: MCQSession,
+    mcq_service: "MCQDeployment",
+    answers: List[MCQAnswer],
+) -> bool:
+    total_questions = len(mcq_service.questions)
+    if total_questions <= 0:
+        return False
+
+    for idx in session.question_indices:
+        if not isinstance(idx, int) or idx < 0 or idx >= total_questions:
+            return False
+
+    for answer in answers:
+        if answer.question_index < 0 or answer.question_index >= total_questions:
+            return False
+
+    return True
+
+
+def _archive_incompatible_session(session: MCQSession, db: DBSession) -> None:
+    logger.warning(
+        "Archiving MCQ session %s because stored question indices no longer match deployment",
+        session.id,
+    )
+    db.delete(session)
+    db.commit()
 
 
 def _build_session_payload(
@@ -147,6 +179,7 @@ def _build_session_payload(
         answered_count=answered_count,
         next_question_index=next_index,
         answers_revealed=answers_revealed,
+        allow_retry_wrong_answer=mcq_service.allow_retry_wrong_answer,
     )
 
 @router.post("/{deployment_id}/mcq/session", response_model=MCQSessionResponse)
@@ -170,17 +203,30 @@ async def start_mcq_session(
     deployment_mem = await ensure_deployment_loaded(deployment_id, current_user.id, db)
     mcq_service = deployment_mem["mcp_deployment"]._mcq_service
 
+    if len(mcq_service.questions) == 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="This quiz has no available questions. Please update the deployment before students begin.",
+        )
+
     if existing_session:
         submitted_answers_data = db.exec(
             select(MCQAnswer).where(MCQAnswer.session_id == existing_session.id)
         ).all()
-
-        return _build_session_payload(
-            deployment_id=deployment_id,
+        if not _session_indices_valid(
             session=existing_session,
             mcq_service=mcq_service,
-            submitted_answers=submitted_answers_data,
-        )
+            answers=submitted_answers_data,
+        ):
+            _archive_incompatible_session(existing_session, db)
+            existing_session = None
+        else:
+            return _build_session_payload(
+                deployment_id=deployment_id,
+                session=existing_session,
+                mcq_service=mcq_service,
+                submitted_answers=submitted_answers_data,
+            )
 
     question_indices = mcq_service.create_question_set(mcq_service.question_count, mcq_service.randomize)
     
@@ -258,6 +304,25 @@ async def submit_mcq_answer(
     deployment_mem = await ensure_deployment_loaded(deployment_id, current_user.id, db)
     mcq_service = deployment_mem["mcp_deployment"]._mcq_service
 
+    if not _session_indices_valid(
+        session=session,
+        mcq_service=mcq_service,
+        answers=existing_answers,
+    ):
+        _archive_incompatible_session(session, db)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The quiz content has changed since you started. Please restart the quiz to continue.",
+        )
+
+    total_questions = len(mcq_service.questions)
+    if request.question_index < 0 or request.question_index >= total_questions:
+        _archive_incompatible_session(session, db)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The selected question is no longer available. Please restart the quiz.",
+        )
+
     if mcq_service.one_question_at_a_time:
         expected_position = len(existing_answers)
         if expected_position >= len(session.question_indices):
@@ -274,7 +339,39 @@ async def submit_mcq_answer(
 
     correct_answer = mcq_service.get_question_correct_answer(request.question_index)
     is_correct = request.selected_answer == correct_answer
-    
+
+    allow_retry_wrong_answer = getattr(mcq_service, "allow_retry_wrong_answer", False)
+
+    answers_revealed = mcq_service.should_reveal_correct_answer(
+        session_completed=session.completed_at is not None
+    )
+    feedback_message = mcq_service.get_feedback_message_for_answer(
+        request.question_index,
+        request.selected_answer,
+    )
+    chat_available = (not is_correct) and mcq_service.chatbot_enabled()
+
+    if allow_retry_wrong_answer and not is_correct:
+        answered_count = len(existing_answers)
+        next_question_index = request.question_index if mcq_service.one_question_at_a_time else None
+        answer_timestamp = datetime.now(timezone.utc)
+
+        return MCQAnswerResponse(
+            question_index=request.question_index,
+            selected_answer=request.selected_answer,
+            is_correct=is_correct,
+            correct_answer=correct_answer if answers_revealed else None,
+            answered_at=answer_timestamp,
+            feedback_message=feedback_message,
+            chat_available=chat_available,
+            next_question_index=next_question_index,
+            answered_count=answered_count,
+            is_session_completed=session.completed_at is not None,
+            total_questions=session.total_questions,
+            answers_revealed=answers_revealed,
+            allow_retry_wrong_answer=allow_retry_wrong_answer,
+        )
+
     # Save the answer
     answer = MCQAnswer(
         session_id=session.id,
@@ -282,9 +379,9 @@ async def submit_mcq_answer(
         selected_answer=request.selected_answer,
         is_correct=is_correct,
     )
-    
+
     db.add(answer)
-    
+
     if len(existing_answers) + 1 == session.total_questions:
         correct_count = sum(1 for a in existing_answers if a.is_correct) + (1 if is_correct else 0)
         session.score = correct_count
@@ -297,13 +394,6 @@ async def submit_mcq_answer(
 
     all_answers = existing_answers + [answer]
     answered_count = len(all_answers)
-    answers_revealed = mcq_service.should_reveal_correct_answer(session_completed=session.completed_at is not None)
-    feedback_message = (
-        mcq_service.get_feedback_message_for_answer(request.question_index, request.selected_answer)
-        if not is_correct
-        else None
-    )
-    chat_available = (not is_correct) and mcq_service.chatbot_enabled()
 
     next_question_index: Optional[int] = None
     if answered_count < session.total_questions:
@@ -322,6 +412,7 @@ async def submit_mcq_answer(
         is_session_completed=session.completed_at is not None,
         total_questions=session.total_questions,
         answers_revealed=answers_revealed,
+        allow_retry_wrong_answer=allow_retry_wrong_answer,
     )
 
 
@@ -364,6 +455,17 @@ async def mcq_chat_after_wrong_answer(
         .where(MCQAnswer.session_id == session.id)
         .order_by(MCQAnswer.answered_at.asc())
     ).all()
+
+    if not _session_indices_valid(
+        session=session,
+        mcq_service=mcq_service,
+        answers=submitted_answers,
+    ):
+        _archive_incompatible_session(session, db)
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The quiz has been updated. Restart the quiz before using the tutor chat.",
+        )
 
     incorrect_answers = [answer for answer in submitted_answers if not answer.is_correct]
 
@@ -429,6 +531,17 @@ async def get_mcq_session_status(
     submitted_answers_data = db.exec(
         select(MCQAnswer).where(MCQAnswer.session_id == session.id)
     ).all()
+
+    if not _session_indices_valid(
+        session=session,
+        mcq_service=mcq_service,
+        answers=submitted_answers_data,
+    ):
+        _archive_incompatible_session(session, db)
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="MCQ session is no longer valid. Please start a new session.",
+        )
 
     return _build_session_payload(
         deployment_id=deployment_id,

@@ -14,6 +14,7 @@ class MCQQuestion:
         question: str,
         answers: List[str],
         correct_answer_index: int,
+        answer_feedback_messages: Optional[List[str]] = None,
         wrong_answer_messages: Optional[List[str]] = None,
     ) -> None:
         self.identifier = identifier
@@ -21,9 +22,15 @@ class MCQQuestion:
         self.answers = answers
         self.correct_answer_index = correct_answer_index
 
+        raw_messages: Optional[List[str]] = None
+        if isinstance(answer_feedback_messages, list):
+            raw_messages = answer_feedback_messages
+        elif isinstance(wrong_answer_messages, list):
+            raw_messages = wrong_answer_messages
+
         sanitized_messages: List[str] = []
-        if isinstance(wrong_answer_messages, list):
-            for message in wrong_answer_messages:
+        if isinstance(raw_messages, list):
+            for message in raw_messages:
                 sanitized_messages.append(str(message or "").strip())
 
         if len(sanitized_messages) < len(self.answers):
@@ -31,7 +38,7 @@ class MCQQuestion:
         elif len(sanitized_messages) > len(self.answers):
             sanitized_messages = sanitized_messages[: len(self.answers)]
 
-        self.wrong_answer_messages = sanitized_messages
+        self.answer_feedback_messages = sanitized_messages
 
     @property
     def correct_answer(self) -> str:
@@ -41,12 +48,7 @@ class MCQQuestion:
             return ""
 
     def has_feedback_messages(self) -> bool:
-        for idx, message in enumerate(self.wrong_answer_messages):
-            if idx == self.correct_answer_index:
-                continue
-            if message:
-                return True
-        return False
+        return any(message.strip() for message in self.answer_feedback_messages)
 
     def get_feedback_for_answer(self, selected_answer: str) -> Optional[str]:
         if not selected_answer:
@@ -57,11 +59,8 @@ class MCQQuestion:
         except ValueError:
             return None
 
-        if answer_index == self.correct_answer_index:
-            return None
-
-        if answer_index < len(self.wrong_answer_messages):
-            message = self.wrong_answer_messages[answer_index].strip()
+        if answer_index < len(self.answer_feedback_messages):
+            message = self.answer_feedback_messages[answer_index].strip()
             if message:
                 return message
         return None
@@ -84,6 +83,7 @@ class MCQDeployment:
         chatbot_system_prompt: str = "",
         add_message_after_wrong_answer: bool = False,
         wrong_answer_message: str = "",
+        allow_retry_wrong_answer: bool = False,
     ) -> None:
         self.name = name
         self.description = description
@@ -96,6 +96,7 @@ class MCQDeployment:
         self.chatbot_system_prompt = chatbot_system_prompt.strip()
         self.add_message_after_wrong_answer = add_message_after_wrong_answer
         self.wrong_answer_message = wrong_answer_message.strip()
+        self.allow_retry_wrong_answer = allow_retry_wrong_answer
 
     @classmethod
     def from_config(cls, node_config: Dict[str, Any]) -> "MCQDeployment":
@@ -128,9 +129,14 @@ class MCQDeployment:
             if correct_index is None and question_payload.get("correctAnswerIndex") is not None:
                 correct_index = question_payload["correctAnswerIndex"]
 
-            wrong_messages_payload = question_payload.get("wrongAnswerMessages")
-            if wrong_messages_payload is None and question_payload.get("wrong_answer_messages") is not None:
-                wrong_messages_payload = question_payload["wrong_answer_messages"]
+            feedback_messages_payload = question_payload.get("answerFeedbackMessages")
+            if feedback_messages_payload is None and question_payload.get("wrongAnswerMessages") is not None:
+                feedback_messages_payload = question_payload["wrongAnswerMessages"]
+            if (
+                feedback_messages_payload is None
+                and question_payload.get("wrong_answer_messages") is not None
+            ):
+                feedback_messages_payload = question_payload["wrong_answer_messages"]
 
             try:
                 answers_list = list(answers)
@@ -141,9 +147,9 @@ class MCQDeployment:
                 answers_list = [str(answer) for answer in answers_list]
 
             try:
-                wrong_messages_list = list(wrong_messages_payload) if isinstance(wrong_messages_payload, list) else []
+                feedback_messages_list = list(feedback_messages_payload) if isinstance(feedback_messages_payload, list) else []
             except TypeError:
-                wrong_messages_list = []
+                feedback_messages_list = []
 
             try:
                 resolved_correct_index = int(correct_index) if correct_index is not None else 0
@@ -163,7 +169,7 @@ class MCQDeployment:
                     question=str(question_payload.get("text") or question_payload.get("question") or ""),
                     answers=answers_list,
                     correct_answer_index=resolved_correct_index,
-                    wrong_answer_messages=wrong_messages_list,
+                    answer_feedback_messages=feedback_messages_list,
                 )
             )
 
@@ -205,6 +211,7 @@ class MCQDeployment:
             chatbot_system_prompt=str(config.get("chatbot_system_prompt", "") or ""),
             add_message_after_wrong_answer=bool(config.get("add_message_after_wrong_answer", False)),
             wrong_answer_message=str(config.get("wrong_answer_message", "") or ""),
+            allow_retry_wrong_answer=bool(config.get("allow_retry_wrong_answer", False)),
         )
 
     def to_dict(self) -> Dict[str, Any]:
@@ -227,6 +234,7 @@ class MCQDeployment:
             "chatbot_system_prompt": self.chatbot_system_prompt,
             "add_message_after_wrong_answer": self.add_message_after_wrong_answer,
             "wrong_answer_message": self.wrong_answer_message,
+            "allow_retry_wrong_answer": self.allow_retry_wrong_answer,
         }
 
     def create_question_set(self, question_count: int, randomize: bool = True) -> List[int]:
@@ -266,17 +274,20 @@ class MCQDeployment:
         return self.wrong_answer_message or None
 
     def get_feedback_message_for_answer(self, question_index: int, selected_answer: str) -> Optional[str]:
-        if not self.add_message_after_wrong_answer:
-            return None
-
         try:
             question = self.questions[question_index]
         except IndexError:
-            return self.get_feedback_message()
+            return self.get_feedback_message() if self.add_message_after_wrong_answer else None
 
         message = question.get_feedback_for_answer(selected_answer)
         if message:
             return message
+
+        if not self.add_message_after_wrong_answer:
+            return None
+
+        if question.correct_answer == selected_answer:
+            return None
 
         return self.get_feedback_message()
 
