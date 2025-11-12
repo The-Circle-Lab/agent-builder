@@ -1,6 +1,9 @@
 import datetime as dt
 from sqlmodel import SQLModel, Field, Relationship, JSON, Column, UniqueConstraint
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from models.database.db_models import User, Deployment
 
 
 class PromptSession(SQLModel, table=True):
@@ -32,7 +35,7 @@ class PromptSubmission(SQLModel, table=True):
     session_id: int = Field(foreign_key="promptsession.id")
     submission_index: int  # Index of the submission requirement (0, 1, 2, etc.)
     prompt_text: str  # The specific prompt/question for this submission
-    media_type: str  # "textarea" or "hyperlink"
+    media_type: str  # e.g. "textarea", "hyperlink", "pdf", "list", "dynamic_list", "websiteInfo", "multiple_choice"
     user_response: str  # The user's actual submission/response
     submitted_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
     

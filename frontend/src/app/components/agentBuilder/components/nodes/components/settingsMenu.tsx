@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useMemo, useEffect } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTimes } from "@fortawesome/free-solid-svg-icons";
-import { NodeData, Variable } from "../types";
+import { MultipleChoiceQuestion, NodeData, Variable } from "../types";
 import { getNodeConfig } from "../nodeRegistry";
 import { PropertyDefinition } from "../types";
 import DocumentManager from "./DocumentManager";
@@ -604,84 +604,180 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
       }
 
       case "multipleChoiceQuestions": {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const questions: any[] = Array.isArray(value) ? value : [];
+        const normalizeQuestion = (
+          rawQuestion: Partial<MultipleChoiceQuestion>
+        ): MultipleChoiceQuestion => {
+          const answers = Array.isArray(rawQuestion.answers)
+            ? [...rawQuestion.answers]
+            : [];
+          let wrongAnswerMessages = Array.isArray(rawQuestion.wrongAnswerMessages)
+            ? [...rawQuestion.wrongAnswerMessages]
+            : [];
+
+          if (wrongAnswerMessages.length < answers.length) {
+            wrongAnswerMessages = wrongAnswerMessages.concat(
+              Array(answers.length - wrongAnswerMessages.length).fill("")
+            );
+          } else if (wrongAnswerMessages.length > answers.length) {
+            wrongAnswerMessages = wrongAnswerMessages.slice(0, answers.length);
+          }
+
+          const rawCorrect =
+            typeof rawQuestion.correctAnswer === "number" ||
+            typeof rawQuestion.correctAnswer === "string"
+              ? Number.parseInt(String(rawQuestion.correctAnswer), 10)
+              : 0;
+          const safeCorrect = Number.isFinite(rawCorrect) ? rawCorrect : 0;
+          const boundedCorrect =
+            answers.length > 0
+              ? Math.min(
+                  Math.max(safeCorrect, 0),
+                  Math.max(answers.length - 1, 0)
+                )
+              : 0;
+
+          return {
+            text: String(rawQuestion.text ?? ""),
+            answers,
+            correctAnswer: boundedCorrect,
+            wrongAnswerMessages,
+          };
+        };
+
+        const questions: MultipleChoiceQuestion[] = Array.isArray(value)
+          ? (value as MultipleChoiceQuestion[]).map((q) => normalizeQuestion(q))
+          : [];
+
+        const formDataRecord = (formData ?? {}) as Record<string, unknown>;
+        const hasFeedbackToggle = Object.prototype.hasOwnProperty.call(
+          formDataRecord,
+          "add_message_after_wrong_answer",
+        );
+        const feedbackToggleEnabled = hasFeedbackToggle
+          ? Boolean(formDataRecord["add_message_after_wrong_answer"])
+          : true;
 
         const updateQuestion = (
           index: number,
-          field: string,
+          field: "text" | "correctAnswer" | "answer" | "wrongAnswerMessage",
           val: string | number,
           answerIdx?: number
         ) => {
-          const newQuestions = questions.map((q, i) => {
-            if (i !== index) return q;
+          const updated = questions
+            .map((q, i) => {
+              if (i !== index) return q;
 
-            if (field === "text") {
-              return { ...q, text: val };
-            } else if (field === "correctAnswer") {
-              return { ...q, correctAnswer: val };
-            } else if (field === "answer" && typeof answerIdx === "number") {
-              const newAnswers = Array.isArray(q.answers) ? [...q.answers] : [];
-              newAnswers[answerIdx] = val;
-              return { ...q, answers: newAnswers };
-            }
-            return q;
-          });
-          handleInputChange(key, newQuestions);
+              switch (field) {
+                case "text":
+                  return { ...q, text: String(val) };
+                case "correctAnswer":
+                  return { ...q, correctAnswer: Number(val) };
+                case "answer": {
+                  if (typeof answerIdx !== "number") return q;
+                  const newAnswers = [...q.answers];
+                  if (answerIdx >= newAnswers.length) {
+                    newAnswers.length = answerIdx + 1;
+                  }
+                  newAnswers[answerIdx] = String(val);
+                  return { ...q, answers: newAnswers };
+                }
+                case "wrongAnswerMessage": {
+                  if (typeof answerIdx !== "number") return q;
+                  const newMessages = Array.isArray(q.wrongAnswerMessages)
+                    ? [...q.wrongAnswerMessages]
+                    : [];
+                  if (answerIdx >= newMessages.length) {
+                    newMessages.length = answerIdx + 1;
+                  }
+                  newMessages[answerIdx] = String(val);
+                  return { ...q, wrongAnswerMessages: newMessages };
+                }
+                default:
+                  return q;
+              }
+            })
+            .map(normalizeQuestion);
+
+          handleInputChange(key, updated);
         };
 
         const addAnswer = (questionIdx: number) => {
-          const newQuestions = questions.map((q, i) => {
+          const updated = questions.map((q, i) => {
             if (i !== questionIdx) return q;
-            const newAnswers = Array.isArray(q.answers)
-              ? [...q.answers, ""]
-              : [""];
-            return { ...q, answers: newAnswers };
+
+            const newAnswers = [...q.answers, ""];
+            let newMessages = Array.isArray(q.wrongAnswerMessages)
+              ? [...q.wrongAnswerMessages]
+              : [];
+            if (newMessages.length < newAnswers.length) {
+              newMessages = newMessages.concat(
+                Array(newAnswers.length - newMessages.length).fill("")
+              );
+            }
+
+            return normalizeQuestion({
+              ...q,
+              answers: newAnswers,
+              wrongAnswerMessages: newMessages,
+            });
           });
-            handleInputChange(key, newQuestions);
+
+          handleInputChange(key, updated);
         };
 
         const removeAnswer = (questionIdx: number, answerIdx: number) => {
-          const newQuestions = questions.map((q, i) => {
+          const updated = questions.map((q, i) => {
             if (i !== questionIdx) return q;
-            const newAnswers = Array.isArray(q.answers)
-              ? q.answers.filter((_: unknown, idx: number) => idx !== answerIdx)
+
+            const newAnswers = q.answers.filter((_, idx) => idx !== answerIdx);
+            const newMessages = Array.isArray(q.wrongAnswerMessages)
+              ? q.wrongAnswerMessages.filter((_, idx) => idx !== answerIdx)
               : [];
-            // Adjust correctAnswer if it was pointing to a removed answer
-            let newCorrectAnswer = q.correctAnswer;
+
+            let newCorrectAnswer = q.correctAnswer ?? 0;
             if (newCorrectAnswer >= answerIdx && newCorrectAnswer > 0) {
               newCorrectAnswer = Math.max(0, newCorrectAnswer - 1);
             }
-            return {
+            if (newCorrectAnswer >= newAnswers.length) {
+              newCorrectAnswer = Math.max(newAnswers.length - 1, 0);
+            }
+
+            return normalizeQuestion({
               ...q,
               answers: newAnswers,
+              wrongAnswerMessages: newMessages,
               correctAnswer: newCorrectAnswer,
-            };
+            });
           });
-          handleInputChange(key, newQuestions);
+
+          handleInputChange(key, updated);
         };
 
         const addQuestion = () => {
-          const newQuestions = [
-            ...questions,
-            { text: "", answers: ["", ""], correctAnswer: 0 },
-          ];
-          handleInputChange(key, newQuestions);
+          const newQuestion = normalizeQuestion({
+            text: "",
+            answers: ["", ""],
+            correctAnswer: 0,
+            wrongAnswerMessages: ["", ""],
+          });
+          const updated = [...questions.map(normalizeQuestion), newQuestion];
+          handleInputChange(key, updated);
         };
 
         const deleteQuestion = (idx: number) => {
-          const newQuestions = questions.filter((_q, i) => i !== idx);
-          handleInputChange(key, newQuestions);
+          const updated = questions
+            .filter((_q, i) => i !== idx)
+            .map(normalizeQuestion);
+          handleInputChange(key, updated);
         };
 
-        // Drag handlers for question reordering
         const handleQuestionDragStart = (e: React.DragEvent, index: number) => {
           setDraggedQuestionIndex(index);
-          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.effectAllowed = "move";
         };
         const handleQuestionDragOver = (e: React.DragEvent, index: number) => {
           e.preventDefault();
-          e.dataTransfer.dropEffect = 'move';
+          e.dataTransfer.dropEffect = "move";
           setDragOverQuestionIndex(index);
         };
         const handleQuestionDragLeave = () => setDragOverQuestionIndex(null);
@@ -692,11 +788,12 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
             setDragOverQuestionIndex(null);
             return;
           }
+
           const newOrder = [...questions];
           const dragged = newOrder[draggedQuestionIndex];
           newOrder.splice(draggedQuestionIndex, 1);
           newOrder.splice(dropIndex, 0, dragged);
-          handleInputChange(key, newOrder);
+          handleInputChange(key, newOrder.map(normalizeQuestion));
           setDraggedQuestionIndex(null);
           setDragOverQuestionIndex(null);
         };
@@ -719,7 +816,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                 onDragLeave={handleQuestionDragLeave}
                 onDrop={(e) => handleQuestionDrop(e, qIdx)}
                 onDragEnd={handleQuestionDragEnd}
-                className={`space-y-3 border border-gray-600 p-4 rounded-md cursor-move transition-colors duration-150 ${draggedQuestionIndex === qIdx ? 'opacity-50' : ''} ${dragOverQuestionIndex === qIdx ? 'bg-gray-700/60' : 'bg-gray-800/30 hover:bg-gray-700/40'}`}
+                className={`space-y-3 border border-gray-600 p-4 rounded-md cursor-move transition-colors duration-150 ${draggedQuestionIndex === qIdx ? "opacity-50" : ""} ${dragOverQuestionIndex === qIdx ? "bg-gray-700/60" : "bg-gray-800/30 hover:bg-gray-700/40"}`}
               >
                 <div className="flex justify-between items-center">
                   <span className="text-gray-300 text-sm flex items-center space-x-2">
@@ -738,7 +835,6 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                   </div>
                 </div>
 
-                {/* Question Text */}
                 <textarea
                   value={question.text ?? ""}
                   onChange={(e) => updateQuestion(qIdx, "text", e.target.value)}
@@ -747,8 +843,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                   rows={2}
                 />
 
-                {/* Answers */}
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="text-sm text-gray-300">Answers:</span>
                     <button
@@ -760,42 +855,67 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                     </button>
                   </div>
 
-                  {(question.answers || []).map(
-                    (answer: string, aIdx: number) => (
-                      <div
-                        key={`answer-${aIdx}`}
-                        className="flex items-center space-x-2"
-                      >
-                        <input
-                          type="radio"
-                          name={`correct-${qIdx}`}
-                          checked={question.correctAnswer === aIdx}
-                          onChange={() =>
-                            updateQuestion(qIdx, "correctAnswer", aIdx)
-                          }
-                          className="text-green-600 bg-gray-700 border-gray-600 focus:ring-green-500"
-                        />
-                        <input
-                          type="text"
-                          value={answer}
-                          onChange={(e) =>
-                            updateQuestion(qIdx, "answer", e.target.value, aIdx)
-                          }
-                          className="flex-1 px-3 py-1 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          placeholder={`Answer ${aIdx + 1}`}
-                        />
-                        {(question.answers || []).length > 2 && (
-                          <button
-                            type="button"
-                            onClick={() => removeAnswer(qIdx, aIdx)}
-                            className="text-red-400 hover:text-red-500 px-2"
-                          >
-                            ×
-                          </button>
+                  {question.answers.map((answer, aIdx) => {
+                    const isCorrectOption = question.correctAnswer === aIdx;
+                    const feedbackValue = question.wrongAnswerMessages?.[aIdx] ?? "";
+
+                    return (
+                      <div key={`answer-${aIdx}`} className="space-y-2">
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            name={`correct-${qIdx}`}
+                            checked={isCorrectOption}
+                            onChange={() => updateQuestion(qIdx, "correctAnswer", aIdx)}
+                            className="text-green-600 bg-gray-700 border-gray-600 focus:ring-green-500"
+                          />
+                          <input
+                            type="text"
+                            value={answer}
+                            onChange={(e) =>
+                              updateQuestion(qIdx, "answer", e.target.value, aIdx)
+                            }
+                            className="flex-1 px-3 py-1 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder={`Answer ${aIdx + 1}`}
+                          />
+                          {question.answers.length > 2 && (
+                            <button
+                              type="button"
+                              onClick={() => removeAnswer(qIdx, aIdx)}
+                              className="text-red-400 hover:text-red-500 px-2"
+                            >
+                              ×
+                            </button>
+                          )}
+                        </div>
+
+                        {!isCorrectOption ? (
+                          <>
+                            <textarea
+                              value={feedbackValue}
+                              onChange={(e) =>
+                                updateQuestion(qIdx, "wrongAnswerMessage", e.target.value, aIdx)
+                              }
+                              className="ml-7 w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                              placeholder="Feedback shown when this answer is selected."
+                              rows={2}
+                            />
+                            {!feedbackToggleEnabled && hasFeedbackToggle && (
+                              <p className="ml-7 text-xs text-gray-400 italic">
+                                Turn on "Add a message after a wrong answer" to show this feedback to students.
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          feedbackToggleEnabled && hasFeedbackToggle && (
+                            <p className="ml-7 text-xs text-gray-400 italic">
+                              No feedback message is shown when the correct answer is chosen.
+                            </p>
+                          )
                         )}
                       </div>
-                    )
-                  )}
+                    );
+                  })}
                 </div>
               </div>
             ))}

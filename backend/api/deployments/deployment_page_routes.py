@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
+from enum import Enum
 
 from .deployment_shared import *
 from services.deployment_manager import load_deployment_on_demand
@@ -37,6 +38,20 @@ class PageListResponse(BaseModel):
     page_count: int
     pages_accessible: int
     pages: List[PageInfo]
+
+
+class PageProgressStatus(str, Enum):
+    NOT_STARTED = "not_started"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+
+
+class PageProgressResponse(BaseModel):
+    deployment_id: str
+    status: PageProgressStatus
+    required_pages: int
+    completed_pages: int
+    in_progress_pages: int
 
 @router.get("/{deployment_id}/pages", response_model=PageListResponse)
 async def get_deployment_pages(
@@ -76,15 +91,82 @@ async def get_deployment_pages(
     page_deployment = deployment_info["page_deployment"]
     # Get locked pages from state
     locked_pages = set(await get_locked_pages(deployment_id, db))
+
+    page_list = page_deployment.get_page_list()
+    deployment_list = page_deployment.get_deployment_list()
+    first_incomplete_mcq_page: Optional[int] = None
+    first_incomplete_prompt_page: Optional[int] = None
+    mcq_completion_cache: Dict[str, bool] = {}
+    prompt_completion_cache: Dict[str, bool] = {}
+
+    def has_completed_mcq(agent_deployment_id: str) -> bool:
+        """Determine if the current user has completed the MCQ for a given page deployment."""
+        if agent_deployment_id in mcq_completion_cache:
+            return mcq_completion_cache[agent_deployment_id]
+
+        db_page_deployment = db.exec(
+            select(Deployment).where(
+                Deployment.deployment_id == agent_deployment_id,
+                Deployment.is_active == True,
+            )
+        ).first()
+
+        if not db_page_deployment:
+            mcq_completion_cache[agent_deployment_id] = False
+            return False
+
+        session = db.exec(
+            select(MCQSession).where(
+                MCQSession.user_id == current_user.id,
+                MCQSession.deployment_id == db_page_deployment.id,
+                MCQSession.is_active == True,
+            )
+        ).first()
+
+        completed = bool(session and session.completed_at is not None)
+        mcq_completion_cache[agent_deployment_id] = completed
+        return completed
+
+    def has_completed_prompt(agent_deployment_id: str) -> bool:
+        """Determine if the current user has completed the prompt for a given page deployment."""
+        if agent_deployment_id in prompt_completion_cache:
+            return prompt_completion_cache[agent_deployment_id]
+
+        db_page_deployment = db.exec(
+            select(Deployment).where(
+                Deployment.deployment_id == agent_deployment_id,
+                Deployment.is_active == True,
+            )
+        ).first()
+
+        if not db_page_deployment:
+            prompt_completion_cache[agent_deployment_id] = False
+            return False
+
+        session = db.exec(
+            select(PromptSession).where(
+                PromptSession.user_id == current_user.id,
+                PromptSession.deployment_id == db_page_deployment.id,
+                PromptSession.is_active == True,
+            )
+        ).first()
+
+        completed = bool(session and session.completed_at is not None)
+        prompt_completion_cache[agent_deployment_id] = completed
+        return completed
     
     # Build page information
     pages = []
-    for idx, page_deploy in enumerate(page_deployment.get_deployment_list()):
+    for idx, page_deploy in enumerate(deployment_list):
         page_number = idx + 1
         # Locked page overrides accessibility
         is_locked = page_number in locked_pages
         is_accessible = False if is_locked else page_deployment.is_page_accessible(page_number)
-        
+
+        page = page_list[idx]
+        deployment_type_enum = page_deploy.get_deployment_type()
+        deployment_type_value = deployment_type_enum.value
+
         # Determine accessibility reason if not accessible
         accessibility_reason = None
         if not is_accessible:
@@ -92,34 +174,186 @@ async def get_deployment_pages(
             if is_locked:
                 accessibility_reason = f"Page {page_number} is locked by your instructor."
             elif page_deployment.pages_accessible != -1 and page_number > page_deployment.pages_accessible:
-                accessibility_reason = f"Page {page_number} is not yet accessible. You'll need to wait until your instructor allows access to this page. Currently accessible pages: 1-{page_deployment.pages_accessible}"
+                accessibility_reason = (
+                    f"Page {page_number} is not yet accessible. You'll need to wait until your instructor allows access to this page. "
+                    f"Currently accessible pages: 1-{page_deployment.pages_accessible}"
+                )
             else:
                 # Check if it's due to variable dependency
-                page = page_deployment.get_page_list()[idx]
                 if page.is_input_from_variable() and page.input_id:
                     variable = page_deployment.get_variable_by_name(page.input_id)
                     if variable and variable.is_empty():
-                        accessibility_reason = f"Page {page_number} is not yet accessible. This page depends on the variable '{page.input_id}' which has not been populated yet."
-                
+                        accessibility_reason = (
+                            f"Page {page_number} is not yet accessible. This page depends on the variable '{page.input_id}' which has not been populated yet."
+                        )
+
                 if not accessibility_reason:
                     accessibility_reason = f"Page {page_number} is not yet accessible."
-        
+
+        # Apply MCQ gating if a prior MCQ page is incomplete
+        if (
+            first_incomplete_mcq_page is not None
+            and page_number > first_incomplete_mcq_page
+            and is_accessible
+        ):
+            is_accessible = False
+            accessibility_reason = (
+                f"Complete the quiz on Page {first_incomplete_mcq_page} before continuing."
+            )
+
+        if (
+            first_incomplete_prompt_page is not None
+            and page_number > first_incomplete_prompt_page
+            and is_accessible
+        ):
+            is_accessible = False
+            accessibility_reason = (
+                f"Complete the prompt on Page {first_incomplete_prompt_page} before continuing."
+            )
+
         pages.append(PageInfo(
             page_number=page_number,
             deployment_id=page_deploy.deployment_id,
             student_access_id=page_deploy.deployment_id,  # This is the ID students should use
-            deployment_type=page_deploy.get_deployment_type().value,
+            deployment_type=deployment_type_value,
             has_chat=page_deploy.get_contains_chat(),
             is_accessible=is_accessible,
             accessibility_reason=accessibility_reason,
             is_locked=is_locked
         ))
+
+        # Track the first MCQ page the user has not yet completed to gate subsequent pages
+        if (
+            first_incomplete_mcq_page is None
+            and deployment_type_enum == DeploymentType.MCQ
+            and not has_completed_mcq(page_deploy.deployment_id)
+        ):
+            first_incomplete_mcq_page = page_number
+
+        if (
+            first_incomplete_prompt_page is None
+            and deployment_type_enum == DeploymentType.PROMPT
+        ):
+            prompt_service = page_deploy.get_prompt_service()
+            is_question_only = prompt_service.is_question_only() if prompt_service else True
+
+            if not is_question_only and not has_completed_prompt(page_deploy.deployment_id):
+                first_incomplete_prompt_page = page_number
     
     return PageListResponse(
         main_deployment_id=deployment_id,
         page_count=page_deployment.get_page_count(),
         pages_accessible=page_deployment.pages_accessible,
         pages=pages
+    )
+
+
+@router.get("/{deployment_id}/pages/progress", response_model=PageProgressResponse)
+async def get_page_progress(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    """Summarize the student's progress through required pages in a page-based deployment."""
+
+    db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db)
+
+    if not db_deployment.is_page_based:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This deployment is not page-based"
+        )
+
+    deployment_info = get_active_page_deployment(deployment_id)
+    if not deployment_info:
+        if not await load_page_deployment_on_demand(deployment_id, current_user.id, db):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Page deployment not found or failed to load"
+            )
+        deployment_info = get_active_page_deployment(deployment_id)
+
+    page_deployment = deployment_info["page_deployment"]
+
+    required_pages = 0
+    completed_pages = 0
+    in_progress_pages = 0
+
+    for page_deploy in page_deployment.get_deployment_list():
+        deployment_type = page_deploy.get_deployment_type()
+
+        if deployment_type == DeploymentType.MCQ:
+            required_pages += 1
+            db_page_deployment = db.exec(
+                select(Deployment).where(
+                    Deployment.deployment_id == page_deploy.deployment_id,
+                    Deployment.is_active == True,
+                )
+            ).first()
+
+            if not db_page_deployment:
+                continue
+
+            session = db.exec(
+                select(MCQSession).where(
+                    MCQSession.user_id == current_user.id,
+                    MCQSession.deployment_id == db_page_deployment.id,
+                    MCQSession.is_active == True,
+                )
+            ).first()
+
+            if session and session.completed_at:
+                completed_pages += 1
+            elif session:
+                in_progress_pages += 1
+
+        elif deployment_type == DeploymentType.PROMPT:
+            prompt_service = page_deploy.get_prompt_service()
+            is_question_only = prompt_service.is_question_only() if prompt_service else True
+
+            if is_question_only:
+                continue
+
+            required_pages += 1
+
+            db_page_deployment = db.exec(
+                select(Deployment).where(
+                    Deployment.deployment_id == page_deploy.deployment_id,
+                    Deployment.is_active == True,
+                )
+            ).first()
+
+            if not db_page_deployment:
+                continue
+
+            session = db.exec(
+                select(PromptSession).where(
+                    PromptSession.user_id == current_user.id,
+                    PromptSession.deployment_id == db_page_deployment.id,
+                    PromptSession.is_active == True,
+                )
+            ).first()
+
+            if session and session.completed_at:
+                completed_pages += 1
+            elif session:
+                in_progress_pages += 1
+
+    if required_pages == 0:
+        status_value = PageProgressStatus.COMPLETED
+    elif completed_pages == required_pages:
+        status_value = PageProgressStatus.COMPLETED
+    elif completed_pages == 0 and in_progress_pages == 0:
+        status_value = PageProgressStatus.NOT_STARTED
+    else:
+        status_value = PageProgressStatus.IN_PROGRESS
+
+    return PageProgressResponse(
+        deployment_id=deployment_id,
+        status=status_value,
+        required_pages=required_pages,
+        completed_pages=completed_pages,
+        in_progress_pages=in_progress_pages,
     )
 
 

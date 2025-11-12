@@ -341,6 +341,17 @@ def get_all_prompt_submissions_for_deployment(deployment_id: str, db_session) ->
                             "text": joined_websites,
                             "submission_index": sub.submission_index
                         }
+                    elif media_type == 'multiple_choice':
+                        selected_option = (sub.user_response or '').strip()
+                        if selected_option:
+                            text_responses.append(selected_option)
+                        submission_responses[submission_key] = {
+                            "media_type": "multiple_choice",
+                            "response": sub.user_response,
+                            "selected_option": selected_option,
+                            "text": selected_option,
+                            "submission_index": sub.submission_index
+                        }
                     else:
                         # Treat any other (textarea/hyperlink) as text
                         text_responses.append(sub.user_response)
@@ -748,6 +759,9 @@ async def edit_prompt_response(
         if not parsed:
             entries = [line.strip() for line in raw.splitlines() if line.strip()]
         user_response_value = json.dumps(entries)
+
+    if requirement.get("mediaType") == "multiple_choice":
+        user_response_value = request.response.strip()
 
     # Update the existing submission
     existing_submission.user_response = user_response_value

@@ -9,6 +9,7 @@ from .deployments.deployment_prompt_routes import router as prompt_router
 from .deployments.deployment_grade_routes import router as grade_router
 from .deployments.deployment_page_routes import router as page_router
 from .deployments.deployment_live_presentation_routes import router as live_presentation_router
+from .deployments.deployment_video_routes import router as video_router
 
 router = APIRouter(prefix="/api/deploy", tags=["deployment"])
 
@@ -21,3 +22,4 @@ router.include_router(prompt_router)
 router.include_router(grade_router)
 router.include_router(page_router)
 router.include_router(live_presentation_router)
+router.include_router(video_router)

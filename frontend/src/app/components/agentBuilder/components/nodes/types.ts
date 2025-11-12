@@ -91,7 +91,8 @@ export interface TestCase {
 export interface MultipleChoiceQuestion {
   text: string;
   answers: string[];
-  correctAnswer: number; 
+  correctAnswer: number;
+  wrongAnswerMessages?: (string | null)[];
 }
 
 // Submission prompt representation for submission nodes
