@@ -92,7 +92,7 @@ export interface MultipleChoiceQuestion {
   text: string;
   answers: string[];
   correctAnswer: number;
-  wrongAnswerMessages?: (string | null)[];
+  answerFeedbackMessages?: (string | null)[];
 }
 
 // Submission prompt representation for submission nodes

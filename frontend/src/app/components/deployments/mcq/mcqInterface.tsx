@@ -68,6 +68,8 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose, on
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, string>>({});
   const [submittedAnswers, setSubmittedAnswers] = useState<Record<number, MCQAnswer>>({});
+  const [pendingRetryAnswers, setPendingRetryAnswers] = useState<Record<number, MCQAnswer>>({});
+  const [disabledAnswers, setDisabledAnswers] = useState<Record<number, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -91,6 +93,8 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose, on
 
         const submittedMap = buildSubmittedAnswerMap(sessionData.submitted_answers);
         setSubmittedAnswers(submittedMap);
+        setPendingRetryAnswers({});
+        setDisabledAnswers({});
 
         const initialIndex = deriveInitialQuestionIndex(sessionData);
         setCurrentQuestionIndex(initialIndex);
@@ -122,6 +126,62 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose, on
       const answerData = await MCQDeploymentAPI.submitAnswer(deploymentId, {
         question_index: questionIndex,
         selected_answer: selectedAnswer,
+      });
+
+      const allowRetry = Boolean(answerData.allow_retry_wrong_answer);
+      const isRetryableWrong = allowRetry && !answerData.is_correct;
+
+      if (isRetryableWrong) {
+        console.log('[MCQ Debug] Wrong answer retry:', {
+          questionIndex,
+          selectedAnswer,
+          existingDisabled: disabledAnswers[questionIndex] ?? [],
+        });
+        
+        setDisabledAnswers((prev) => {
+          const existing = prev[questionIndex] ?? [];
+          if (existing.includes(selectedAnswer)) return prev;
+          return {
+            ...prev,
+            [questionIndex]: [...existing, selectedAnswer],
+          };
+        });
+
+        setPendingRetryAnswers((prev) => ({
+          ...prev,
+          [questionIndex]: answerData,
+        }));
+
+        setSelectedAnswers((prev) => {
+          const next = { ...prev };
+          delete next[questionIndex];
+          return next;
+        });
+
+        setSession((prev) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            answers_revealed: answerData.answers_revealed ?? prev.answers_revealed,
+            next_question_index: answerData.next_question_index ?? prev.next_question_index,
+            answered_count: answerData.answered_count ?? prev.answered_count,
+          };
+        });
+
+        return;
+      }
+
+      setDisabledAnswers((prev) => {
+        if (!prev[questionIndex]) return prev;
+        const next = { ...prev };
+        delete next[questionIndex];
+        return next;
+      });
+      setPendingRetryAnswers((prev) => {
+        if (!prev[questionIndex]) return prev;
+        const next = { ...prev };
+        delete next[questionIndex];
+        return next;
       });
 
       const updatedSubmittedAnswers: Record<number, MCQAnswer> = {
@@ -304,7 +364,16 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose, on
   const currentQuestion = session.questions[currentQuestionIndex];
   const allQuestionsSubmitted = session.is_completed || Object.keys(submittedAnswers).length === session.total_questions;
   const submittedAnswerForQuestion = submittedAnswers[currentQuestion.index];
-  const feedbackMessage = submittedAnswerForQuestion?.feedback_message ?? (session.add_message_after_wrong_answer ? session.wrong_answer_message ?? null : null);
+  const pendingRetryAnswerForQuestion = pendingRetryAnswers[currentQuestion.index];
+  const activeAnswerContext = submittedAnswerForQuestion ?? pendingRetryAnswerForQuestion;
+  const answerSpecificFeedback = activeAnswerContext?.feedback_message ?? null;
+  const fallbackFeedback =
+    activeAnswerContext && !activeAnswerContext.is_correct && session.add_message_after_wrong_answer
+      ? session.wrong_answer_message ?? null
+      : null;
+  const feedbackMessage = (answerSpecificFeedback && answerSpecificFeedback.trim().length > 0)
+    ? answerSpecificFeedback
+    : fallbackFeedback;
   const showChatPrompt = Boolean(
     session.add_chatbot_after_wrong_answer &&
     submittedAnswerForQuestion &&
@@ -314,6 +383,13 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose, on
     chatQuestionIndex !== null
       ? session.questions.find((question) => question.index === chatQuestionIndex) ?? null
       : null;
+
+  const shouldDisableNext = session.one_question_at_a_time && (
+    session.next_question_index === null ||
+    session.next_question_index === undefined ||
+    session.next_question_index === currentQuestion.index ||
+    Boolean(pendingRetryAnswerForQuestion)
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -347,6 +423,7 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose, on
               totalQuestions={session.total_questions}
               selectedAnswer={selectedAnswers[currentQuestion.index]}
               submittedAnswer={submittedAnswers[currentQuestion.index]}
+              pendingAnswer={pendingRetryAnswerForQuestion}
               submitting={submitting}
               error={error}
               allQuestionsSubmitted={allQuestionsSubmitted}
@@ -359,7 +436,9 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose, on
               showChatPrompt={showChatPrompt}
               onRequestChat={() => openChatForQuestion(currentQuestion.index)}
               disablePrev={false}
-              disableNext={session.one_question_at_a_time && (session.next_question_index === null || session.next_question_index === undefined)}
+              disableNext={shouldDisableNext}
+              disabledAnswers={disabledAnswers[currentQuestion.index] ?? []}
+              allowRetryWrongAnswer={session.allow_retry_wrong_answer}
             />
           </div>
         </div>

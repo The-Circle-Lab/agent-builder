@@ -59,7 +59,13 @@ export class MultipleChoiceNodeConfig extends BaseNodeConfig {
       defaultValue: "",
       placeholder: "Optional fallback shown when a wrong answer has no specific feedback",
       rows: 3,
-    }
+    },
+    {
+      key: "allow_retry_wrong_answer",
+      label: "Let students retry a question after a wrong answer (grey out chosen option)",
+      type: "checkbox",
+      defaultValue: false,
+    },
   ] as const satisfies readonly PropertyDefinition[];
 }
 

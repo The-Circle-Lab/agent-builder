@@ -318,14 +318,8 @@ export default function CompletionView({
             Thank you for your responses!
           </h3>
           <p className="text-gray-600 mb-4">
-            Your submissions have been recorded successfully. You can now close this window or navigate back to your assignments.
+            Your submissions have been recorded successfully. You can go to the next page or return to class.
           </p>
-          <button
-            onClick={onClose}
-            className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-          >
-            Return to Assignments
-          </button>
         </div>
       </div>
     </div>

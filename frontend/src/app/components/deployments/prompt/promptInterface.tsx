@@ -560,14 +560,8 @@ export default function PromptInterface({ deploymentId, deploymentName, onClose,
             <div className="px-6 py-4 bg-gray-50 border-t border-gray-200 rounded-b-lg">
               <div className="flex items-center justify-between">
                 <p className="text-sm text-gray-600">
-                  This is a question-only prompt. No submission is required.
+                  Proceed to the next page or return to class.
                 </p>
-                <button
-                  onClick={onClose}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
-                >
-                  Close
-                </button>
               </div>
             </div>
           </div>
