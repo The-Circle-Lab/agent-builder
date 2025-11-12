@@ -646,10 +646,7 @@ export default function ClassDeployments({
       );
     } else {
       return (
-        <div className="flex items-center space-x-1">
-          <AcademicCapIcon className="h-3 w-3 text-gray-400" />
-          <span className="text-gray-500 text-xs">No grade yet</span>
-        </div>
+        <></>
       );
     }
   };
