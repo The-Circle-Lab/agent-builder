@@ -8,9 +8,9 @@ from fastapi.responses import JSONResponse, FileResponse
 from sqlmodel import Session as DBSession, select
 
 from api.auth import get_current_user
-from models.database.db_models import User, Workflow, Video
+from models.database.db_models import User, Workflow, Video, Deployment
 from database.database import get_session
-from scripts.permission_helpers import user_can_access_workflow, user_can_modify_workflow
+from scripts.permission_helpers import user_can_access_workflow, user_can_modify_workflow, user_can_access_deployment
 from api.file_storage import store_file, delete_stored_file, STORAGE_BASE_DIR
 import sys
 
@@ -218,8 +218,27 @@ async def stream_video(
     if not workflow or not workflow.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
 
-    if not user_can_access_workflow(current_user, workflow, db):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this workflow")
+    # Check if user has workflow access (owner/instructor)
+    has_workflow_access = user_can_access_workflow(current_user, workflow, db)
+    
+    # If not, check if user has access through any deployment using this video
+    has_deployment_access = False
+    if not has_workflow_access:
+        # Find deployments that use this workflow and check if user has access
+        deployments = db.exec(
+            select(Deployment).where(
+                Deployment.workflow_id == workflow.id,
+                Deployment.is_active == True
+            )
+        ).all()
+        
+        for deployment in deployments:
+            if user_can_access_deployment(current_user, deployment, db):
+                has_deployment_access = True
+                break
+    
+    if not has_workflow_access and not has_deployment_access:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this video")
 
     full_path = STORAGE_BASE_DIR / video.storage_path
     if not full_path.exists():
@@ -247,8 +266,27 @@ async def download_video(
     if not workflow or not workflow.is_active:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Workflow not found")
 
-    if not user_can_access_workflow(current_user, workflow, db):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this workflow")
+    # Check if user has workflow access (owner/instructor)
+    has_workflow_access = user_can_access_workflow(current_user, workflow, db)
+    
+    # If not, check if user has access through any deployment using this video
+    has_deployment_access = False
+    if not has_workflow_access:
+        # Find deployments that use this workflow and check if user has access
+        deployments = db.exec(
+            select(Deployment).where(
+                Deployment.workflow_id == workflow.id,
+                Deployment.is_active == True
+            )
+        ).all()
+        
+        for deployment in deployments:
+            if user_can_access_deployment(current_user, deployment, db):
+                has_deployment_access = True
+                break
+    
+    if not has_workflow_access and not has_deployment_access:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to this video")
 
     full_path = STORAGE_BASE_DIR / video.storage_path
     if not full_path.exists():
