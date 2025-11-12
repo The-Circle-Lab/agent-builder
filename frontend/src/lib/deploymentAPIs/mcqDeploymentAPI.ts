@@ -18,6 +18,7 @@ export interface MCQAnswer {
   is_session_completed?: boolean;
   total_questions?: number;
   answers_revealed?: boolean;
+  allow_retry_wrong_answer?: boolean;
 }
 
 export interface MCQSession {
@@ -38,6 +39,7 @@ export interface MCQSession {
   answered_count: number;
   next_question_index: number | null;
   answers_revealed: boolean;
+  allow_retry_wrong_answer: boolean;
 }
 
 export interface MCQAnswerSubmission {

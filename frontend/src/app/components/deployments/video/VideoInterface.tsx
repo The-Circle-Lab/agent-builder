@@ -29,19 +29,6 @@ const ensureAbsoluteUrl = (baseUrl: string, url?: string | null): string | null 
   return `${baseUrl}${normalizedPath}`;
 };
 
-const formatDateTime = (value?: string | null): string | null => {
-  if (!value) return null;
-  try {
-    const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      return null;
-    }
-    return date.toLocaleString();
-  } catch {
-    return null;
-  }
-};
-
 export default function VideoInterface({
   deploymentId,
   deploymentName,
@@ -83,14 +70,6 @@ export default function VideoInterface({
     return (
       ensureAbsoluteUrl(baseUrl, video.stream_url) ??
       (video.id ? VideoAPI.buildStreamUrl(video.id) : null)
-    );
-  }, [baseUrl, video]);
-
-  const resolvedDownloadUrl = useMemo(() => {
-    if (!video) return null;
-    return (
-      ensureAbsoluteUrl(baseUrl, video.download_url) ??
-      (video.id ? VideoAPI.buildDownloadUrl(video.id) : null)
     );
   }, [baseUrl, video]);
 
@@ -165,18 +144,6 @@ export default function VideoInterface({
     );
   }
 
-  const fileSizeText = video.file_size
-    ? VideoAPI.formatFileSize(video.file_size)
-    : video.file_size === 0
-    ? VideoAPI.formatFileSize(0)
-    : null;
-
-  const durationText = video.duration_seconds
-    ? VideoAPI.formatDuration(video.duration_seconds)
-    : null;
-
-  const uploadedAtText = formatDateTime(video.uploaded_at);
-
   return (
     <div className="flex-1 overflow-auto bg-gray-50">
       <div className="max-w-4xl w-full mx-auto py-10 px-4 sm:px-6 lg:px-8">
@@ -206,43 +173,6 @@ export default function VideoInterface({
             )}
           </div>
 
-          <div className="p-5 space-y-4">
-            <div>
-              <h3 className="text-lg font-medium text-gray-900">{video.filename ?? "Video"}</h3>
-              <div className="mt-1 text-sm text-gray-600 space-x-2">
-                {fileSizeText && <span>{fileSizeText}</span>}
-                {durationText && <span>• {durationText}</span>}
-                {video.status && <span>• Status: {video.status}</span>}
-              </div>
-              {uploadedAtText && (
-                <p className="mt-1 text-xs text-gray-500">Uploaded {uploadedAtText}</p>
-              )}
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              {resolvedDownloadUrl && (
-                <a
-                  href={resolvedDownloadUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center px-3 py-2 text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
-                >
-                  Download Video
-                </a>
-              )}
-              {video.source && (
-                <span className="text-xs uppercase tracking-wide text-gray-500 bg-gray-100 px-2 py-1 rounded">
-                  Source: {video.source}
-                </span>
-              )}
-            </div>
-
-            {message && (
-              <div className="mt-2 text-sm text-gray-500 bg-gray-100 rounded-md px-3 py-2">
-                {message}
-              </div>
-            )}
-          </div>
         </div>
       </div>
     </div>

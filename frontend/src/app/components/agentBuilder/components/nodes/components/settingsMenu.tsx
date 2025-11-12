@@ -610,16 +610,29 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
           const answers = Array.isArray(rawQuestion.answers)
             ? [...rawQuestion.answers]
             : [];
-          let wrongAnswerMessages = Array.isArray(rawQuestion.wrongAnswerMessages)
-            ? [...rawQuestion.wrongAnswerMessages]
+          let feedbackMessages = Array.isArray(
+            (rawQuestion as Record<string, unknown>).answerFeedbackMessages
+          )
+            ? ([
+                ...(rawQuestion as Record<string, unknown>)
+                  .answerFeedbackMessages as (string | null)[]
+              ])
+            : Array.isArray(
+                (rawQuestion as { wrongAnswerMessages?: (string | null)[] })
+                  .wrongAnswerMessages
+              )
+            ? ([
+                ...((rawQuestion as { wrongAnswerMessages?: (string | null)[] })
+                  .wrongAnswerMessages as (string | null)[])
+              ])
             : [];
 
-          if (wrongAnswerMessages.length < answers.length) {
-            wrongAnswerMessages = wrongAnswerMessages.concat(
-              Array(answers.length - wrongAnswerMessages.length).fill("")
+          if (feedbackMessages.length < answers.length) {
+            feedbackMessages = feedbackMessages.concat(
+              Array(answers.length - feedbackMessages.length).fill("")
             );
-          } else if (wrongAnswerMessages.length > answers.length) {
-            wrongAnswerMessages = wrongAnswerMessages.slice(0, answers.length);
+          } else if (feedbackMessages.length > answers.length) {
+            feedbackMessages = feedbackMessages.slice(0, answers.length);
           }
 
           const rawCorrect =
@@ -640,7 +653,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
             text: String(rawQuestion.text ?? ""),
             answers,
             correctAnswer: boundedCorrect,
-            wrongAnswerMessages,
+            answerFeedbackMessages: feedbackMessages,
           };
         };
 
@@ -659,7 +672,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
 
         const updateQuestion = (
           index: number,
-          field: "text" | "correctAnswer" | "answer" | "wrongAnswerMessage",
+          field: "text" | "correctAnswer" | "answer" | "answerFeedback",
           val: string | number,
           answerIdx?: number
         ) => {
@@ -681,16 +694,16 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                   newAnswers[answerIdx] = String(val);
                   return { ...q, answers: newAnswers };
                 }
-                case "wrongAnswerMessage": {
+                case "answerFeedback": {
                   if (typeof answerIdx !== "number") return q;
-                  const newMessages = Array.isArray(q.wrongAnswerMessages)
-                    ? [...q.wrongAnswerMessages]
+                  const newMessages = Array.isArray(q.answerFeedbackMessages)
+                    ? [...q.answerFeedbackMessages]
                     : [];
                   if (answerIdx >= newMessages.length) {
                     newMessages.length = answerIdx + 1;
                   }
                   newMessages[answerIdx] = String(val);
-                  return { ...q, wrongAnswerMessages: newMessages };
+                  return { ...q, answerFeedbackMessages: newMessages };
                 }
                 default:
                   return q;
@@ -706,8 +719,8 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
             if (i !== questionIdx) return q;
 
             const newAnswers = [...q.answers, ""];
-            let newMessages = Array.isArray(q.wrongAnswerMessages)
-              ? [...q.wrongAnswerMessages]
+            let newMessages = Array.isArray(q.answerFeedbackMessages)
+              ? [...q.answerFeedbackMessages]
               : [];
             if (newMessages.length < newAnswers.length) {
               newMessages = newMessages.concat(
@@ -718,7 +731,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
             return normalizeQuestion({
               ...q,
               answers: newAnswers,
-              wrongAnswerMessages: newMessages,
+              answerFeedbackMessages: newMessages,
             });
           });
 
@@ -730,8 +743,8 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
             if (i !== questionIdx) return q;
 
             const newAnswers = q.answers.filter((_, idx) => idx !== answerIdx);
-            const newMessages = Array.isArray(q.wrongAnswerMessages)
-              ? q.wrongAnswerMessages.filter((_, idx) => idx !== answerIdx)
+            const newMessages = Array.isArray(q.answerFeedbackMessages)
+              ? q.answerFeedbackMessages.filter((_, idx) => idx !== answerIdx)
               : [];
 
             let newCorrectAnswer = q.correctAnswer ?? 0;
@@ -745,7 +758,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
             return normalizeQuestion({
               ...q,
               answers: newAnswers,
-              wrongAnswerMessages: newMessages,
+              answerFeedbackMessages: newMessages,
               correctAnswer: newCorrectAnswer,
             });
           });
@@ -758,7 +771,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
             text: "",
             answers: ["", ""],
             correctAnswer: 0,
-            wrongAnswerMessages: ["", ""],
+            answerFeedbackMessages: ["", ""],
           });
           const updated = [...questions.map(normalizeQuestion), newQuestion];
           handleInputChange(key, updated);
@@ -857,7 +870,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
 
                   {question.answers.map((answer, aIdx) => {
                     const isCorrectOption = question.correctAnswer === aIdx;
-                    const feedbackValue = question.wrongAnswerMessages?.[aIdx] ?? "";
+                    const feedbackValue = question.answerFeedbackMessages?.[aIdx] ?? "";
 
                     return (
                       <div key={`answer-${aIdx}`} className="space-y-2">
@@ -889,29 +902,23 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                           )}
                         </div>
 
-                        {!isCorrectOption ? (
-                          <>
-                            <textarea
-                              value={feedbackValue}
-                              onChange={(e) =>
-                                updateQuestion(qIdx, "wrongAnswerMessage", e.target.value, aIdx)
-                              }
-                              className="ml-7 w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                              placeholder="Feedback shown when this answer is selected."
-                              rows={2}
-                            />
-                            {!feedbackToggleEnabled && hasFeedbackToggle && (
-                              <p className="ml-7 text-xs text-gray-400 italic">
-                                Turn on &quot;Add a message after a wrong answer&quot; to show this feedback to students.
-                              </p>
-                            )}
-                          </>
-                        ) : (
-                          feedbackToggleEnabled && hasFeedbackToggle && (
-                            <p className="ml-7 text-xs text-gray-400 italic">
-                              No feedback message is shown when the correct answer is chosen.
-                            </p>
-                          )
+                        <textarea
+                          value={feedbackValue}
+                          onChange={(e) =>
+                            updateQuestion(qIdx, "answerFeedback", e.target.value, aIdx)
+                          }
+                          className="ml-7 w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                          placeholder={
+                            isCorrectOption
+                              ? "Optional feedback shown after students select the correct answer."
+                              : "Optional feedback shown after students select this answer."
+                          }
+                          rows={2}
+                        />
+                        {!feedbackToggleEnabled && hasFeedbackToggle && (
+                          <p className="ml-7 text-xs text-gray-400 italic">
+                            Turn on &quot;Add a message after a wrong answer&quot; to display answer-specific feedback in the quiz.
+                          </p>
                         )}
                       </div>
                     );

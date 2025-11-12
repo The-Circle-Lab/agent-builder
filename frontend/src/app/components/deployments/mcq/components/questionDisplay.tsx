@@ -8,6 +8,7 @@ interface QuestionDisplayProps {
   totalQuestions: number;
   selectedAnswer: string | undefined;
   submittedAnswer: MCQAnswer | undefined;
+  pendingAnswer?: MCQAnswer;
   submitting: boolean;
   error: string | null;
   allQuestionsSubmitted: boolean;
@@ -21,6 +22,8 @@ interface QuestionDisplayProps {
   onRequestChat?: () => void;
   disablePrev?: boolean;
   disableNext?: boolean;
+  disabledAnswers?: string[];
+  allowRetryWrongAnswer?: boolean;
 }
 
 export default function QuestionDisplay({
@@ -29,6 +32,7 @@ export default function QuestionDisplay({
   totalQuestions,
   selectedAnswer,
   submittedAnswer,
+  pendingAnswer,
   submitting,
   error,
   allQuestionsSubmitted,
@@ -42,9 +46,15 @@ export default function QuestionDisplay({
   onRequestChat,
   disablePrev,
   disableNext,
+  disabledAnswers = [],
+  allowRetryWrongAnswer,
 }: QuestionDisplayProps) {
   const isSubmitted = !!submittedAnswer;
   const isCorrect = submittedAnswer?.is_correct ?? false;
+  const pendingRetryAnswer = !isSubmitted ? pendingAnswer : undefined;
+  const isRetryActive = Boolean(pendingRetryAnswer && allowRetryWrongAnswer && !pendingRetryAnswer.is_correct);
+  const normalizedFeedback = (feedbackMessage ?? '').trim();
+  const hasFeedbackMessage = normalizedFeedback.length > 0;
 
   return (
     <div className="bg-white rounded-lg shadow-sm border p-6">
@@ -60,38 +70,51 @@ export default function QuestionDisplay({
       <div className="space-y-3 mb-6">
         {question.answers.map((answer, answerIndex) => {
           const optionLetter = String.fromCharCode(65 + answerIndex); // A, B, C, D...
-          const isSelected = selectedAnswer === answer;
+          const isDisabledOption = disabledAnswers.includes(answer);
+          const isSelected = !isDisabledOption && selectedAnswer === answer;
           const isCorrectAnswer = revealCorrectAnswer && submittedAnswer?.correct_answer === answer;
           const isStudentAnswer = submittedAnswer?.selected_answer === answer;
 
-          let optionClass = 'bg-gray-50 border-gray-200 text-gray-700';
-          
+          if (answerIndex === 0) {
+            console.log('[QuestionDisplay Debug]', {
+              questionIndex,
+              selectedAnswer,
+              disabledAnswers,
+              answer,
+              isDisabledOption,
+              isSelected,
+            });
+          }
+
+          const baseOptionClass = 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100';
+          let optionClass = baseOptionClass;
+
           if (isSubmitted) {
             if (isCorrectAnswer) {
               optionClass = 'bg-green-50 border-green-300 text-green-800';
             } else if (isStudentAnswer && !isCorrect) {
               optionClass = 'bg-red-50 border-red-300 text-red-800';
             } else {
-              optionClass = 'bg-gray-50 border-gray-200 text-gray-500';
+              optionClass = 'bg-gray-50 border-gray-200 text-gray-700';
             }
+          } else if (isDisabledOption) {
+            optionClass = 'bg-gray-200 border-gray-300 text-gray-500';
           } else if (isSelected) {
             optionClass = 'bg-blue-50 border-blue-300 text-blue-800';
-          } else {
-            optionClass = 'bg-gray-50 border-gray-200 text-gray-700 hover:bg-gray-100';
           }
+
+          const cursorClass = isSubmitted || isDisabledOption ? 'cursor-not-allowed' : 'cursor-pointer';
 
           return (
             <button
               key={answerIndex}
               onClick={() => {
-                if (!isSubmitted) {
+                if (!isSubmitted && !isDisabledOption) {
                   onAnswerSelect(answer);
                 }
               }}
-              disabled={isSubmitted}
-              className={`w-full text-left p-4 border rounded-md transition-colors ${optionClass} ${
-                isSubmitted ? 'cursor-not-allowed' : 'cursor-pointer'
-              }`}
+              disabled={isSubmitted || isDisabledOption}
+              className={`w-full text-left p-4 border rounded-md transition-colors ${optionClass} ${cursorClass}`}
             >
               <div className="flex items-start space-x-3">
                 <span className="font-medium">{optionLetter}.</span>
@@ -127,9 +150,15 @@ export default function QuestionDisplay({
             </div>
           )}
 
-          {feedbackMessage && !submittedAnswer?.is_correct && (
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-800">
-              {feedbackMessage}
+          {hasFeedbackMessage && (
+            <div
+              className={`p-3 border rounded-md text-sm ${
+                isCorrect
+                  ? 'bg-green-50 border-green-200 text-green-800'
+                  : 'bg-blue-50 border-blue-200 text-blue-800'
+              }`}
+            >
+              {normalizedFeedback}
             </div>
           )}
 
@@ -140,6 +169,20 @@ export default function QuestionDisplay({
             >
               Ask the AI tutor for help
             </button>
+          )}
+        </div>
+      )}
+
+      {!isSubmitted && isRetryActive && !error && (
+        <div className="mb-4 space-y-2">
+          <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800">
+            That answer wasn’t correct. Give it another try with a different option.
+          </div>
+
+          {hasFeedbackMessage && (
+            <div className="p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-800">
+              {normalizedFeedback}
+            </div>
           )}
         </div>
       )}
