@@ -8,6 +8,7 @@ from services.deployment_types.code_executor import CodeDeployment
 from services.deployment_types.mcq import MCQDeployment
 from services.deployment_types.prompt import PromptDeployment
 from services.deployment_types.live_presentation import LivePresentationDeployment
+from services.deployment_types.video import VideoDeployment
 
 # Global cache for live presentation services to ensure single instance per deployment
 _LIVE_PRESENTATION_CACHE: Dict[str, "LivePresentationDeployment"] = {}
@@ -31,6 +32,7 @@ class AgentDeployment:
     _mcq_service: "MCQDeployment | None" = None
     _prompt_service: "PromptDeployment | None" = None
     _live_presentation_service: "LivePresentationDeployment | None" = None
+    _video_service: "VideoDeployment | None" = None
 
     def __init__(
         self,
@@ -61,19 +63,10 @@ class AgentDeployment:
                 self._services.append(AgentNode(self._code_service))
             case 'mcq':
                 self._deployment_type = DeploymentType.MCQ
-                name = config['1']["attachments"]["questions"][0]['config']['title']
-                description = config['1']["attachments"]["questions"][0]['config'].get('description', '')
-                questions = MCQDeployment.from_questions_json(config['1']['attachments']['questions'])
-                question_count = config['1']['config'].get('questionsGiven', -1)
-                randomize = config['1']['config'].get('randomizeQuestions', True)
-                self._mcq_service = MCQDeployment(
-                    name=name,
-                    description=description,
-                    questions=questions,
-                    question_count=question_count,
-                    randomize=randomize
-                )
+                mcq_node = config['1']
+                self._mcq_service = MCQDeployment.from_config(mcq_node)
                 self._services.append(AgentNode(self._mcq_service))
+                self._contains_chat = False
             case 'prompt':
                 self._deployment_type = DeploymentType.PROMPT
                 self._prompt_service = PromptDeployment.from_config(config)
@@ -89,6 +82,10 @@ class AgentDeployment:
                 
                 self._live_presentation_service = _LIVE_PRESENTATION_CACHE[deployment_id]
                 self._services.append(AgentNode(self._live_presentation_service))
+            case 'video':
+                self._deployment_type = DeploymentType.VIDEO
+                self._video_service = VideoDeployment.from_config(config, deployment_id)
+                self._contains_chat = False
             case _:
                 raise ValueError(f"Invalid deployment type: {config['1']['type']}")
         
@@ -112,7 +109,14 @@ class AgentDeployment:
         if (self._services.count == 0):
             if (self._deployment_type == DeploymentType.CHAT):
                 raise ValueError("No agents found in the workflow")
-        if (self._services.count == 1 and (self._deployment_type == DeploymentType.CODE or self._deployment_type == DeploymentType.PROMPT or self._deployment_type == DeploymentType.LIVE_PRESENTATION)):
+        if (
+            self._services.count == 1
+            and (
+                self._deployment_type == DeploymentType.CODE
+                or self._deployment_type == DeploymentType.PROMPT
+                or self._deployment_type == DeploymentType.LIVE_PRESENTATION
+            )
+        ):
             self._contains_chat = False
         print("contains chat: ", self._contains_chat)
 
@@ -198,6 +202,11 @@ class AgentDeployment:
         if self._deployment_type != DeploymentType.LIVE_PRESENTATION:
             return None
         return self._live_presentation_service
+
+    def get_video_service(self) -> Optional["VideoDeployment"]:
+        if self._deployment_type != DeploymentType.VIDEO:
+            return None
+        return self._video_service
     
     def set_database_session(self, db_session):
         """Set database session for persistence - used for page-based deployments"""

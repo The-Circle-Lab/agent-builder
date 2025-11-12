@@ -18,26 +18,55 @@ class PromptDeployment:
         self.group_data = group_data
         
         # Validate submission requirements (only if they exist)
+        allowed_media_types = ['textarea', 'hyperlink', 'pdf', 'list', 'dynamic_list', 'websiteInfo', 'multiple_choice']
+
         for i, req in enumerate(submission_requirements):
             if 'prompt' not in req or 'mediaType' not in req:
                 raise ValueError(f"Submission requirement {i} missing 'prompt' or 'mediaType'")
-            if req['mediaType'] not in ['textarea', 'hyperlink', 'pdf', 'list', 'dynamic_list', 'websiteInfo']:
+            media_type = req['mediaType']
+            if media_type not in allowed_media_types:
+                allowed = "', '".join(allowed_media_types)
                 raise ValueError(
-                    f"Invalid mediaType '{req['mediaType']}' in requirement {i}. Must be 'textarea', 'hyperlink', 'pdf', 'list', 'dynamic_list', or 'websiteInfo'"
+                    f"Invalid mediaType '{media_type}' in requirement {i}. Must be one of '{allowed}'"
                 )
             # Additional validation for list type
-            if req['mediaType'] == 'list':
+            if media_type == 'list':
                 items = req.get('items')
                 if items is None:
                     raise ValueError(f"List submission requirement {i} missing 'items' field")
                 if not isinstance(items, int) or items < 1:
                     raise ValueError(f"List submission requirement {i} has invalid 'items' value '{items}'. Must be integer >= 1")
             # Additional validation for websiteInfo type
-            if req['mediaType'] == 'websiteInfo':
+            if media_type == 'websiteInfo':
                 max_websites = req.get('max')
                 if max_websites is not None:
                     if not isinstance(max_websites, int) or max_websites < 1:
                         raise ValueError(f"WebsiteInfo submission requirement {i} has invalid 'max' value '{max_websites}'. Must be integer >= 1")
+            if media_type == 'multiple_choice':
+                options = req.get('options')
+                if not isinstance(options, list) or len(options) < 2:
+                    raise ValueError(
+                        f"Multiple choice submission requirement {i} must define at least two options"
+                    )
+                normalized_options: List[str] = []
+                for option in options:
+                    if not isinstance(option, str) or not option.strip():
+                        raise ValueError(
+                            f"Multiple choice submission requirement {i} has an invalid option '{option}'. Options must be non-empty strings"
+                        )
+                    normalized_options.append(option.strip())
+                # Remove duplicates while preserving order
+                seen = set()
+                deduped_options = []
+                for option in normalized_options:
+                    if option not in seen:
+                        seen.add(option)
+                        deduped_options.append(option)
+                if len(deduped_options) < 2:
+                    raise ValueError(
+                        f"Multiple choice submission requirement {i} must contain at least two unique options"
+                    )
+                req['options'] = deduped_options
 
     def get_main_question(self) -> str:
         """Get the main prompt question"""
@@ -243,6 +272,20 @@ class PromptDeployment:
                 
             except json.JSONDecodeError:
                 return {"valid": False, "error": "Website info must be valid JSON"}
+        elif media_type == 'multiple_choice':
+            options = requirement.get('options')
+            if not isinstance(options, list) or len(options) < 1:
+                return {
+                    "valid": False,
+                    "error": "Server configuration error: multiple choice options are not properly configured"
+                }
+            normalized_options = [str(option).strip() for option in options if str(option).strip()]
+            selected = response.strip()
+            if selected not in normalized_options:
+                return {
+                    "valid": False,
+                    "error": "Please select one of the available options"
+                }
         
         return {
             "valid": True,

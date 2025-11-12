@@ -54,10 +54,10 @@ export class MultipleChoiceNodeConfig extends BaseNodeConfig {
     },
     {
       key: "wrong_answer_message",
-      label: "Message shown after wrong answer",
+      label: "Default message shown after wrong answer",
       type: "textarea",
       defaultValue: "",
-      placeholder: "Enter the message to display after a wrong answer",
+      placeholder: "Optional fallback shown when a wrong answer has no specific feedback",
       rows: 3,
     }
   ] as const satisfies readonly PropertyDefinition[];

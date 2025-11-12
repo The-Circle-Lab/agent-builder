@@ -6,7 +6,8 @@ class DeploymentType(str, Enum):
     MCQ = "mcq"
     PROMPT = "prompt"
     PAGE = "page"
-    LIVE_PRESENTATION = "livePresentation" 
+    LIVE_PRESENTATION = "livePresentation"
+    VIDEO = "video"
 
 class ClassRole(str, Enum):
     STUDENT = "student"

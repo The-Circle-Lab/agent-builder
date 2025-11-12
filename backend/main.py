@@ -5,6 +5,7 @@ from database.database import init_db, shutdown_db
 from api.auth import router as auth_router, get_current_user
 from api.workflows import router as workflow_router
 from api.documents import router as document_router
+from api.videos import router as video_router
 from api.deployment_routes import router as deployment_router
 from api.classes import router as class_router
 from api.file_storage import router as file_storage_router
@@ -112,6 +113,7 @@ app.include_router(auth_router)
 app.include_router(class_router)
 app.include_router(workflow_router)
 app.include_router(document_router)
+app.include_router(video_router)
 app.include_router(deployment_router)
 app.include_router(file_storage_router)
 app.include_router(summary_router)
