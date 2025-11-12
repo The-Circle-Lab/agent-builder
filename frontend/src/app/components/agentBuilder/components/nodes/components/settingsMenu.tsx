@@ -902,7 +902,7 @@ function GenericSettingsForm({ properties, data, onSave, workflowId, nodes, edge
                             />
                             {!feedbackToggleEnabled && hasFeedbackToggle && (
                               <p className="ml-7 text-xs text-gray-400 italic">
-                                Turn on "Add a message after a wrong answer" to show this feedback to students.
+                                Turn on &quot;Add a message after a wrong answer&quot; to show this feedback to students.
                               </p>
                             )}
                           </>
