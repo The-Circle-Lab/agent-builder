@@ -96,8 +96,10 @@ async def get_deployment_pages(
     deployment_list = page_deployment.get_deployment_list()
     first_incomplete_mcq_page: Optional[int] = None
     first_incomplete_prompt_page: Optional[int] = None
+    first_incomplete_video_page: Optional[int] = None
     mcq_completion_cache: Dict[str, bool] = {}
     prompt_completion_cache: Dict[str, bool] = {}
+    video_completion_cache: Dict[str, bool] = {}
 
     def has_completed_mcq(agent_deployment_id: str) -> bool:
         """Determine if the current user has completed the MCQ for a given page deployment."""
@@ -153,6 +155,34 @@ async def get_deployment_pages(
 
         completed = bool(session and session.completed_at is not None)
         prompt_completion_cache[agent_deployment_id] = completed
+        return completed
+
+    def has_completed_video(agent_deployment_id: str) -> bool:
+        """Determine if the current user has completed the video for a given page deployment."""
+        if agent_deployment_id in video_completion_cache:
+            return video_completion_cache[agent_deployment_id]
+
+        db_page_deployment = db.exec(
+            select(Deployment).where(
+                Deployment.deployment_id == agent_deployment_id,
+                Deployment.is_active == True,
+            )
+        ).first()
+
+        if not db_page_deployment:
+            video_completion_cache[agent_deployment_id] = False
+            return False
+
+        session = db.exec(
+            select(VideoSession).where(
+                VideoSession.user_id == current_user.id,
+                VideoSession.deployment_id == db_page_deployment.id,
+                VideoSession.is_active == True,
+            )
+        ).first()
+
+        completed = bool(session and session.completed_at is not None)
+        video_completion_cache[agent_deployment_id] = completed
         return completed
     
     # Build page information
@@ -211,6 +241,16 @@ async def get_deployment_pages(
                 f"Complete the prompt on Page {first_incomplete_prompt_page} before continuing."
             )
 
+        if (
+            first_incomplete_video_page is not None
+            and page_number > first_incomplete_video_page
+            and is_accessible
+        ):
+            is_accessible = False
+            accessibility_reason = (
+                f"Watch the video on Page {first_incomplete_video_page} before continuing."
+            )
+
         pages.append(PageInfo(
             page_number=page_number,
             deployment_id=page_deploy.deployment_id,
@@ -239,6 +279,13 @@ async def get_deployment_pages(
 
             if not is_question_only and not has_completed_prompt(page_deploy.deployment_id):
                 first_incomplete_prompt_page = page_number
+
+        if (
+            first_incomplete_video_page is None
+            and deployment_type_enum == DeploymentType.VIDEO
+            and not has_completed_video(page_deploy.deployment_id)
+        ):
+            first_incomplete_video_page = page_number
     
     return PageListResponse(
         main_deployment_id=deployment_id,

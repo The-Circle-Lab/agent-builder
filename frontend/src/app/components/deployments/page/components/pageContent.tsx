@@ -17,9 +17,12 @@ interface PageContentProps {
   error: string | null;
   onPageComplete?: () => void; // Add callback for when a page is completed
   onRefreshPages?: () => Promise<void>;
+  totalPages?: number;
+  onNavigatePage?: (pageNumber: number) => void;
+  isPageAccessible?: (pageNumber: number) => boolean;
 }
 
-export default function PageContent({ pageInfo, deploymentName, loading, error, onPageComplete, onRefreshPages }: PageContentProps) {
+export default function PageContent({ pageInfo, deploymentName, loading, error, onPageComplete, onRefreshPages, totalPages, onNavigatePage, isPageAccessible }: PageContentProps) {
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [userLoading, setUserLoading] = useState(true);
 
@@ -115,6 +118,31 @@ export default function PageContent({ pageInfo, deploymentName, loading, error, 
     );
   }
 
+  const promptNavigation = (() => {
+    if (!pageInfo || !totalPages || !onNavigatePage || !isPageAccessible) {
+      return undefined;
+    }
+
+    const currentPage = pageInfo.page_number;
+    const previousPageNumber = currentPage - 1;
+    const nextPageNumber = currentPage + 1;
+    const isLastPage = totalPages > 0 && currentPage === totalPages;
+
+    const hasPrevious = previousPageNumber >= 1 && isPageAccessible(previousPageNumber);
+    const hasNext = !isLastPage && nextPageNumber <= totalPages && isPageAccessible(nextPageNumber);
+
+    return {
+      currentPage,
+      totalPages,
+      showPrevious: hasPrevious,
+      showNext: hasNext,
+      onPrevious: hasPrevious ? () => onNavigatePage(previousPageNumber) : undefined,
+      onNext: hasNext ? () => onNavigatePage(nextPageNumber) : undefined,
+      isLastPage,
+      onBackToMenu: onPageComplete,
+    };
+  })();
+
   // Render the appropriate interface based on deployment type
   const renderInterface = () => {
     const pageDeploymentName = `${deploymentName} - Page ${pageInfo.page_number}`;
@@ -155,6 +183,7 @@ export default function PageContent({ pageInfo, deploymentName, loading, error, 
             deploymentName={pageDeploymentName}
             onClose={onPageComplete || (() => {})} // Use onPageComplete for navigation
             onSessionCompleted={onRefreshPages}
+            pageNavigation={promptNavigation}
           />
         );
 
@@ -163,6 +192,7 @@ export default function PageContent({ pageInfo, deploymentName, loading, error, 
           <VideoInterface
             deploymentId={pageInfo.deployment_id}
             deploymentName={pageDeploymentName}
+            onSessionCompleted={onRefreshPages}
           />
         );
       }

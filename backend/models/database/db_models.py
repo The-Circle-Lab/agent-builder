@@ -7,6 +7,7 @@ from .code_models import Problem, TestCase, UserProblemState, Submission
 from .chat_models import ChatConversation, ChatMessage
 from .mcq_models import MCQSession, MCQAnswer
 from .prompt_models import PromptSession, PromptSubmission
+from .video_models import VideoSession
 from .grading_models import StudentDeploymentGrade
 from .page_models import PageDeploymentState, PageDeploymentVariable, BehaviorExecutionHistory
 from .grouping_models import GroupAssignment, Group, GroupMember
@@ -43,6 +44,7 @@ __all__ = [
     "MCQAnswer",
     "PromptSession",
     "PromptSubmission",
+    "VideoSession",
     "PageDeploymentState",
     "PageDeploymentVariable",
     "BehaviorExecutionHistory",

@@ -19,6 +19,7 @@ from models.database.live_presentation_models import (
     LivePresentationSession, LivePresentationStudentConnection, 
     LivePresentationResponse, LivePresentationPrompt
 )
+from models.database.video_models import VideoSession
 from contextlib import asynccontextmanager
 import logging
 from datetime import datetime

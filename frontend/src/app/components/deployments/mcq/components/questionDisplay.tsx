@@ -39,7 +39,7 @@ export default function QuestionDisplay({
   onAnswerSelect,
   onSubmitAnswer,
   onNavigate,
-  onClose,
+  onClose: _onClose,
   revealCorrectAnswer,
   feedbackMessage,
   showChatPrompt,
@@ -49,6 +49,8 @@ export default function QuestionDisplay({
   disabledAnswers = [],
   allowRetryWrongAnswer,
 }: QuestionDisplayProps) {
+  // ensure we mark this prop as used in case the parent passes it for other contexts
+  void _onClose;
   const isSubmitted = !!submittedAnswer;
   const isCorrect = submittedAnswer?.is_correct ?? false;
   const pendingRetryAnswer = !isSubmitted ? pendingAnswer : undefined;
@@ -162,10 +164,10 @@ export default function QuestionDisplay({
             </div>
           )}
 
-          {showChatPrompt && !submittedAnswer?.is_correct && onRequestChat && (
+          {showChatPrompt && onRequestChat && (
             <button
               onClick={onRequestChat}
-              className="inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+              className="lg:hidden inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
             >
               Ask the AI tutor for help
             </button>
@@ -176,13 +178,22 @@ export default function QuestionDisplay({
       {!isSubmitted && isRetryActive && !error && (
         <div className="mb-4 space-y-2">
           <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-md text-sm text-yellow-800">
-            That answer wasn’t correct. Give it another try with a different option.
+            That answer wasn&apos;t correct. Give it another try with a different option.
           </div>
 
           {hasFeedbackMessage && (
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-md text-sm text-blue-800">
+            <div className="p-3 bg-blue-50 border-blue-200 rounded-md text-sm text-blue-800">
               {normalizedFeedback}
             </div>
+          )}
+
+          {showChatPrompt && onRequestChat && (
+            <button
+              onClick={onRequestChat}
+              className="lg:hidden inline-flex items-center px-3 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-indigo-600 hover:bg-indigo-700"
+            >
+              Ask the AI tutor for help
+            </button>
           )}
         </div>
       )}
@@ -222,14 +233,7 @@ export default function QuestionDisplay({
             Previous
           </button>
           
-          {allQuestionsSubmitted ? (
-            <button
-              onClick={onClose}
-              className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700"
-            >
-              Return to Class
-            </button>
-          ) : (
+          {!allQuestionsSubmitted ? (
             <button
               onClick={() => onNavigate('next')}
               disabled={disableNext || questionIndex === totalQuestions - 1}
@@ -237,7 +241,7 @@ export default function QuestionDisplay({
             >
               Next
             </button>
-          )}
+          ) : (<></>)}
         </div>
       )}
     </div>

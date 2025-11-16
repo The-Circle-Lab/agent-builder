@@ -11,11 +11,23 @@ import {
 } from './components';
 import { UsersIcon, InformationCircleIcon } from '@heroicons/react/24/outline';
 
+interface PromptPageNavigationProps {
+  currentPage: number;
+  totalPages: number;
+  showPrevious: boolean;
+  showNext: boolean;
+  onPrevious?: () => void;
+  onNext?: () => void;
+  isLastPage: boolean;
+  onBackToMenu?: () => void;
+}
+
 interface PromptInterfaceProps {
   deploymentId: string;
   deploymentName: string;
   onClose: () => void;
   onSessionCompleted?: () => void;
+  pageNavigation?: PromptPageNavigationProps;
 }
 
 // Group Info Display Component
@@ -67,7 +79,10 @@ function GroupInfoDisplay({ groupInfo }: GroupInfoDisplayProps) {
   );
 }
 
-export default function PromptInterface({ deploymentId, deploymentName, onClose, onSessionCompleted }: PromptInterfaceProps) {
+
+export default function PromptInterface({ deploymentId, deploymentName, onClose, onSessionCompleted, pageNavigation: _pageNavigation }: PromptInterfaceProps) {
+  // Keep reference to optional pageNavigation prop so callers can pass it, but we don't use it here
+  void _pageNavigation;
   const [session, setSession] = useState<PromptSession | null>(null);
   const [currentSubmissionIndex, setCurrentSubmissionIndex] = useState(0);
   const [submissionResponses, setSubmissionResponses] = useState<Record<number, string>>({});

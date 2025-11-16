@@ -1,7 +1,9 @@
 from typing import Optional
+import datetime as dt
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlmodel import select
 
 from .deployment_shared import (
     DeploymentType,
@@ -14,7 +16,7 @@ from .deployment_shared import (
     get_session,
     validate_deployment_type,
 )
-from models.database.db_models import Video
+from models.database.db_models import Video, VideoSession
 
 router = APIRouter()
 
@@ -37,6 +39,15 @@ class VideoDeploymentResponse(BaseModel):
     deployment_id: str
     video: Optional[VideoAssetResponse] = None
     message: Optional[str] = None
+
+
+class VideoSessionResponse(BaseModel):
+    session_id: int
+    deployment_id: str
+    video_id: str
+    started_at: dt.datetime
+    completed_at: Optional[dt.datetime] = None
+    is_completed: bool
 
 
 def _build_asset_from_db(video: Video) -> VideoAssetResponse:
@@ -186,4 +197,194 @@ async def get_video_deployment_details(
     return VideoDeploymentResponse(
         deployment_id=deployment_id,
         message="Selected video is no longer available",
+    )
+
+
+@router.post("/{deployment_id}/video/session", response_model=VideoSessionResponse)
+async def start_video_session(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    """Start or retrieve a video viewing session for the current user."""
+    
+    db_deployment = await get_deployment_and_check_access(
+        deployment_id, current_user, db
+    )
+    
+    try:
+        validate_deployment_type(db_deployment, DeploymentType.VIDEO)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_400_BAD_REQUEST:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Deployment is not a video deployment",
+            ) from exc
+        raise
+    
+    # Check if session already exists
+    existing_session = db.exec(
+        select(VideoSession).where(
+            VideoSession.user_id == current_user.id,
+            VideoSession.deployment_id == db_deployment.id,
+            VideoSession.is_active == True,
+        )
+    ).first()
+    
+    if existing_session:
+        return VideoSessionResponse(
+            session_id=existing_session.id,
+            deployment_id=deployment_id,
+            video_id=existing_session.video_id,
+            started_at=existing_session.started_at,
+            completed_at=existing_session.completed_at,
+            is_completed=existing_session.completed_at is not None,
+        )
+    
+    # Get video ID from deployment
+    deployment_info = await ensure_deployment_loaded(
+        deployment_id, current_user.id, db
+    )
+    
+    agent_deployment = deployment_info.get("mcp_deployment")
+    if not isinstance(agent_deployment, AgentDeployment):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Video deployment is not loaded in memory",
+        )
+    
+    video_service = agent_deployment.get_video_service()
+    if not video_service:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No video configuration found for this deployment",
+        )
+    
+    selected_id = video_service.get_selected_video_id()
+    if not selected_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No video has been selected for this deployment",
+        )
+    
+    # Create new session
+    new_session = VideoSession(
+        user_id=current_user.id,
+        deployment_id=db_deployment.id,
+        video_id=str(selected_id),
+        started_at=dt.datetime.now(dt.timezone.utc),
+    )
+    
+    db.add(new_session)
+    db.commit()
+    db.refresh(new_session)
+    
+    return VideoSessionResponse(
+        session_id=new_session.id,
+        deployment_id=deployment_id,
+        video_id=new_session.video_id,
+        started_at=new_session.started_at,
+        completed_at=new_session.completed_at,
+        is_completed=False,
+    )
+
+
+@router.post("/{deployment_id}/video/complete", response_model=VideoSessionResponse)
+async def complete_video_session(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    """Mark the video viewing session as completed."""
+    
+    db_deployment = await get_deployment_and_check_access(
+        deployment_id, current_user, db
+    )
+    
+    try:
+        validate_deployment_type(db_deployment, DeploymentType.VIDEO)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_400_BAD_REQUEST:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Deployment is not a video deployment",
+            ) from exc
+        raise
+    
+    # Find active session
+    session = db.exec(
+        select(VideoSession).where(
+            VideoSession.user_id == current_user.id,
+            VideoSession.deployment_id == db_deployment.id,
+            VideoSession.is_active == True,
+        )
+    ).first()
+    
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No active video session found for this deployment",
+        )
+    
+    # Mark as completed if not already
+    if not session.completed_at:
+        session.completed_at = dt.datetime.now(dt.timezone.utc)
+        db.add(session)
+        db.commit()
+        db.refresh(session)
+    
+    return VideoSessionResponse(
+        session_id=session.id,
+        deployment_id=deployment_id,
+        video_id=session.video_id,
+        started_at=session.started_at,
+        completed_at=session.completed_at,
+        is_completed=True,
+    )
+
+
+@router.get("/{deployment_id}/video/session", response_model=VideoSessionResponse)
+async def get_video_session_status(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    """Get the current user's video session status."""
+    
+    db_deployment = await get_deployment_and_check_access(
+        deployment_id, current_user, db
+    )
+    
+    try:
+        validate_deployment_type(db_deployment, DeploymentType.VIDEO)
+    except HTTPException as exc:
+        if exc.status_code == status.HTTP_400_BAD_REQUEST:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Deployment is not a video deployment",
+            ) from exc
+        raise
+    
+    # Find active session
+    session = db.exec(
+        select(VideoSession).where(
+            VideoSession.user_id == current_user.id,
+            VideoSession.deployment_id == db_deployment.id,
+            VideoSession.is_active == True,
+        )
+    ).first()
+    
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No video session found for this deployment",
+        )
+    
+    return VideoSessionResponse(
+        session_id=session.id,
+        deployment_id=deployment_id,
+        video_id=session.video_id,
+        started_at=session.started_at,
+        completed_at=session.completed_at,
+        is_completed=session.completed_at is not None,
     )

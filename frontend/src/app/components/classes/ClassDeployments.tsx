@@ -738,11 +738,6 @@ export default function ClassDeployments({
                         {deployment.workflow_name}
                       </h3>
                       <div className="flex items-center space-x-2">
-                        {deployment.is_loaded && (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
-                            Active
-                          </span>
-                        )}
                         {!isOpen && (
                           <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800">
                             Closed
@@ -765,7 +760,6 @@ export default function ClassDeployments({
                         {isPageBasedDeployment(deployment, deploymentType) && (
                           <>
                             <p>Pages: {getPageCount(deployment)}</p>
-                            <p>Type: Multi-Page Workflow</p>
                           </>
                         )}
                         {/* Due date (bold) if present */}
