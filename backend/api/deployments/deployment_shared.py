@@ -11,7 +11,7 @@ from models.database.db_models import (
     AuthSession, ClassRole, DeploymentType, MCQSession, MCQAnswer,
     Problem, TestCase, Submission, SubmissionStatus, UserProblemState,
     DeploymentProblemLink, StudentDeploymentGrade, ClassMembership,
-    PromptSession, PromptSubmission
+    PromptSession, PromptSubmission, VideoSession
 )
 from database.database import get_session, engine
 from api.auth import get_current_user
@@ -57,7 +57,7 @@ __all__ = [
     "AuthSession", "ClassRole", "DeploymentType", "MCQSession", "MCQAnswer",
     "Problem", "TestCase", "Submission", "SubmissionStatus", "UserProblemState",
     "DeploymentProblemLink", "StudentDeploymentGrade", "ClassMembership",
-    "PromptSession", "PromptSubmission",
+    "PromptSession", "PromptSubmission", "VideoSession",
     
     # Request/Response models
     "DeploymentRequest", "DeploymentRenameRequest", "DeploymentUpdateConfigRequest", "DeploymentResponse", "ChatRequest", "ChatResponse",

@@ -168,6 +168,15 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose, on
           };
         });
 
+        // Auto-open chat for wrong answer if enabled (desktop only)
+        if (session.add_chatbot_after_wrong_answer && window.innerWidth >= 1024) {
+          setChatQuestionIndex(questionIndex);
+          setChatMessages([{ role: 'assistant', content: 'It looks like you need some help! Feel free to ask me any question on the content!' }]);
+          setChatError(null);
+          setChatLoading(false);
+          setChatOpen(true);
+        }
+
         return;
       }
 
@@ -189,6 +198,15 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose, on
         [questionIndex]: answerData,
       };
       setSubmittedAnswers(updatedSubmittedAnswers);
+
+      // Auto-open chat for wrong answer if enabled (desktop only)
+      if (!answerData.is_correct && session.add_chatbot_after_wrong_answer && window.innerWidth >= 1024) {
+        setChatQuestionIndex(questionIndex);
+        setChatMessages([{ role: 'assistant', content: 'It looks like you need some help! Feel free to ask me any question on the content!' }]);
+        setChatError(null);
+        setChatLoading(false);
+        setChatOpen(true);
+      }
 
       if (answerData.is_session_completed) {
         const refreshedSession = await MCQDeploymentAPI.getSession(deploymentId);
@@ -317,8 +335,12 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose, on
   };
 
   const openChatForQuestion = (questionIndex: number) => {
+    if (chatOpen && chatQuestionIndex === questionIndex) {
+      // If chat is already open for this question, just focus it (no action needed)
+      return;
+    }
     setChatQuestionIndex(questionIndex);
-    setChatMessages([]);
+    setChatMessages([{ role: 'assistant', content: 'It looks like you need some help! Feel free to ask me any question on the content!' }]);
     setChatError(null);
     setChatLoading(false);
     setChatOpen(true);
@@ -376,8 +398,8 @@ export default function MCQInterface({ deploymentId, deploymentName, onClose, on
     : fallbackFeedback;
   const showChatPrompt = Boolean(
     session.add_chatbot_after_wrong_answer &&
-    submittedAnswerForQuestion &&
-    !submittedAnswerForQuestion.is_correct
+    activeAnswerContext &&
+    !activeAnswerContext.is_correct
   );
   const chatQuestion =
     chatQuestionIndex !== null

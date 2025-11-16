@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState, useRef } from "react";
 import {
   VideoDeploymentAPI,
   VideoAssetDetails,
+  VideoSession,
 } from "@/lib/deploymentAPIs/videoDeploymentAPI";
 import { VideoAPI } from "@/lib/videoAPI";
 import { getApiConfig } from "@/lib/config";
@@ -11,6 +12,7 @@ import { getApiConfig } from "@/lib/config";
 interface VideoInterfaceProps {
   deploymentId: string;
   deploymentName: string;
+  onSessionCompleted?: () => void | Promise<void>;
 }
 
 const useApiBaseUrl = (): string => {
@@ -32,12 +34,16 @@ const ensureAbsoluteUrl = (baseUrl: string, url?: string | null): string | null 
 export default function VideoInterface({
   deploymentId,
   deploymentName,
+  onSessionCompleted,
 }: VideoInterfaceProps) {
   const [video, setVideo] = useState<VideoAssetDetails | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [session, setSession] = useState<VideoSession | null>(null);
   const baseUrl = useApiBaseUrl();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const completionNotifiedRef = useRef(false);
 
   const loadVideo = useCallback(async () => {
     try {
@@ -51,6 +57,23 @@ export default function VideoInterface({
       if (!response.video && !response.message) {
         setMessage("No video has been configured for this deployment yet.");
       }
+
+      // Start or get existing session
+      try {
+        const sessionData = await VideoDeploymentAPI.startSession(deploymentId);
+        setSession(sessionData);
+        
+        // If already completed, notify immediately
+        if (sessionData.is_completed && !completionNotifiedRef.current) {
+          completionNotifiedRef.current = true;
+          if (onSessionCompleted) {
+            await onSessionCompleted();
+          }
+        }
+      } catch (sessionErr) {
+        console.error("Failed to initialize video session:", sessionErr);
+        // Don't block video loading if session fails
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : "Failed to load video.";
       setError(errorMessage);
@@ -59,11 +82,31 @@ export default function VideoInterface({
     } finally {
       setLoading(false);
     }
-  }, [deploymentId]);
+  }, [deploymentId, onSessionCompleted]);
 
   useEffect(() => {
     loadVideo();
   }, [loadVideo]);
+
+  const handleVideoEnded = useCallback(async () => {
+    if (!session || session.is_completed || completionNotifiedRef.current) {
+      return;
+    }
+
+    try {
+      const updatedSession = await VideoDeploymentAPI.completeSession(deploymentId);
+      setSession(updatedSession);
+      
+      if (updatedSession.is_completed && !completionNotifiedRef.current) {
+        completionNotifiedRef.current = true;
+        if (onSessionCompleted) {
+          await onSessionCompleted();
+        }
+      }
+    } catch (err) {
+      console.error("Failed to mark video as completed:", err);
+    }
+  }, [deploymentId, session, onSessionCompleted]);
 
   const resolvedStreamUrl = useMemo(() => {
     if (!video) return null;
@@ -158,11 +201,13 @@ export default function VideoInterface({
           <div className="bg-gray-900">
             {resolvedStreamUrl ? (
               <video
+                ref={videoRef}
                 key={resolvedStreamUrl}
                 controls
                 playsInline
                 className="w-full h-auto max-h-[70vh] bg-black"
                 src={resolvedStreamUrl}
+                onEnded={handleVideoEnded}
               >
                 Your browser does not support the video tag.
               </video>
