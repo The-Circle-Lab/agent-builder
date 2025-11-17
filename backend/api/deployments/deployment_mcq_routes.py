@@ -78,6 +78,20 @@ class MCQChatResponse(BaseModel):
     sources: Optional[List[str]] = None
 
 
+class MCQChatHistoryMessage(BaseModel):
+    id: int
+    message_text: str
+    is_user_message: bool
+    sources: Optional[List[str]] = None
+    created_at: datetime
+
+
+class MCQChatHistoryResponse(BaseModel):
+    conversation_id: Optional[int] = None
+    messages: List[MCQChatHistoryMessage] = []
+    has_conversation: bool = False
+
+
 def _serialize_question(mcq_service: "MCQDeployment", question_index: int) -> Dict[str, Any]:
     return {
         "index": question_index,
@@ -467,6 +481,43 @@ async def mcq_chat_after_wrong_answer(
             detail="The quiz has been updated. Restart the quiz before using the tutor chat.",
         )
 
+    # Get or create chat conversation for this session
+    chat_conversation = db.exec(
+        select(MCQChatConversation).where(
+            MCQChatConversation.session_id == session.id,
+            MCQChatConversation.user_id == current_user.id,
+        )
+    ).first()
+
+    if not chat_conversation:
+        chat_conversation = MCQChatConversation(
+            session_id=session.id,
+            user_id=current_user.id,
+            deployment_id=db_deployment.id,
+        )
+        db.add(chat_conversation)
+        db.commit()
+        db.refresh(chat_conversation)
+
+    # Load conversation history from database if not provided
+    history_to_use = request.history
+    if not history_to_use:
+        # Load from database
+        stored_messages = db.exec(
+            select(MCQChatMessage)
+            .where(MCQChatMessage.conversation_id == chat_conversation.id)
+            .order_by(MCQChatMessage.created_at.asc())
+        ).all()
+        
+        # Convert to history format [[user_msg, ai_msg], ...]
+        history_to_use = []
+        for i in range(0, len(stored_messages), 2):
+            if i + 1 < len(stored_messages):
+                user_msg = stored_messages[i]
+                ai_msg = stored_messages[i + 1]
+                if user_msg.is_user_message and not ai_msg.is_user_message:
+                    history_to_use.append([user_msg.message_text, ai_msg.message_text])
+
     incorrect_answers = [answer for answer in submitted_answers if not answer.is_correct]
 
     context_lines: List[str] = []
@@ -487,7 +538,7 @@ async def mcq_chat_after_wrong_answer(
     try:
         result = await mcq_service.run_chat(
             message=request.message,
-            history=request.history,
+            history=history_to_use,
             user_id=current_user.id,
             context=context_block,
         )
@@ -497,10 +548,144 @@ async def mcq_chat_after_wrong_answer(
             detail=f"Failed to generate remediation response: {exc}",
         ) from exc
 
-    return MCQChatResponse(
-        response=result.get("response", ""),
-        sources=result.get("sources"),
+    # Store the new messages in the database
+    user_message = MCQChatMessage(
+        conversation_id=chat_conversation.id,
+        message_text=request.message,
+        is_user_message=True,
     )
+    db.add(user_message)
+
+    ai_response = result.get("response", "")
+    ai_sources = result.get("sources")
+    
+    assistant_message = MCQChatMessage(
+        conversation_id=chat_conversation.id,
+        message_text=ai_response,
+        is_user_message=False,
+        sources=ai_sources,
+    )
+    db.add(assistant_message)
+
+    # Update conversation timestamp
+    chat_conversation.updated_at = datetime.now(timezone.utc)
+    db.add(chat_conversation)
+    
+    db.commit()
+
+    return MCQChatResponse(
+        response=ai_response,
+        sources=ai_sources,
+    )
+
+
+@router.get("/{deployment_id}/mcq/chat/history", response_model=MCQChatHistoryResponse)
+async def get_mcq_chat_history(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    """Retrieve the chat conversation history for the current user's MCQ session."""
+    db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db)
+    validate_deployment_type(db_deployment, DeploymentType.MCQ)
+    
+    # Get the user's MCQ session
+    session = db.exec(
+        select(MCQSession).where(
+            MCQSession.user_id == current_user.id,
+            MCQSession.deployment_id == db_deployment.id,
+            MCQSession.is_active == True,
+        )
+    ).first()
+
+    if not session:
+        # No session yet, return empty history
+        return MCQChatHistoryResponse(
+            conversation_id=None,
+            messages=[],
+            has_conversation=False,
+        )
+
+    # Get chat conversation for this session
+    chat_conversation = db.exec(
+        select(MCQChatConversation).where(
+            MCQChatConversation.session_id == session.id,
+            MCQChatConversation.user_id == current_user.id,
+        )
+    ).first()
+
+    if not chat_conversation:
+        # No chat conversation yet
+        return MCQChatHistoryResponse(
+            conversation_id=None,
+            messages=[],
+            has_conversation=False,
+        )
+
+    # Load all messages from the conversation
+    stored_messages = db.exec(
+        select(MCQChatMessage)
+        .where(MCQChatMessage.conversation_id == chat_conversation.id)
+        .order_by(MCQChatMessage.created_at.asc())
+    ).all()
+
+    message_list = [
+        MCQChatHistoryMessage(
+            id=msg.id,
+            message_text=msg.message_text,
+            is_user_message=msg.is_user_message,
+            sources=msg.sources,
+            created_at=msg.created_at,
+        )
+        for msg in stored_messages
+    ]
+
+    return MCQChatHistoryResponse(
+        conversation_id=chat_conversation.id,
+        messages=message_list,
+        has_conversation=True,
+    )
+
+
+@router.delete("/{deployment_id}/mcq/chat/history")
+async def clear_mcq_chat_history(
+    deployment_id: str,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session),
+):
+    """Clear the chat conversation history for the current user's MCQ session."""
+    db_deployment = await get_deployment_and_check_access(deployment_id, current_user, db)
+    validate_deployment_type(db_deployment, DeploymentType.MCQ)
+    
+    # Get the user's MCQ session
+    session = db.exec(
+        select(MCQSession).where(
+            MCQSession.user_id == current_user.id,
+            MCQSession.deployment_id == db_deployment.id,
+            MCQSession.is_active == True,
+        )
+    ).first()
+
+    if not session:
+        return {"message": "No session found"}
+
+    # Get chat conversation for this session
+    chat_conversation = db.exec(
+        select(MCQChatConversation).where(
+            MCQChatConversation.session_id == session.id,
+            MCQChatConversation.user_id == current_user.id,
+        )
+    ).first()
+
+    if not chat_conversation:
+        return {"message": "No chat history found"}
+
+    # Delete the conversation (cascade will delete messages)
+    db.delete(chat_conversation)
+    db.commit()
+
+    return {"message": "Chat history cleared successfully"}
+
 
 # Get student's session status and results
 @router.get("/{deployment_id}/mcq/session", response_model=MCQSessionResponse)

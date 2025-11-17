@@ -5,7 +5,7 @@ from .workflow_models import Workflow, Document, Video
 from .deployment_models import Deployment, DeploymentProblemLink
 from .code_models import Problem, TestCase, UserProblemState, Submission
 from .chat_models import ChatConversation, ChatMessage
-from .mcq_models import MCQSession, MCQAnswer
+from .mcq_models import MCQSession, MCQAnswer, MCQChatConversation, MCQChatMessage
 from .prompt_models import PromptSession, PromptSubmission
 from .video_models import VideoSession
 from .grading_models import StudentDeploymentGrade
@@ -43,6 +43,8 @@ __all__ = [
     "StudentDeploymentGrade",
     "MCQSession",
     "MCQAnswer",
+    "MCQChatConversation",
+    "MCQChatMessage",
     "PromptSession",
     "PromptSubmission",
     "VideoSession",

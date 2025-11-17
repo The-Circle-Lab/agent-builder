@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from models.database.db_models import (
     User, Document, Workflow, ChatConversation, ChatMessage, Deployment, 
     AuthSession, ClassRole, DeploymentType, MCQSession, MCQAnswer,
+    MCQChatConversation, MCQChatMessage,
     Problem, TestCase, Submission, SubmissionStatus, UserProblemState,
     DeploymentProblemLink, StudentDeploymentGrade, ClassMembership,
     PromptSession, PromptSubmission, VideoSession
@@ -55,6 +56,7 @@ __all__ = [
     # Models
     "User", "Document", "Workflow", "ChatConversation", "ChatMessage", "Deployment",
     "AuthSession", "ClassRole", "DeploymentType", "MCQSession", "MCQAnswer",
+    "MCQChatConversation", "MCQChatMessage",
     "Problem", "TestCase", "Submission", "SubmissionStatus", "UserProblemState",
     "DeploymentProblemLink", "StudentDeploymentGrade", "ClassMembership",
     "PromptSession", "PromptSubmission", "VideoSession",
