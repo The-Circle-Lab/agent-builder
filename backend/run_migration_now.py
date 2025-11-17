@@ -161,6 +161,73 @@ def run_migration_now():
                 print(f"❌ navigation_state migration failed: {e}")
                 session.rollback()
 
+    # Migration 5: Add MCQ chat tables
+    with Session(engine) as session:
+        try:
+            print("🔧 Adding MCQ chat tables (mcqchatconversation and mcqchatmessage)...")
+            
+            # Check if MCQChatConversation table exists
+            result = session.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='mcqchatconversation'"
+            ))
+            mcq_chat_conversation_exists = result.fetchone() is not None
+
+            # Check if MCQChatMessage table exists
+            result = session.execute(text(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='mcqchatmessage'"
+            ))
+            mcq_chat_message_exists = result.fetchone() is not None
+
+            if mcq_chat_conversation_exists and mcq_chat_message_exists:
+                print("ℹ️  MCQ chat tables already exist")
+            else:
+                # Create MCQChatConversation table
+                if not mcq_chat_conversation_exists:
+                    print("➕ Creating mcqchatconversation table...")
+                    session.execute(text("""
+                        CREATE TABLE mcqchatconversation (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            session_id INTEGER NOT NULL,
+                            user_id INTEGER NOT NULL,
+                            deployment_id INTEGER NOT NULL,
+                            created_at TIMESTAMP NOT NULL,
+                            updated_at TIMESTAMP NOT NULL,
+                            FOREIGN KEY (session_id) REFERENCES mcqsession (id),
+                            FOREIGN KEY (user_id) REFERENCES user (id),
+                            FOREIGN KEY (deployment_id) REFERENCES deployment (id),
+                            CONSTRAINT unique_mcq_chat_conversation UNIQUE (session_id, user_id)
+                        )
+                    """))
+                    print("✅ Created mcqchatconversation table")
+                else:
+                    print("ℹ️  mcqchatconversation table already exists")
+
+                # Create MCQChatMessage table
+                if not mcq_chat_message_exists:
+                    print("➕ Creating mcqchatmessage table...")
+                    session.execute(text("""
+                        CREATE TABLE mcqchatmessage (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            conversation_id INTEGER NOT NULL,
+                            message_text TEXT NOT NULL,
+                            is_user_message BOOLEAN NOT NULL,
+                            sources JSON,
+                            created_at TIMESTAMP NOT NULL,
+                            FOREIGN KEY (conversation_id) REFERENCES mcqchatconversation (id)
+                        )
+                    """))
+                    print("✅ Created mcqchatmessage table")
+                else:
+                    print("ℹ️  mcqchatmessage table already exists")
+
+            session.commit()
+            print("✅ MCQ chat migration completed successfully!")
+        except Exception as e:
+            if 'already exists' in str(e).lower() or 'duplicate' in str(e).lower():
+                print("✅ MCQ chat tables already exist - no action needed")
+            else:
+                print(f"❌ MCQ chat migration failed: {e}")
+                session.rollback()
+
 if __name__ == "__main__":
     run_migration_now()
-
