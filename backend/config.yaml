@@ -11,7 +11,7 @@ server:
   port: 8000
   cors:
     origins: 
-      - "http://localhost:3000"
+      - "https://score.encorelab.org"
     allow_credentials: true
     allow_methods: ["*"]
     allow_headers: ["*"]
