@@ -35,3 +35,14 @@ class ClassMembership(SQLModel, table=True):
     __table_args__ = (
         UniqueConstraint("class_id", "user_id", name="unique_class_user"),
     ) 
+
+
+class AutoEnrollClass(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    class_id: int = Field(foreign_key="class.id", unique=True)
+    created_by_user_id: int | None = Field(default=None, foreign_key="user.id")
+    created_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
+    updated_at: dt.datetime = Field(default_factory=lambda: dt.datetime.now(dt.timezone.utc))
+    is_active: bool = True
+
+    class_: Optional["Class"] = Relationship(sa_relationship_kwargs={"lazy": "joined"})

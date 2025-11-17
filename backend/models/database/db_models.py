@@ -1,6 +1,6 @@
 from ..enums import ClassRole, SubmissionStatus, DeploymentType
 from .user_models import User, AuthSession
-from .class_models import Class, ClassMembership
+from .class_models import Class, ClassMembership, AutoEnrollClass
 from .workflow_models import Workflow, Document, Video
 from .deployment_models import Deployment, DeploymentProblemLink
 from .code_models import Problem, TestCase, UserProblemState, Submission
@@ -29,6 +29,7 @@ __all__ = [
     "AuthSession",
     "Class",
     "ClassMembership",
+    "AutoEnrollClass",
     "Workflow",
     "Document",
     "Video",

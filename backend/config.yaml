@@ -11,7 +11,7 @@ server:
   port: 8000
   cors:
     origins: 
-      - "https://score.encorelab.org"
+      - "http://localhost:3000"
     allow_credentials: true
     allow_methods: ["*"]
     allow_headers: ["*"]
@@ -31,6 +31,12 @@ auth:
     httponly: true
     secure: false
     samesite: "lax"
+
+# Auto-enroll configuration
+auto_enroll:
+  enabled: true
+  admin_emails:
+    - "rivanjarjes@gmail.com"
 
 # Vector Store Configuration (Qdrant)
 qdrant:

@@ -66,6 +66,7 @@ export interface User {
   last_name?: string;
   created_at: string;
   student?: boolean;
+  auto_enroll_admin?: boolean;
 }
 
 export interface Class {

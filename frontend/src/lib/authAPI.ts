@@ -22,6 +22,7 @@ export interface User {
   last_name?: string;
   about_me?: string;
   birthday?: string; // ISO date string
+  auto_enroll_admin?: boolean;
 }
 
 export interface UpdateProfileRequest {

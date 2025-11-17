@@ -2,6 +2,19 @@ import { apiClient } from '@/lib/apiClient';
 import { ROUTES } from '@/lib/constants';
 import { Class, ClassMember, Workflow, Deployment, Conversation, ChatMessage } from '@/lib/types';
 
+export interface AutoEnrollOption {
+  class_info: {
+    id: number;
+    code: string;
+    name: string;
+    description?: string | null;
+    created_at: string;
+    is_active: boolean;
+    member_count: number;
+  };
+  selected: boolean;
+}
+
 export class ClassAPI {
   // Create a new class (instructors only)
   static async createClass(name: string, description?: string): Promise<Class> {
@@ -225,5 +238,27 @@ export class ClassAPI {
     if (response.error) {
       throw new Error(response.error);
     }
+  }
+
+  static async getAutoEnrollOptions(): Promise<AutoEnrollOption[]> {
+    const response = await apiClient.get<AutoEnrollOption[]>(`${ROUTES.CLASSES}/auto-enroll`);
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    return response.data || [];
+  }
+
+  static async updateAutoEnrollOptions(classIds: number[]): Promise<AutoEnrollOption[]> {
+    const response = await apiClient.put<AutoEnrollOption[]>(`${ROUTES.CLASSES}/auto-enroll`, {
+      class_ids: classIds,
+    });
+
+    if (response.error) {
+      throw new Error(response.error);
+    }
+
+    return response.data || [];
   }
 } 

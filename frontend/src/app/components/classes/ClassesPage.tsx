@@ -1,12 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { User } from '@/lib/authAPI';
 import { Class } from '@/lib/types';
-import { ClassAPI } from './classAPI';
+import { ClassAPI, AutoEnrollOption as AutoEnrollOptionResponse } from './classAPI';
 import CreateClassModal from './CreateClassModal';
 import JoinClassModal from './JoinClassModal';
 import UserDropdown from '../UserDropdown';
+import AutoEnrollSettingsModal from './AutoEnrollSettingsModal';
 import { BookOpenIcon, UserGroupIcon, AcademicCapIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 
 interface ClassesPageProps {
@@ -23,6 +24,12 @@ export default function ClassesPage({ user, onSelectClass, onLogout, onSettings,
   const [error, setError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [showAutoEnrollModal, setShowAutoEnrollModal] = useState(false);
+  const [autoEnrollOptions, setAutoEnrollOptions] = useState<AutoEnrollOptionResponse[]>([]);
+  const [autoEnrollSelection, setAutoEnrollSelection] = useState<Set<number>>(new Set());
+  const [autoEnrollLoading, setAutoEnrollLoading] = useState(false);
+  const [autoEnrollSaving, setAutoEnrollSaving] = useState(false);
+  const [autoEnrollError, setAutoEnrollError] = useState<string | null>(null);
 
   useEffect(() => {
     loadClasses();
@@ -63,6 +70,67 @@ export default function ClassesPage({ user, onSelectClass, onLogout, onSettings,
   };
 
   const isInstructor = !user.student;
+  const canManageAutoEnroll = Boolean(user.auto_enroll_admin);
+
+  const syncAutoEnrollSelection = useCallback((options: AutoEnrollOptionResponse[]) => {
+    setAutoEnrollSelection(new Set(options.filter(option => option.selected).map(option => option.class_info.id)));
+  }, []);
+
+  const loadAutoEnrollOptions = useCallback(async () => {
+    if (!canManageAutoEnroll) {
+      return;
+    }
+
+    setAutoEnrollLoading(true);
+    setAutoEnrollError(null);
+    try {
+      const data = await ClassAPI.getAutoEnrollOptions();
+      setAutoEnrollOptions(data);
+      syncAutoEnrollSelection(data);
+    } catch (err) {
+      setAutoEnrollError(err instanceof Error ? err.message : 'Failed to load auto-enroll settings');
+    } finally {
+      setAutoEnrollLoading(false);
+    }
+  }, [canManageAutoEnroll, syncAutoEnrollSelection]);
+
+  useEffect(() => {
+    if (showAutoEnrollModal) {
+      void loadAutoEnrollOptions();
+    }
+  }, [showAutoEnrollModal, loadAutoEnrollOptions]);
+
+  const handleToggleAutoEnrollClass = (classId: number) => {
+    setAutoEnrollSelection(prev => {
+      const next = new Set(prev);
+      if (next.has(classId)) {
+        next.delete(classId);
+      } else {
+        next.add(classId);
+      }
+      return next;
+    });
+  };
+
+  const handleSaveAutoEnroll = useCallback(async () => {
+    setAutoEnrollSaving(true);
+    setAutoEnrollError(null);
+    try {
+      const updated = await ClassAPI.updateAutoEnrollOptions(Array.from(autoEnrollSelection));
+      setAutoEnrollOptions(updated);
+      syncAutoEnrollSelection(updated);
+      setShowAutoEnrollModal(false);
+    } catch (err) {
+      setAutoEnrollError(err instanceof Error ? err.message : 'Failed to update auto-enroll settings');
+    } finally {
+      setAutoEnrollSaving(false);
+    }
+  }, [autoEnrollSelection, syncAutoEnrollSelection]);
+
+  const handleCloseAutoEnrollModal = () => {
+    setShowAutoEnrollModal(false);
+    setAutoEnrollError(null);
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -99,6 +167,14 @@ export default function ClassesPage({ user, onSelectClass, onLogout, onSettings,
               className="inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md shadow-sm text-gray-700 bg-white hover:bg-gray-50"
             >
               Create Class
+            </button>
+          )}
+          {canManageAutoEnroll && (
+            <button
+              onClick={() => setShowAutoEnrollModal(true)}
+              className="inline-flex items-center px-4 py-2 border border-indigo-200 text-sm font-medium rounded-md shadow-sm text-indigo-700 bg-indigo-50 hover:bg-indigo-100"
+            >
+              Auto-Enroll Settings
             </button>
           )}
         </div>
@@ -168,6 +244,20 @@ export default function ClassesPage({ user, onSelectClass, onLogout, onSettings,
         <JoinClassModal
           onClose={() => setShowJoinModal(false)}
           onJoin={handleJoinClass}
+        />
+      )}
+      {canManageAutoEnroll && (
+        <AutoEnrollSettingsModal
+          isOpen={showAutoEnrollModal}
+          onClose={handleCloseAutoEnrollModal}
+          options={autoEnrollOptions}
+          selectedIds={autoEnrollSelection}
+          loading={autoEnrollLoading}
+          saving={autoEnrollSaving}
+          error={autoEnrollError}
+          onToggle={handleToggleAutoEnrollClass}
+          onRefresh={() => void loadAutoEnrollOptions()}
+          onSave={() => void handleSaveAutoEnroll()}
         />
       )}
     </div>
