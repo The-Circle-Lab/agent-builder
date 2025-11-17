@@ -1,5 +1,6 @@
 import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
+// Import only Rehearsals landing page styles here; /app route will have its own layout.
+import "./rehearsals.css";
 import type { Metadata } from "next";
 
 const geistSans = Geist({
@@ -15,16 +16,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "SCORE - Educational Agentic Workflows",
+  title: "Rehearsals - Learning Through Experience",
   description:
-    "Build and deploy intelligent AI workflows with ease using our visual workflow builder.",
-  keywords: ["AI", "workflow", "automation", "agent", "builder"],
+    "Rehearsals immerses learners in realistic scenarios with intelligent coaching agents.",
+  keywords: ["learning", "simulation", "ethical decision-making", "coaching"],
   authors: [{ name: "Rivan Jarjes" }],
   robots: "index, follow",
-
-  other: {
-    "X-Content-Type-Options": "nosniff",
-  },
+  other: { "X-Content-Type-Options": "nosniff" },
 };
 
 export const viewport = {
@@ -39,10 +37,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-        suppressHydrationWarning
-      >
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         {children}
       </body>
     </html>
