@@ -75,7 +75,7 @@ WORKDIR /app
 COPY --chown=appuser:appuser backend/ ./backend/
 
 # Copy configuration files
-COPY --chown=appuser:appuser entrypoint.sh supervisord.conf .dockerignore ./
+COPY --chown=appuser:appuser entrypoint.sh supervisord.conf ./
 RUN chmod +x /app/entrypoint.sh
 
 # Create necessary directories
