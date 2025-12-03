@@ -1,0 +1,105 @@
+# Optimized Dockerfile for Google Cloud Run
+# This version uses a single process approach with proper signal handling
+# suitable for Cloud Run's containerization model
+
+# Stage 1: Build frontend
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /build/frontend
+
+COPY frontend/package*.json ./
+RUN npm ci --omit=dev
+
+COPY frontend/ .
+RUN npm run build && npm prune --omit=dev
+
+# Stage 2: Prepare Python dependencies
+FROM python:3.12-slim AS python-builder
+
+WORKDIR /build
+
+COPY backend/requirements.txt .
+
+# Install build dependencies and compile wheels
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --upgrade pip setuptools && \
+    pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+# Stage 3: Final production image
+FROM python:3.12-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    supervisor \
+    redis-server \
+    netcat-traditional \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js for Next.js
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y nodejs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 -s /bin/bash appuser
+
+WORKDIR /app
+
+# Copy Python packages from builder
+COPY --from=python-builder --chown=appuser:appuser /wheels /wheels
+RUN pip install --no-cache-dir --no-index --find-links /wheels /wheels/*
+
+# Copy frontend from builder
+COPY --from=frontend-builder --chown=appuser:appuser /build/frontend/.next ./frontend/.next
+COPY --from=frontend-builder --chown=appuser:appuser /build/frontend/public ./frontend/public
+COPY --from=frontend-builder --chown=appuser:appuser /build/frontend/package*.json ./frontend/
+
+# Install frontend production dependencies
+WORKDIR /app/frontend
+RUN npm ci --omit=dev
+
+# Copy backend code
+WORKDIR /app
+COPY --chown=appuser:appuser backend/ ./backend/
+
+# Copy configuration files
+COPY --chown=appuser:appuser entrypoint.sh supervisord.conf .dockerignore ./
+RUN chmod +x /app/entrypoint.sh
+
+# Create necessary directories
+RUN mkdir -p /var/log/supervisor && \
+    chown -R appuser:appuser /var/log/supervisor /app
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    NODE_ENV=production \
+    CELERY_BROKER_URL="redis://localhost:6379/0" \
+    CELERY_RESULT_BACKEND="redis://localhost:6379/0" \
+    PORT=8080
+
+# Expose ports
+# Cloud Run only allows port 8080 by default
+# Map internal services to 8080 via load balancing or use multiple containers
+EXPOSE 8080 3000 6333 6379
+
+# Switch to non-root user
+USER appuser
+
+# Health check (useful for local testing)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD curl -f http://localhost:8000/ || exit 1
+
+# Run with supervisor for process management
+ENTRYPOINT ["/app/entrypoint.sh"]
+

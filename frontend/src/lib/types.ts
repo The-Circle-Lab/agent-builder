@@ -75,6 +75,7 @@ export interface Class {
   description?: string;
   instructor_id: number;
   join_code: string;
+  code?: string;
   created_at: string;
   user_role: 'instructor' | 'student';
   member_count?: number;

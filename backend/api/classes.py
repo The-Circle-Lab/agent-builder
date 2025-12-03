@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlmodel import select, Session as DBSession
 from models.database.db_models import User, Class, ClassMembership, ClassRole, AutoEnrollClass
+from models.database.db_models import User, Class, ClassMembership, ClassRole, AutoEnrollClass
 from database.database import get_session
 from api.auth import get_current_user
 from scripts.permission_helpers import (
-    user_is_instructor, user_has_role_in_class, get_user_classes_with_role, user_can_create_classes
+    user_is_instructor, user_has_role_in_class, get_user_classes_with_role, user_can_create_classes,
+    user_is_auto_enroll_admin
 )
 from pydantic import BaseModel
 from typing import List, Optional
@@ -69,6 +71,20 @@ class AutoEnrollOption(BaseModel):
     selected: bool
 
 
+class ClassAdminSummary(BaseModel):
+    id: int
+    code: str
+    name: str
+    description: Optional[str]
+    is_active: bool
+    member_count: int
+
+
+class AutoEnrollConfigResponse(BaseModel):
+    selected_class_ids: List[int]
+    classes: List[ClassAdminSummary]
+
+
 def _ensure_auto_enroll_enabled():
     if not AUTO_ENROLL_ENABLED:
         raise HTTPException(
@@ -129,6 +145,158 @@ def _build_auto_enroll_options(db: DBSession) -> List[AutoEnrollOption]:
 def generate_join_code(length: int = 8) -> str:
     characters = string.ascii_uppercase + string.digits
     return ''.join(secrets.choice(characters) for _ in range(length))
+
+
+def _count_active_members(class_id: int, db: DBSession) -> int:
+    members = db.exec(
+        select(ClassMembership).where(
+            ClassMembership.class_id == class_id,
+            ClassMembership.is_active == True
+        )
+    ).all()
+    return len(members)
+
+
+def _build_auto_enroll_config(db: DBSession) -> AutoEnrollConfigResponse:
+    classes = db.exec(
+        select(Class).where(
+            Class.is_active == True
+        )
+    ).all()
+
+    selected_entries = db.exec(select(AutoEnrollClass)).all()
+    selected_ids = [entry.class_id for entry in selected_entries]
+
+    summaries = [
+        ClassAdminSummary(
+            id=cls.id,
+            code=cls.code,
+            name=cls.name,
+            description=cls.description,
+            is_active=cls.is_active,
+            member_count=_count_active_members(cls.id, db)
+        )
+        for cls in classes
+    ]
+
+    return AutoEnrollConfigResponse(
+        selected_class_ids=selected_ids,
+        classes=summaries
+    )
+
+
+@router.get("/auto-enroll/config", response_model=AutoEnrollConfigResponse)
+def get_auto_enroll_config(
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    if not user_is_auto_enroll_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only approved admins can manage auto-enroll classes"
+        )
+    return _build_auto_enroll_config(db)
+
+
+@router.put("/auto-enroll/config", response_model=AutoEnrollConfigResponse)
+def update_auto_enroll_config(
+    request: AutoEnrollUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    if not user_is_auto_enroll_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only approved admins can manage auto-enroll classes"
+        )
+
+    unique_ids = list(dict.fromkeys(request.class_ids))
+    if unique_ids:
+        valid_classes = db.exec(
+            select(Class).where(
+                Class.id.in_(unique_ids),
+                Class.is_active == True
+            )
+        ).all()
+        valid_ids = {cls.id for cls in valid_classes}
+        invalid_ids = sorted(set(unique_ids) - valid_ids)
+        if invalid_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid or inactive class ids: {invalid_ids}"
+            )
+
+    existing_entries = db.exec(select(AutoEnrollClass)).all()
+    existing_map = {entry.class_id: entry for entry in existing_entries}
+    target_ids = set(unique_ids)
+
+    for class_id, entry in existing_map.items():
+        if class_id not in target_ids:
+            db.delete(entry)
+
+    for class_id in target_ids:
+        if class_id not in existing_map:
+            db.add(AutoEnrollClass(class_id=class_id, created_by_user_id=current_user.id))
+
+    db.commit()
+
+    return _build_auto_enroll_config(db)
+
+
+@router.get("/auto-enroll", response_model=List[AutoEnrollOption])
+def get_auto_enroll_configuration(
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    _ensure_auto_enroll_enabled()
+    _require_auto_enroll_admin(current_user)
+    return _build_auto_enroll_options(db)
+
+
+@router.put("/auto-enroll", response_model=List[AutoEnrollOption])
+def update_auto_enroll_configuration(
+    request: AutoEnrollUpdateRequest,
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_session)
+):
+    _ensure_auto_enroll_enabled()
+    _require_auto_enroll_admin(current_user)
+
+    requested_ids = set(request.class_ids)
+
+    if requested_ids:
+        valid_classes = db.exec(
+            select(Class).where(
+                Class.id.in_(list(requested_ids)),
+                Class.is_active == True
+            )
+        ).all()
+        valid_ids = {cls.id for cls in valid_classes}
+        invalid_ids = requested_ids - valid_ids
+        if invalid_ids:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Classes not found or inactive: {sorted(invalid_ids)}"
+            )
+
+    existing_entries = db.exec(select(AutoEnrollClass)).all()
+    existing_ids = {entry.class_id for entry in existing_entries}
+
+    for entry in existing_entries:
+        if entry.class_id not in requested_ids:
+            db.delete(entry)
+        else:
+            entry.is_active = True
+            entry.updated_at = datetime.now(timezone.utc)
+            db.add(entry)
+
+    for class_id in requested_ids:
+        if class_id not in existing_ids:
+            db.add(AutoEnrollClass(class_id=class_id, created_by_user_id=current_user.id))
+
+    db.commit()
+
+    return _build_auto_enroll_options(db)
 
 # Create a new class (instructors only)
 @router.post("/", response_model=ClassResponse)
@@ -538,6 +706,7 @@ def kick_class_member(
         "class_name": class_obj.name
     }
 
+
 # Get class members
 @router.get("/{class_id}/members")
 def get_class_members(
@@ -589,60 +758,3 @@ def get_class_members(
             })
     
     return {"members": members}
-
-
-# Auto-enroll configuration endpoints
-@router.get("/auto-enroll", response_model=List[AutoEnrollOption])
-def get_auto_enroll_configuration(
-    current_user: User = Depends(get_current_user),
-    db: DBSession = Depends(get_session)
-):
-    _ensure_auto_enroll_enabled()
-    _require_auto_enroll_admin(current_user)
-    return _build_auto_enroll_options(db)
-
-
-@router.put("/auto-enroll", response_model=List[AutoEnrollOption])
-def update_auto_enroll_configuration(
-    request: AutoEnrollUpdateRequest,
-    current_user: User = Depends(get_current_user),
-    db: DBSession = Depends(get_session)
-):
-    _ensure_auto_enroll_enabled()
-    _require_auto_enroll_admin(current_user)
-
-    requested_ids = set(request.class_ids)
-
-    if requested_ids:
-        valid_classes = db.exec(
-            select(Class).where(
-                Class.id.in_(list(requested_ids)),
-                Class.is_active == True
-            )
-        ).all()
-        valid_ids = {cls.id for cls in valid_classes}
-        invalid_ids = requested_ids - valid_ids
-        if invalid_ids:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Classes not found or inactive: {sorted(invalid_ids)}"
-            )
-
-    existing_entries = db.exec(select(AutoEnrollClass)).all()
-    existing_ids = {entry.class_id for entry in existing_entries}
-
-    for entry in existing_entries:
-        if entry.class_id not in requested_ids:
-            db.delete(entry)
-        else:
-            entry.is_active = True
-            entry.updated_at = datetime.now(timezone.utc)
-            db.add(entry)
-
-    for class_id in requested_ids:
-        if class_id not in existing_ids:
-            db.add(AutoEnrollClass(class_id=class_id, created_by_user_id=current_user.id))
-
-    db.commit()
-
-    return _build_auto_enroll_options(db)

@@ -1,0 +1,50 @@
+# Dockerfile for Frontend only
+# Use with docker-compose or as a standalone service
+
+# Build stage
+FROM node:20-alpine AS builder
+
+WORKDIR /app
+
+# Copy package files
+COPY frontend/package*.json ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source
+COPY frontend/ .
+
+# Build
+RUN npm run build
+
+# Production stage
+FROM node:20-alpine
+
+WORKDIR /app
+
+# Create non-root user
+RUN addgroup -g 1000 appuser && \
+    adduser -u 1000 -G appuser -s /bin/sh -D appuser
+
+# Copy built app from builder
+COPY --from=builder --chown=appuser:appuser /app/.next ./.next
+COPY --from=builder --chown=appuser:appuser /app/public ./public
+COPY --from=builder --chown=appuser:appuser /app/package*.json ./
+
+# Install production dependencies only
+RUN npm ci --omit=dev
+
+# Switch to non-root user
+USER appuser
+
+# Expose port
+EXPOSE 3000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://localhost:3000/ || exit 1
+
+# Run Next.js
+CMD ["npm", "start"]
+
