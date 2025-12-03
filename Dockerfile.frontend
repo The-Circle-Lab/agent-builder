@@ -9,13 +9,13 @@ WORKDIR /app
 # Copy package files
 COPY frontend/package*.json ./
 
-# Install dependencies
+# Install ALL dependencies (including dev needed for build)
 RUN npm ci
 
 # Copy source
 COPY frontend/ .
 
-# Build
+# Build the application
 RUN npm run build
 
 # Production stage

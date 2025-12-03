@@ -6,9 +6,10 @@ WORKDIR /app/frontend
 # Copy frontend dependencies
 COPY frontend/package*.json ./
 
-# Install dependencies and build
+# Install ALL dependencies including dev (needed for build)
 RUN npm ci
 COPY frontend/ .
+# Build the application
 RUN npm run build
 
 # Python backend base stage
