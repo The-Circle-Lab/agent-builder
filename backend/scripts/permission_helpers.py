@@ -1,5 +1,12 @@
 from sqlmodel import Session as DBSession, select
 from models.database.db_models import User, Class, ClassMembership, Workflow, Deployment, ClassRole
+from scripts.config import load_config
+
+config = load_config()
+AUTO_ENROLL_ADMIN_EMAILS = {
+    email.lower() for email in config.get("auto_enroll", {}).get("admin_emails", [])
+    if isinstance(email, str)
+}
 from typing import List, Optional
 
 # Check if user has specific role in a given class
@@ -49,6 +56,10 @@ def user_can_create_classes(user: User, db: DBSession) -> bool:
 # Check if user is a student (no instructor roles anywhere)
 def user_is_student_only(user: User, db: DBSession) -> bool:
     return not user_is_instructor(user, db)
+
+
+def user_is_auto_enroll_admin(user: User) -> bool:
+    return user.email.lower() in AUTO_ENROLL_ADMIN_EMAILS
 
 
 # Check if user is an instructor in the specific class that owns the workflow

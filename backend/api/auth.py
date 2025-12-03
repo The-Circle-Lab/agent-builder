@@ -4,7 +4,7 @@ from datetime import timedelta, datetime as dt, timezone
 from pydantic import BaseModel
 from datetime import date
 from sqlmodel import select, Session as DBSession
-from models.database.db_models import User, AuthSession, Class, ClassMembership, ClassRole, AutoEnrollClass
+from models.database.db_models import User, AuthSession, ClassMembership, ClassRole, Class, AutoEnrollClass
 from database.database import get_session
 import sys
 from pathlib import Path
@@ -50,17 +50,13 @@ class ChangePasswordRequest(BaseModel):
     class_id: int
 
 
-def _auto_enroll_student_in_default_classes(user: User, db: DBSession) -> None:
-    auto_enroll_entries = db.exec(
-        select(AutoEnrollClass).where(AutoEnrollClass.is_active == True)
-    ).all()
-
-    if not auto_enroll_entries:
+def _auto_enroll_student_in_classes(user: User, db: DBSession) -> None:
+    auto_entries = db.exec(select(AutoEnrollClass)).all()
+    if not auto_entries:
         return
 
-    enrolled = False
-
-    for entry in auto_enroll_entries:
+    memberships_to_add: list[ClassMembership] = []
+    for entry in auto_entries:
         class_obj = db.get(Class, entry.class_id)
         if not class_obj or not class_obj.is_active:
             continue
@@ -76,16 +72,21 @@ def _auto_enroll_student_in_default_classes(user: User, db: DBSession) -> None:
         if existing_membership:
             continue
 
-        membership = ClassMembership(
-            class_id=class_obj.id,
-            user_id=user.id,
-            role=ClassRole.STUDENT
+        memberships_to_add.append(
+            ClassMembership(
+                class_id=class_obj.id,
+                user_id=user.id,
+                role=ClassRole.STUDENT
+            )
         )
-        db.add(membership)
-        enrolled = True
 
-    if enrolled:
-        db.commit()
+    if not memberships_to_add:
+        return
+
+    for membership in memberships_to_add:
+        db.add(membership)
+
+    db.commit()
 
 
 def get_current_user(sid: str | None = Cookie(None),
@@ -166,7 +167,7 @@ def register(request: RegisterRequest, db: DBSession = Depends(get_session)):
     db.refresh(user)
 
     if not request.is_instructor:
-        _auto_enroll_student_in_default_classes(user, db)
+        _auto_enroll_student_in_classes(user, db)
     
     session = AuthSession(user_id=user.id,
                       expires_at=dt.now(timezone.utc) + SESSION_LIFETIME)
@@ -188,10 +189,10 @@ def register(request: RegisterRequest, db: DBSession = Depends(get_session)):
 
 @router.get("/me")
 def get_me(current_user: User = Depends(get_current_user), db: DBSession = Depends(get_session)):
-    from scripts.permission_helpers import user_is_student_only
+    from scripts.permission_helpers import user_is_student_only, user_is_auto_enroll_admin
     
     is_student = user_is_student_only(current_user, db)
-    is_auto_enroll_admin = current_user.email in AUTO_ENROLL_ADMIN_EMAILS
+    is_auto_enroll_admin = user_is_auto_enroll_admin(current_user)
     
     return {
         "id": current_user.id,

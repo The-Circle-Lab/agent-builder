@@ -6,6 +6,7 @@ import { Class } from '@/lib/types';
 import { ClassAPI, AutoEnrollOption as AutoEnrollOptionResponse } from './classAPI';
 import CreateClassModal from './CreateClassModal';
 import JoinClassModal from './JoinClassModal';
+import AutoEnrollSettingsModal from './AutoEnrollSettingsModal';
 import UserDropdown from '../UserDropdown';
 import AutoEnrollSettingsModal from './AutoEnrollSettingsModal';
 import { BookOpenIcon, UserGroupIcon, AcademicCapIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
@@ -142,11 +143,21 @@ export default function ClassesPage({ user, onSelectClass, onLogout, onSettings,
               <AcademicCapIcon className="h-8 w-8 text-blue-600" />
               <h1 className="text-xl font-semibold text-gray-900">My Classes</h1>
             </div>
-            <UserDropdown
-              user={user}
-              onSettings={onSettings}
-              onLogout={onLogout}
-            />
+            <div className="flex items-center space-x-3">
+              {user.auto_enroll_admin && (
+                <button
+                  onClick={() => setShowAutoEnrollModal(true)}
+                  className="inline-flex items-center px-3 py-2 text-sm font-medium text-gray-600 border border-gray-200 rounded-md hover:bg-gray-50"
+                >
+                  Manage Auto-Enroll
+                </button>
+              )}
+              <UserDropdown
+                user={user}
+                onSettings={onSettings}
+                onLogout={onLogout}
+              />
+            </div>
           </div>
         </div>
       </header>
