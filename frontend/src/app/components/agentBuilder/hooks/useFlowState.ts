@@ -264,6 +264,7 @@ export function useFlowState(
     handleDeleteNode,
     onConnect,
     pageRelationships,
+    setPageRelationships,
     addNodeToPage,
     removeNodeFromPage,
     getNodesInPage,

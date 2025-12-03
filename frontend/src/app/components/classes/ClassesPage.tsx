@@ -8,7 +8,6 @@ import CreateClassModal from './CreateClassModal';
 import JoinClassModal from './JoinClassModal';
 import AutoEnrollSettingsModal from './AutoEnrollSettingsModal';
 import UserDropdown from '../UserDropdown';
-import AutoEnrollSettingsModal from './AutoEnrollSettingsModal';
 import { BookOpenIcon, UserGroupIcon, AcademicCapIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
 
 interface ClassesPageProps {

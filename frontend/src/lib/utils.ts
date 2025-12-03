@@ -34,14 +34,26 @@ export const getErrorMessage = (error: unknown): string => {
   return 'An unexpected error occurred';
 };
 
-export const sanitizeErrorMessage = (error: string): string => {
+export const sanitizeErrorMessage = (error: unknown): string => {
+  const baseMessage = (() => {
+    if (typeof error === 'string') return error;
+    if (error instanceof Error) return error.message;
+    if (typeof error === 'number' || typeof error === 'boolean') return String(error);
+    if (error === null || error === undefined) return 'An unexpected error occurred';
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return 'An unexpected error occurred';
+    }
+  })();
+
   // Remove potentially sensitive information from error messages
   const sensitivePatterns = [
     /(?:password|token|key|secret)[\s\S]*$/i,
     /(?:stack trace|traceback)[\s\S]*$/i,
   ];
   
-  let sanitized = error;
+  let sanitized = baseMessage;
   sensitivePatterns.forEach(pattern => {
     sanitized = sanitized.replace(pattern, '[REDACTED]');
   });

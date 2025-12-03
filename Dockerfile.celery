@@ -1,0 +1,32 @@
+# Dockerfile for Celery Worker only
+# Use with docker-compose or as a standalone service
+
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    gcc \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -u 1000 appuser
+
+# Copy requirements
+COPY backend/requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy backend code
+COPY backend/ .
+
+# Switch to non-root user
+USER appuser
+
+# Run Celery worker
+CMD ["celery", "-A", "services.celery_tasks.celery_app", "worker", "--loglevel=info", "--concurrency=4"]
+

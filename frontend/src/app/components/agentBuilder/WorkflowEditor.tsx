@@ -17,10 +17,12 @@ import {
   useSettingsMenu,
 } from "./components/nodes/components/settingsMenu";
 import PageSorter from "./components/pageSorter";
+import { CopyPagesModal } from "./components/CopyPagesModal";
 
 import { createWorkflowJSON } from "./scripts/exportWorkflow";
 import { BaseDeploymentAPI } from "../../../lib/deploymentAPIs/deploymentAPI";
 import { NodeClasses } from "./components/nodes/nodeTypes";
+import { WorkflowSaveData } from "./scripts/workflowSave";
 
 import "@xyflow/react/dist/style.css";
 
@@ -53,6 +55,10 @@ export default function WorkflowEditor({
 }: WorkflowEditorProps) {
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployError, setDeployError] = useState("");
+  const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
+  const [copyFeedback, setCopyFeedback] = useState<
+    { type: "success" | "error"; message: string } | null
+  >(null);
 
   // Custom hooks for state management
   const {
@@ -65,6 +71,7 @@ export default function WorkflowEditor({
     handleDeleteNode,
     onConnect,
     pageRelationships,
+    setPageRelationships,
     addNodeToPage,
   } = useFlowState(initialNodes, initialEdges, initialPageRelationships);
 
@@ -99,6 +106,210 @@ export default function WorkflowEditor({
     handleCloseSettings,
     handleSaveSettings,
   } = useSettingsMenu(workflowId, nodes, edges, pageRelationships);
+
+  useEffect(() => {
+    if (!copyFeedback) {
+      return;
+    }
+    const timer = setTimeout(() => setCopyFeedback(null), 4000);
+    return () => clearTimeout(timer);
+  }, [copyFeedback]);
+
+  interface CopyPagesArgs {
+    workflowId: number;
+    workflowName: string;
+    workflowData: WorkflowSaveData;
+    selectedPageIds: string[];
+  }
+
+  const handleCopyPages = useCallback(
+    ({ workflowName, workflowData, selectedPageIds }: CopyPagesArgs) => {
+      if (!workflowData?.nodes?.length) {
+        setCopyFeedback({
+          type: "error",
+          message: "Selected workflow has no nodes to copy.",
+        });
+        return;
+      }
+
+      if (selectedPageIds.length === 0) {
+        return;
+      }
+
+      const sourceRelationships = workflowData.pageRelationships || {};
+      const nodeIdsToCopy = new Set<string>(selectedPageIds);
+      const childToPage = new Map<string, string>();
+
+      selectedPageIds.forEach((pageId) => {
+        const childIds = sourceRelationships[pageId] || [];
+        childIds.forEach((childId) => {
+          nodeIdsToCopy.add(childId);
+          childToPage.set(childId, pageId);
+        });
+      });
+
+      const nodesToCopy = workflowData.nodes.filter((node) =>
+        nodeIdsToCopy.has(node.id)
+      );
+
+      if (nodesToCopy.length === 0) {
+        setCopyFeedback({
+          type: "error",
+          message: "Nothing to copy from the selected workflow.",
+        });
+        return;
+      }
+
+      const existingNodeIds = new Set(nodes.map((node) => node.id));
+      const existingEdgeIds = new Set(edges.map((edge) => edge.id));
+
+      const uniqueId = (baseId: string, usedIds: Set<string>, suffix: string) => {
+        let candidate = `${baseId}-${suffix}`;
+        while (usedIds.has(candidate)) {
+          candidate = `${baseId}-${suffix}-${Math.random()
+            .toString(36)
+            .slice(2, 6)}`;
+        }
+        return candidate;
+      };
+
+      const deepCloneData = (data: unknown) =>
+        data !== undefined ? JSON.parse(JSON.stringify(data)) : {};
+
+      const idMap = new Map<string, string>();
+      const pageOffsets = new Map<string, { dx: number; dy: number }>();
+      const newNodes: Node[] = [];
+      const newEdges: Edge[] = [];
+      const newRelationships: Record<string, string[]> = {};
+
+      const currentMaxPageNumber = nodes
+        .filter((node) => node.type === "page")
+        .reduce(
+          (max, node) =>
+            Math.max(max, Number(node.data?.pageNumber) || 0),
+          0
+        );
+
+      let nextPageNumber = currentMaxPageNumber;
+
+      const existingPagePositions = nodes
+        .filter((node) => node.type === "page")
+        .map((node) => node.position.x);
+      const basePageX =
+        existingPagePositions.length > 0
+          ? Math.max(...existingPagePositions) + 360
+          : 100;
+      const basePageY = 100;
+
+      const sourcePageNodes = nodesToCopy.filter(
+        (node) => node.type === "page"
+      );
+
+      if (sourcePageNodes.length === 0) {
+        setCopyFeedback({
+          type: "error",
+          message: "Selected workflow does not have any page nodes.",
+        });
+        return;
+      }
+
+      sourcePageNodes.forEach((pageNode, index) => {
+        const newId = uniqueId(pageNode.id, existingNodeIds, "copy");
+        idMap.set(pageNode.id, newId);
+        existingNodeIds.add(newId);
+
+        const dx = basePageX + index * 320 - pageNode.position.x;
+        const dy = basePageY + index * 40 - pageNode.position.y;
+        pageOffsets.set(pageNode.id, { dx, dy });
+
+        const clonedData = deepCloneData(pageNode.data);
+        nextPageNumber += 1;
+        (clonedData as Record<string, unknown>).pageNumber = nextPageNumber;
+
+        newRelationships[newId] = [];
+
+        newNodes.push({
+          ...pageNode,
+          id: newId,
+          position: {
+            x: pageNode.position.x + dx,
+            y: pageNode.position.y + dy,
+          },
+          data: clonedData,
+        });
+      });
+
+      nodesToCopy.forEach((node) => {
+        if (node.type === "page") {
+          return;
+        }
+
+        const newId = uniqueId(node.id, existingNodeIds, "copy");
+        idMap.set(node.id, newId);
+        existingNodeIds.add(newId);
+
+        const parentPageId = childToPage.get(node.id);
+        const offset = parentPageId ? pageOffsets.get(parentPageId) : undefined;
+
+        const clonedNode: Node = {
+          ...node,
+          id: newId,
+          position: {
+            x: node.position.x + (offset?.dx ?? 0),
+            y: node.position.y + (offset?.dy ?? 0),
+          },
+          data: deepCloneData(node.data),
+        };
+
+        newNodes.push(clonedNode);
+
+        if (parentPageId) {
+          const parentNewId = idMap.get(parentPageId);
+          if (parentNewId) {
+            newRelationships[parentNewId] = [
+              ...(newRelationships[parentNewId] || []),
+              newId,
+            ];
+          }
+        }
+      });
+
+      (workflowData.edges || [])
+        .filter(
+          (edge) =>
+            nodeIdsToCopy.has(edge.source || "") &&
+            nodeIdsToCopy.has(edge.target || "")
+        )
+        .forEach((edge) => {
+          const newEdgeId = uniqueId(edge.id || "edge", existingEdgeIds, "copy");
+          existingEdgeIds.add(newEdgeId);
+
+          newEdges.push({
+            ...edge,
+            id: newEdgeId,
+            source: edge.source ? idMap.get(edge.source) || edge.source : edge.source,
+            target: edge.target ? idMap.get(edge.target) || edge.target : edge.target,
+          });
+        });
+
+      const updatedPageRelationships = { ...pageRelationships };
+      Object.entries(newRelationships).forEach(([pageId, nodeIds]) => {
+        updatedPageRelationships[pageId] = nodeIds;
+      });
+
+      setNodes([...nodes, ...newNodes]);
+      setEdges([...edges, ...newEdges]);
+      setPageRelationships(updatedPageRelationships);
+
+      setCopyFeedback({
+        type: "success",
+        message: `Copied ${selectedPageIds.length} page${
+          selectedPageIds.length > 1 ? "s" : ""
+        } from ${workflowName}`,
+      });
+    },
+    [nodes, edges, pageRelationships, setNodes, setEdges, setPageRelationships, workflowName]
+  );
 
   // Handle node data updates
   const handleNodeDataUpdate = useCallback(
@@ -516,6 +727,13 @@ export default function WorkflowEditor({
           {/* Page Sorter - Only shows when pages exist */}
           <PageSorter nodes={nodes} setNodes={setNodes} />
 
+          <button
+            className="w-full bg-gray-800 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-medium shadow transition"
+            onClick={() => setIsCopyModalOpen(true)}
+          >
+            Copy pages from workflow
+          </button>
+
           {/* Deploy Button */}
           <div className="flex flex-col space-y-2">
             {deployError && (
@@ -589,6 +807,23 @@ export default function WorkflowEditor({
           pageRelationships={settingsData.pageRelationships}
           currentNodeId={settingsData.nodeId}
         />
+      )}
+
+      <CopyPagesModal
+        isOpen={isCopyModalOpen}
+        onClose={() => setIsCopyModalOpen(false)}
+        onCopy={handleCopyPages}
+        currentWorkflowId={typeof workflowId === "number" ? workflowId : undefined}
+      />
+
+      {copyFeedback && (
+        <div
+          className={`fixed bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-lg text-white shadow-lg z-30 ${
+            copyFeedback.type === "success" ? "bg-green-600" : "bg-red-600"
+          }`}
+        >
+          {copyFeedback.message}
+        </div>
       )}
       </div>
     </NodeContextProvider>
